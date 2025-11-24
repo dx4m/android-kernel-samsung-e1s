@@ -32,8 +32,8 @@ struct cnss_qmi_event_fw_mem_file_save_data {
 
 #ifdef CONFIG_CNSS2_QMI
 #include "coexistence_service_v01.h"
-#include "ip_multimedia_subsystem_private_service_v01.h"
-#include "device_management_service_v01.h"
+#include "../cnss_utils/ip_multimedia_subsystem_private_service_v01.h"
+#include "../cnss_utils/device_management_service_v01.h"
 
 int cnss_qmi_init(struct cnss_plat_data *plat_priv);
 void cnss_qmi_deinit(struct cnss_plat_data *plat_priv);

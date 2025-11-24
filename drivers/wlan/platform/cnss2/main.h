@@ -27,7 +27,7 @@
 #include <linux/mailbox/qmp.h>
 #endif
 #ifdef CONFIG_CNSS_OUT_OF_TREE
-#include "cnss2.h"
+#include "../inc/cnss2.h"
 #else
 #include <net/cnss2.h>
 #endif
@@ -44,7 +44,7 @@
 #endif
 #include <linux/iommu.h>
 #include "qmi.h"
-#include "cnss_prealloc.h"
+#include "../inc/cnss_prealloc.h"
 #include "cnss_common.h"
 
 #ifndef NO_HDM_SUPPORT

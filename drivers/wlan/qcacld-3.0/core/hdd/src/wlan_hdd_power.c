@@ -1243,10 +1243,10 @@ bool wlan_hdd_is_cpu_pm_qos_in_progress(struct hdd_context *hdd_ctx)
 		return false;
 }
 #else
-bool wlan_hdd_is_cpu_pm_qos_in_progress(struct hdd_context *hdd_ctx)
-{
-	return true;
-}
+//bool wlan_hdd_is_cpu_pm_qos_in_progress(struct hdd_context *hdd_ctx)
+//{
+//	return true;
+//}
 #endif
 #endif
 

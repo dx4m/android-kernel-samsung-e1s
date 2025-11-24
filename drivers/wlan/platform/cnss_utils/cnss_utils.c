@@ -13,7 +13,7 @@
 #include <linux/debugfs.h>
 #include <linux/of.h>
 #ifdef CONFIG_CNSS_OUT_OF_TREE
-#include "cnss_utils.h"
+#include "../inc/cnss_utils.h"
 #else
 #include <net/cnss_utils.h>
 #endif

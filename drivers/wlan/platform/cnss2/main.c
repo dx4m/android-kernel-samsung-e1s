@@ -32,7 +32,7 @@
 #include "pci.h"
 #endif
 #include "cnss_plat_ipc_qmi.h"
-#include "cnss_utils.h"
+#include "../inc/cnss_utils.h"
 #include "main.h"
 #include "bus.h"
 #include "debug.h"
