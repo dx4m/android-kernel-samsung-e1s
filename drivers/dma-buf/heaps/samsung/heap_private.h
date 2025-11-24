@@ -231,6 +231,12 @@ static inline int __init chunk_dma_heap_init(void)
 #define chunk_dma_heap_exit() do { } while (0)
 #endif
 
+#ifdef CONFIG_DMABUF_HEAPS_CAMERAPOOL
+int __init camerapool_dma_heap_init(void);
+void camerapool_dma_heap_exit(void);
+unsigned long camerapool_static_pool_size(void);
+#endif
+
 #define DMAHEAP_PREFIX "[Exynos][DMA-HEAP] "
 #define perr(format, arg...) \
 	pr_err(DMAHEAP_PREFIX format "\n", ##arg)

@@ -20,6 +20,7 @@
 #include "pablo-icpu.h"
 #include "pablo-icpu-mbox.h"
 #include "pablo-icpu-hw.h"
+#include "pablo-mem.h"
 
 static struct icpu_logger _log = {
 	.level = LOGLEVEL_INFO,
@@ -298,7 +299,7 @@ struct icpu_mbox_controller *pablo_icpu_mbox_request(enum icpu_mbox_mode mode, v
 		return NULL;
 	}
 
-	mbox = kzalloc(sizeof(struct icpu_mbox_controller), GFP_KERNEL);
+	mbox = pablo_zalloc(sizeof(struct icpu_mbox_controller), GFP_KERNEL);
 	if (!mbox) {
 		ICPU_ERR("mbox alloc fail");
 		return NULL;
@@ -315,7 +316,9 @@ struct icpu_mbox_controller *pablo_icpu_mbox_request(enum icpu_mbox_mode mode, v
 	case ICPU_MBOX_MODE_RX:
 		mbox->ops = &rx_ops;
 		mbox->hw_info = hw_info;
-		mbox->rx_data = kzalloc(sizeof(u32) * ((struct icpu_mbox_rx_info *)mbox->hw_info)->data_max_len, GFP_KERNEL);
+		mbox->rx_data =
+			pablo_zalloc(sizeof(u32) * ((struct icpu_mbox_rx_info *)mbox->hw_info)->data_max_len,
+				GFP_KERNEL);
 		if (!mbox->rx_data) {
 			ICPU_ERR("rx_data alloc fail");
 			goto rx_data_alloc_fail;
@@ -335,7 +338,7 @@ struct icpu_mbox_controller *pablo_icpu_mbox_request(enum icpu_mbox_mode mode, v
 
 rx_data_alloc_fail:
 invalid_mode:
-	kfree(mbox);
+	pablo_free(mbox);
 
 	return NULL;
 }
@@ -344,9 +347,9 @@ KUNIT_EXPORT_SYMBOL(pablo_icpu_mbox_request);
 void pablo_icpu_mbox_free(struct icpu_mbox_controller *mbox)
 {
 	if (mbox) {
-		kfree(mbox->rx_data);
+		pablo_free(mbox->rx_data);
 		mbox->rx_data = NULL;
-		kfree(mbox);
+		pablo_free(mbox);
 	}
 }
 KUNIT_EXPORT_SYMBOL(pablo_icpu_mbox_free);

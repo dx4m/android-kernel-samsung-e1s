@@ -25,6 +25,7 @@
 #include "pablo-icpu-debug.h"
 #include "mbox/pablo-icpu-mbox.h"
 #include "pablo-dvfs.h"
+#include "pablo-mem.h"
 
 static struct icpu_logger _log = {
 	.level = LOGLEVEL_INFO,
@@ -581,7 +582,7 @@ static int __request_mbox_channels(struct icpu_itf *itf)
 	if (!itf->tx)
 		goto tx_chan_fail;
 
-	itf->rx = kcalloc(num_rx_mbox, sizeof(void *), GFP_KERNEL);
+	itf->rx = pablo_calloc(num_rx_mbox, sizeof(void *), GFP_KERNEL);
 	if (!itf->rx)
 		goto rx_chan_fail;
 
@@ -598,7 +599,7 @@ rx_chan_fail:
 		pablo_icpu_free_mbox_chan(itf->rx[rx_idx]);
 		itf->rx[rx_idx] = NULL;
 	}
-	kfree(itf->rx);
+	pablo_free(itf->rx);
 
 tx_chan_fail:
 	pablo_icpu_free_mbox_chan(itf->tx);
@@ -623,7 +624,7 @@ static void __free_mbox_channels(struct icpu_itf *itf)
 				itf->rx[i] = NULL;
 			}
 		}
-		kfree(itf->rx);
+		pablo_free(itf->rx);
 		itf->rx = NULL;
 	}
 }
@@ -1162,7 +1163,7 @@ int pablo_icpu_itf_init(void)
 	if (itf)
 		return -EBUSY;
 
-	itf = kzalloc(sizeof(struct icpu_itf), GFP_KERNEL);
+	itf = pablo_zalloc(sizeof(struct icpu_itf), GFP_KERNEL);
 	if (!itf)
 		return -ENOMEM;
 
@@ -1172,7 +1173,7 @@ int pablo_icpu_itf_init(void)
 	ret = platform_driver_register(pablo_icpu_get_platform_driver());
 	if (ret) {
 		ICPU_ERR("pablo_icpu_driver register failed(%d)", ret);
-		kfree(itf);
+		pablo_free(itf);
 		itf = NULL;
 		return ret;
 	}
@@ -1207,7 +1208,7 @@ module_init(pablo_icpu_itf_init);
 
 void pablo_icpu_itf_exit(void)
 {
-	kfree(itf);
+	pablo_free(itf);
 	itf = NULL;
 
 	platform_driver_unregister(pablo_icpu_get_platform_driver());

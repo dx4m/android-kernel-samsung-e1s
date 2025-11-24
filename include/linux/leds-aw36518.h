@@ -113,6 +113,7 @@ struct aw36518_chip_data {
 	int flash_time_out_ms;
 	int max_torch_cur;	/* torch mode max current. unit: mA */
 	struct delayed_work delay_work;
+	bool disable_i2c_ctrl;
 };
 
 /*
@@ -147,9 +148,10 @@ enum {
 	FLED_MODE_EXTERNAL	= 0x3,// Control by i2c
 };
 
-void aw36518_set_torch_current(enum aw36518_torch_mode torch_mode);
+void aw36518_set_torch_current(enum aw36518_torch_mode torch_mode, uint32_t brightness);
 int32_t aw36518_fled_mode_ctrl(int state, uint32_t brightness);
 int aw36518_create_sysfs(struct class *class);
 void aw36518_enable_flicker(int curr, bool is_enable);
+void aw36518_update_flicker_state(bool success);
 
 #endif

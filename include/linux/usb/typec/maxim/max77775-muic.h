@@ -178,6 +178,7 @@ struct max77775_muic_data {
 	u8  status6;
 
 	struct delayed_work		debug_work;
+	struct delayed_work		stuck_check_work;
 
 	/* Fake vbus flag */
 	int				fake_chgtyp;

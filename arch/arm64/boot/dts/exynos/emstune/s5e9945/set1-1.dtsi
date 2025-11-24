@@ -6,5 +6,7 @@
 			dynamic-busy-ratio = <50 50 50 50>;
 			min-cpus = "0-6";
 		};
+
+		tex { };
 	};
 };

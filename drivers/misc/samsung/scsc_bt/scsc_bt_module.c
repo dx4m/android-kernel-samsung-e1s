@@ -288,6 +288,7 @@ static void bt_fw_log(struct scsc_service_client *client, size_t length, u32 lev
 
 		/* If remain space is less than circ_buf_threshold, trigger reading data */
 		if (bt_svc->fw_log.fw_acl_read_state == FW_READ_ENABLE &&
+		    !(bt_svc->fw_log.fw_acl_read_state & FW_READ_VSC) &&
 		    CIRC_CNT(bt_svc->fw_log.circ_buf.head, bt_svc->fw_log.circ_buf.tail,
 			     bt_svc->fw_log.circ_buf_size) >= bt_svc->fw_log.circ_buf_threshold) {
 			bt_svc->fw_log.fw_acl_read_state |= FW_READ_THRESHOLD;
@@ -1389,6 +1390,10 @@ int slsi_sm_bt_service_start(void)
 
 		/* Initialize the fw_acl_read for btsnoop */
 		scsc_bt_fw_log_init(fw_log_circ_buf_size, fw_log_circ_buf_threshold);
+		bt_svc->fw_log.btlog_enables0_low = firmware_btlog_enables0_low;
+		bt_svc->fw_log.btlog_enables0_high = firmware_btlog_enables0_high;
+		bt_svc->fw_log.btlog_enables1_low = firmware_btlog_enables1_low;
+		bt_svc->fw_log.btlog_enables1_high = firmware_btlog_enables1_high;
 
 		slsi_kic_system_event(
 			slsi_kic_system_event_category_initialisation,
@@ -2528,6 +2533,11 @@ static void scsc_update_btlog_params(void)
 		bt_svc->bsmhcp_protocol->header.btlog_enables1_low = firmware_btlog_enables1_low;
 		bt_svc->bsmhcp_protocol->header.btlog_enables1_high = firmware_btlog_enables1_high;
 
+		bt_svc->fw_log.btlog_enables0_low = firmware_btlog_enables0_low;
+		bt_svc->fw_log.btlog_enables0_high = firmware_btlog_enables0_high;
+		bt_svc->fw_log.btlog_enables1_low = firmware_btlog_enables1_low;
+		bt_svc->fw_log.btlog_enables1_high = firmware_btlog_enables1_high;
+
 		/* Trigger the interrupt in the mailbox */
 		scsc_service_mifintrbit_bit_set(bt_svc->service,
 				bt_svc->bsmhcp_protocol->header.ap_to_bg_int_src,
@@ -3011,7 +3021,12 @@ static int __init scsc_bt_module_init(void)
 		return ret;
 	}
 
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 6, 0))
+	common_service.class = class_create("scsc_char");
+#else
 	common_service.class = class_create(THIS_MODULE, "scsc_char");
+#endif
+
 	if (IS_ERR(common_service.class)) {
 		ret = PTR_ERR(common_service.class);
 		goto error;

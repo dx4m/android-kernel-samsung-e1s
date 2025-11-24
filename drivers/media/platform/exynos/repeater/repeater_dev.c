@@ -31,6 +31,7 @@ static spinlock_t repeater_spinlock;
 
 #define MAX_NO_BUF_ERROR_COUNT	100
 #define MAX_LOGGING_FRAME_COUNT 30
+#define MAX_NUM_CLUSTER	3
 
 struct wfd_logger_info *g_repeater_logger = NULL;
 int g_repeater_log_level;
@@ -310,7 +311,9 @@ int repeater_set_valid_buffer(int buf_idx, int capture_idx)
 		if (ret == 0) {
 			ctx->enc_param.time_stamp = cur_timestamp;
 			set_encoding_start(shr_bufs, buf_idx);
+			spin_unlock_irqrestore(&repeater_spinlock, flags);
 			ret = ctx->repeater_encode_cb(buf_idx, &ctx->enc_param);
+			spin_lock_irqsave(&repeater_spinlock, flags);
 			if (ret) {
 				print_repeater_wfdlogger(RPT_ERROR,
 					"repeater_encode_cb failed %d\n", ret);
@@ -474,6 +477,69 @@ int repeater_notify_error(int owner)
 	return ret;
 }
 EXPORT_SYMBOL(repeater_notify_error);
+
+int repeater_set_decoder_info(uint32_t width, uint32_t height, uint32_t fps)
+{
+	int ret = 0;
+	unsigned long flags;
+	struct cpufreq_policy *policy;
+	int i = 0;
+	int num_cluster = 0;
+	static struct freq_qos_request qos_req_cluster[MAX_NUM_CLUSTER];
+	struct repeater_cpu_clk cpu_clk_table[MAX_NUM_CLUSTER];
+	bool cpu_min_clk_required = false;
+
+	print_repeater(RPT_EXT_INFO, "++\n");
+
+	/* UHD 120FPS, FHD 240FPS */
+	if (fps >= 120 && width * height >= 1920 * 1080)
+		cpu_min_clk_required = true;
+
+	print_repeater(RPT_EXT_INFO, "width %d, height %d, fps %d, cpu_min_clk_required %d\n",
+		width, height, fps, cpu_min_clk_required);
+
+	spin_lock_irqsave(&repeater_spinlock, flags);
+
+	if (!g_repeater_device) {
+		print_repeater_wfdlogger(RPT_ERROR, "g_repeater_device is null\n");
+		spin_unlock_irqrestore(&repeater_spinlock, flags);
+		return -EFAULT;
+	}
+	num_cluster = g_repeater_device->num_cluster;
+
+	if (cpu_min_clk_required && !g_repeater_device->cpu_clk_requested) {
+		memcpy(&cpu_clk_table[0], &g_repeater_device->cpu_clk_table[0],
+			sizeof(struct repeater_cpu_clk) * num_cluster);
+		g_repeater_device->cpu_clk_requested = true;
+		spin_unlock_irqrestore(&repeater_spinlock, flags);
+
+		for (i = 0; i < num_cluster; i++) {
+			policy = cpufreq_cpu_get(cpu_clk_table[i].num_cpu);
+			if (policy) {
+				freq_qos_tracer_add_request(&policy->constraints,
+						&qos_req_cluster[i], FREQ_QOS_MIN,
+						cpu_clk_table[i].cpu_clk);
+				print_repeater(RPT_EXT_INFO, "CPU cluster[%d]: %d\n",
+						i, cpu_clk_table[i].cpu_clk);
+			}
+		}
+	} else if (!cpu_min_clk_required && g_repeater_device->cpu_clk_requested) {
+		g_repeater_device->cpu_clk_requested = false;
+		spin_unlock_irqrestore(&repeater_spinlock, flags);
+
+		for (i = 0; i < num_cluster; i++) {
+			freq_qos_tracer_remove_request(&qos_req_cluster[i]);
+			print_repeater(RPT_EXT_INFO, "CPU cluster[%d] off\n", i);
+		}
+	} else {
+		spin_unlock_irqrestore(&repeater_spinlock, flags);
+	}
+
+	print_repeater(RPT_EXT_INFO, "--\n");
+
+	return ret;
+}
+EXPORT_SYMBOL(repeater_set_decoder_info);
 
 void encoding_work_handler(struct work_struct *work)
 {
@@ -682,6 +748,10 @@ int repeater_ioctl_map_buf(
 
 	memcpy(&ctx->info, info, sizeof(struct repeater_info));
 
+	print_repeater_wfdlogger(RPT_INT_INFO, "w %d, h %d, f 0x%x, fps %d, buf_cnt %d\n",
+		ctx->info.width, ctx->info.height, ctx->info.pixel_format,
+		ctx->info.fps, ctx->info.buffer_count);
+
 	if (ctx->info.buffer_count > MAX_SHARED_BUF_NUM) {
 		print_repeater_wfdlogger(RPT_ERROR, "buffer_count is invalid %d",
 			ctx->info.buffer_count);
@@ -759,6 +829,14 @@ int repeater_ioctl_start(struct repeater_context *ctx, int start_mode)
 	struct shared_buffer *shr_bufs;
 
 	spin_lock_irqsave(&repeater_spinlock, flags);
+
+	if (ctx->ctx_status.status == REPEATER_CTX_START) {
+		print_repeater_wfdlogger(RPT_ERROR, "ctx_status.status(%d) is invalid\n",
+			ctx->ctx_status.status);
+		spin_unlock_irqrestore(&repeater_spinlock, flags);
+		return -EFAULT;
+	}
+
 	ctx->start_mode = start_mode;
 
 	print_repeater_wfdlogger(RPT_INT_INFO, "++\n");
@@ -770,7 +848,6 @@ int repeater_ioctl_start(struct repeater_context *ctx, int start_mode)
 			ctx->ctx_status.buffer_status);
 	}
 
-	INIT_DELAYED_WORK(&ctx->encoding_work, encoding_work_handler);
 	shr_bufs = &ctx->shared_bufs;
 	init_shared_buffer(shr_bufs, MAX_SHARED_BUF_NUM);
 	ctx->ctx_status.status = REPEATER_CTX_START;
@@ -794,6 +871,13 @@ int repeater_ioctl_stop(struct repeater_context *ctx)
 	unsigned long flags;
 
 	spin_lock_irqsave(&repeater_spinlock, flags);
+
+	if (ctx->ctx_status.status == REPEATER_CTX_STOP) {
+		print_repeater_wfdlogger(RPT_ERROR, "ctx_status.status(%d) is invalid\n",
+			ctx->ctx_status.status);
+		spin_unlock_irqrestore(&repeater_spinlock, flags);
+		return -EFAULT;
+	}
 
 	print_repeater_wfdlogger(RPT_INT_INFO, "++\n");
 	print_repeater_wfdlogger(RPT_INT_INFO, "ctx_status.status %d\n",
@@ -827,6 +911,13 @@ int repeater_ioctl_pause(struct repeater_context *ctx)
 
 	spin_lock_irqsave(&repeater_spinlock, flags);
 
+	if (ctx->ctx_status.status == REPEATER_CTX_PAUSE) {
+		print_repeater_wfdlogger(RPT_ERROR, "ctx_status.status(%d) is invalid\n",
+			ctx->ctx_status.status);
+		spin_unlock_irqrestore(&repeater_spinlock, flags);
+		return -EFAULT;
+	}
+
 	print_repeater_wfdlogger(RPT_INT_INFO, "++\n");
 	print_repeater_wfdlogger(RPT_INT_INFO, "ctx_status.status %d\n",
 		ctx->ctx_status.status);
@@ -859,6 +950,13 @@ int repeater_ioctl_resume(struct repeater_context *ctx)
 
 	spin_lock_irqsave(&repeater_spinlock, flags);
 
+	if (ctx->ctx_status.status == REPEATER_CTX_START) {
+		print_repeater_wfdlogger(RPT_ERROR, "ctx_status.status(%d) is invalid\n",
+			ctx->ctx_status.status);
+		spin_unlock_irqrestore(&repeater_spinlock, flags);
+		return -EFAULT;
+	}
+
 	print_repeater_wfdlogger(RPT_INT_INFO, "++\n");
 	print_repeater_wfdlogger(RPT_INT_INFO, "ctx_status.status %d\n",
 		ctx->ctx_status.status);
@@ -868,7 +966,6 @@ int repeater_ioctl_resume(struct repeater_context *ctx)
 			ctx->ctx_status.buffer_status);
 	}
 
-	INIT_DELAYED_WORK(&ctx->encoding_work, encoding_work_handler);
 	cur_ktime = ktime_get();
 	ctx->resume_time = ktime_to_us(cur_ktime);
 	ctx->paused_time += ctx->resume_time - ctx->pause_time;
@@ -1099,6 +1196,8 @@ static int repeater_open(struct inode *inode, struct file *filp)
 	g_repeater_log_level = 0;
 	ctx->remain_logging_frame = 0;
 
+	INIT_DELAYED_WORK(&ctx->encoding_work, encoding_work_handler);
+
 	print_repeater(RPT_INT_INFO, "--\n");
 
 	return ret;
@@ -1123,6 +1222,12 @@ static int repeater_release(struct inode *inode, struct file *filp)
 	pm_runtime_put_sync(repeater_dev->dev);
 
 	spin_lock_irqsave(&repeater_spinlock, flags);
+	if (g_repeater_device->cpu_clk_requested) {
+		spin_unlock_irqrestore(&repeater_spinlock, flags);
+		repeater_set_decoder_info(0, 0, 0);
+		spin_lock_irqsave(&repeater_spinlock, flags);
+	}
+
 	print_repeater_wfdlogger(RPT_INT_INFO, "++++\n");
 
 	kfree(ctx);
@@ -1252,6 +1357,39 @@ static const struct file_operations repeater_fops = {
 	.compat_ioctl = repeater_ioctl,
 };
 
+static int repeater_get_cpu_min_clk_from_dt(struct repeater_device *repeater_dev) {
+	struct device *dev = repeater_dev->dev;
+	int len, ret;
+	int i;
+
+	print_repeater(RPT_INT_INFO, "++\n");
+
+	len = of_property_count_u32_elems(dev->of_node, "120fps_decoder_cpu_min_clk");
+	if (len <= 0) {
+		print_repeater(RPT_ERROR, "No 120fps_decoder_cpu_min_clk in dt\n");
+		return -1;
+	}
+
+	print_repeater(RPT_INT_INFO, "of_property_count_u32_elems len %d\n", len);
+
+	repeater_dev->num_cluster = len / 2;
+	repeater_dev->cpu_clk_table = devm_kcalloc(dev, repeater_dev->num_cluster,
+				sizeof(struct repeater_cpu_clk) * repeater_dev->num_cluster, GFP_KERNEL);
+	ret = of_property_read_u32_array(dev->of_node, "120fps_decoder_cpu_min_clk",
+				   (unsigned int *)repeater_dev->cpu_clk_table, len);
+
+	print_repeater(RPT_INT_INFO, "of_property_read_u32_array ret %d\n", ret);
+
+	for (i = 0; i < repeater_dev->num_cluster; i++) {
+		print_repeater(RPT_INT_INFO, "i %d, num_cpu %d, cpu_clk %d\n",
+			i, repeater_dev->cpu_clk_table[i].num_cpu, repeater_dev->cpu_clk_table[i].cpu_clk);
+	}
+
+	print_repeater(RPT_INT_INFO, "--\n");
+
+	return 0;
+}
+
 static int repeater_probe(struct platform_device *pdev)
 {
 	int ret = 0;
@@ -1279,6 +1417,8 @@ static int repeater_probe(struct platform_device *pdev)
 
 	spin_lock_init(&repeater_spinlock);
 	g_repeater_debug_level = RPT_ERROR;
+
+	repeater_get_cpu_min_clk_from_dt(repeater_dev);
 
 	print_repeater(RPT_INT_INFO, "--\n");
 

@@ -37,9 +37,6 @@
 #include <exynos_drm_drv.h>
 #endif
 
-#if IS_ENABLED(CONFIG_DRM_MCD_COMMON)
-#include <linux/sec_debug.h>
-#endif
 /* TODO: erase global variable */
 struct memlog_obj *g_log_obj;
 EXPORT_SYMBOL(g_log_obj);
@@ -952,9 +949,6 @@ static int dpu_event_log_set(const char *val, const struct kernel_param *kp)
 	struct decon_device *decon;
 	unsigned int *pvalue = kp->arg;
 	unsigned int res = param_set_uint(val, kp);
-#if IS_ENABLED(CONFIG_DRM_MCD_COMMON)
-	int upload_mode = secdbg_mode_enter_upload();
-#endif
 
 	decon = get_decon_drvdata(*pvalue);
 	if (!decon) {
@@ -963,12 +957,7 @@ static int dpu_event_log_set(const char *val, const struct kernel_param *kp)
 	}
 
 	__print_memlogger_to_kmsg(decon->crtc);
-#if IS_ENABLED(CONFIG_DRM_MCD_COMMON)
-	if (upload_mode)
-		BUG();
-	else
-		pr_err("%s", __func__);
-#endif
+
 	return res;
 }
 

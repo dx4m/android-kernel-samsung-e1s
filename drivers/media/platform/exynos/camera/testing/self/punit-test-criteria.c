@@ -60,7 +60,7 @@ static int punit_clear_criteria(void)
 
 	for (i = 0; i < IS_STREAM_COUNT; ++i) {
 		for (j = 0; j < PUNIT_CHECK_POINT_MAX; ++j) {
-			kvfree(point_criteria[i][j]);
+			pablo_free(point_criteria[i][j]);
 			point_criteria[i][j] = NULL;
 		}
 	}
@@ -88,7 +88,7 @@ static int punit_add_criteria(u32 instance, u32 check_point, u32 group_id, u32 f
 
 	if (ZERO_OR_NULL_PTR(point_criteria[instance][check_point])) {
 		point_criteria[instance][check_point] =
-			kvzalloc(sizeof(struct punit_point_criteria), GFP_KERNEL);
+			pablo_zalloc(sizeof(struct punit_point_criteria), GFP_KERNEL);
 		if (ZERO_OR_NULL_PTR(point_criteria[instance][check_point])) {
 			pr_err("failed to alloc criteria\n");
 			return -ENOMEM;

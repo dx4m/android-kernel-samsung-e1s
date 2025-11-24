@@ -13,9 +13,11 @@
 enum {
 	SLSI_BTP_VS_CHANNEL_UNKNOWN = 0,
 	SLSI_BTP_VS_CHANNEL_MXLOG = 1,
+	// SLSI_BTP_VS_CHANNEL_FASTPATH = 2,  /* This is handled in H5 */
+	SLSI_BTP_VS_CHANNEL_LR_WPAN = 3,
 };
 
-int slsi_bt_property_recv(struct hci_trans *htr, struct sk_buff *skb);
+int slsi_bt_property_init(struct hci_trans *htr);
 
 int slsi_bt_property_set_logmask(struct hci_trans *htr,
 		const unsigned int *val, const unsigned char len);

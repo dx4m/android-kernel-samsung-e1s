@@ -111,17 +111,19 @@ extern void et_init_dsu_table(unsigned long *freq_table, unsigned int *volt_tabl
 extern void et_register_dsu_constraint(int cpu, void *p, int size);
 extern void et_arch_set_freq_scale(const struct cpumask *cpus,
 		unsigned long freq,  unsigned long max, unsigned long *scale);
+extern int et_register_notifier(struct notifier_block *nb);
 extern int ego_set_adaptive_freq(unsigned int cpu, unsigned int low_freq, unsigned int high_freq);
 extern int ego_get_adaptive_freq(unsigned int cpu, unsigned int *low_freq, unsigned int *high_freq);
-extern int ego_reset_adaptive_freq(unsigned int cpu);
+extern int ego_reset_adaptive_freq(unsigned int cpu, bool release);
 #else /* CONFIG_SCHED_EMS_FREQ_SELECT */
 static inline void et_init_dsu_table(unsigned long *freq_table, unsigned int *volt_table, int size) { };
 static inline void et_register_dsu_constraint(int cpu, void *p, int size) { };
 static inline void et_arch_set_freq_scale(const struct cpumask *cpus,
 		unsigned long freq,  unsigned long max, unsigned long *scale) { };
+static int et_register_notifier(struct notifier_block *nb) { return 0; };
 static inline int ego_set_adaptive_freq(unsigned int cpu, unsigned int low_freq, unsigned int high_freq) { return -ENODEV; };
 static inline int ego_get_adaptive_freq(unsigned int cpu, unsigned int *low_freq, unsigned int *high_freq) { return -ENODEV; };
-static inline int ego_reset_adaptive_freq(unsigned int cpu) { return -ENODEV; };
+static inline int ego_reset_adaptive_freq(unsigned int cpu, bool release) { return -ENODEV; };
 #endif /* CONFIG_SCHED_EMS_FREQ_SELECT */
 
 /*

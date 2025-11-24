@@ -1869,11 +1869,8 @@ static int functionfs_bind(struct ffs_data *ffs, struct usb_composite_dev *cdev)
 	ENTER();
 
 	if ((ffs->state != FFS_ACTIVE
-			|| test_and_set_bit(FFS_FL_BOUND, &ffs->flags))) {
-		pr_err("%s: ffs->state %d, ffs->flags 0x %08lx\n",
-				__func__, ffs->state, ffs->flags);
+		 || test_and_set_bit(FFS_FL_BOUND, &ffs->flags)))
 		return -EBADFD;
-	}
 
 	first_id = usb_string_ids_n(cdev, ffs->strings_count);
 	if (first_id < 0)

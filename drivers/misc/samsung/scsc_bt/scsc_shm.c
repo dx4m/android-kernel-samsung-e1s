@@ -72,6 +72,8 @@ static u32  h4_iq_report_evt_len;
 static u16  h4_irq_mask;
 
 static DEFINE_MUTEX(fw_log_filter);
+static DEFINE_SPINLOCK(fw_log_write_lock);
+static DEFINE_SPINLOCK(fw_log_read_lock);
 
 static uint8_t fw_log_circ_buf_push(uint8_t data)
 {
@@ -116,7 +118,7 @@ static size_t fw_log_circ_buf_remove(size_t len)
 	size_t head_len = 0;
 	size_t consumed = 0;
 
-	spin_lock(&bt_svc->fw_log.read_lock);
+	spin_lock(&fw_log_read_lock);
 	/* Check the state is in release */
 	if (bt_svc->fw_log.circ_buf.buf == NULL || bt_svc->fw_log.fw_acl_read == NULL) {
 		SCSC_TAG_DEBUG(BT_H4, "fw_log is released due to BT service stop\n");
@@ -136,7 +138,7 @@ static size_t fw_log_circ_buf_remove(size_t len)
 		}
 		cnt = consumed;
 	}
-	spin_unlock(&bt_svc->fw_log.read_lock);
+	spin_unlock(&fw_log_read_lock);
 
 	return cnt;
 }
@@ -150,17 +152,17 @@ size_t scsc_bt_fw_log_circ_buf_write(uint8_t level, uint8_t *data, size_t len)
 	if (bt_svc == NULL)
 		return 0;
 
-	spin_lock(&bt_svc->fw_log.write_lock);
+	spin_lock(&fw_log_write_lock);
 	/* Check the state is in release */
 	if (bt_svc->fw_log.circ_buf.buf == NULL || bt_svc->fw_log.fw_acl_read == NULL) {
 		SCSC_TAG_DEBUG(BT_H4, "fw_log is released due to BT service stop\n");
-		spin_unlock(&bt_svc->fw_log.write_lock);
+		spin_unlock(&fw_log_write_lock);
 		return 0;
 	} else {
 		cnt = CIRC_SPACE(bt_svc->fw_log.circ_buf.head, bt_svc->fw_log.circ_buf.tail,
 				 bt_svc->fw_log.circ_buf_size);
 	}
-	spin_unlock(&bt_svc->fw_log.write_lock);
+	spin_unlock(&fw_log_write_lock);
 
 	if (cnt <= len) {
 		removed = fw_log_circ_buf_remove(len * FW_LOG_REMOVE_MULTIPLIER);
@@ -170,7 +172,7 @@ size_t scsc_bt_fw_log_circ_buf_write(uint8_t level, uint8_t *data, size_t len)
 		}
 	}
 
-	spin_lock(&bt_svc->fw_log.write_lock);
+	spin_lock(&fw_log_write_lock);
 	/* Check the state is in release */
 	if (bt_svc->fw_log.circ_buf.buf == NULL || bt_svc->fw_log.fw_acl_read == NULL) {
 		SCSC_TAG_DEBUG(BT_H4, "fw_log is released due to BT service stop\n");
@@ -184,7 +186,7 @@ size_t scsc_bt_fw_log_circ_buf_write(uint8_t level, uint8_t *data, size_t len)
 			cnt += fw_log_circ_buf_push(data[i]);
 		}
 	}
-	spin_unlock(&bt_svc->fw_log.write_lock);
+	spin_unlock(&fw_log_write_lock);
 
 	return cnt;
 }
@@ -196,7 +198,7 @@ static size_t scsc_bt_fw_log_circ_buf_read(uint8_t *data, size_t len)
 	size_t head_len = 0;
 	size_t consumed = 0;
 
-	spin_lock(&bt_svc->fw_log.read_lock);
+	spin_lock(&fw_log_read_lock);
 	/* Check the state is in release */
 	if (bt_svc->fw_log.circ_buf.buf == NULL || bt_svc->fw_log.fw_acl_read == NULL) {
 		SCSC_TAG_DEBUG(BT_H4, "fw_log is released due to BT service stop\n");
@@ -217,7 +219,7 @@ static size_t scsc_bt_fw_log_circ_buf_read(uint8_t *data, size_t len)
 		} while (consumed + head_len < len);
 		cnt = consumed;
 	}
-	spin_unlock(&bt_svc->fw_log.read_lock);
+	spin_unlock(&fw_log_read_lock);
 
 	return cnt;
 }
@@ -251,7 +253,10 @@ static void scsc_bt_fw_log_update_filter(u8 trigger, u32 bt1_high, u32 bt1_low, 
 	}
 #endif
 
-	if (bt_svc->bsmhcp_protocol->header.btlog_enables0_low == 0) {
+	if (bt_svc->fw_log.btlog_enables0_low == 0 &&
+	    bt_svc->fw_log.btlog_enables0_high == 0 &&
+	    bt_svc->fw_log.btlog_enables1_low == 0 &&
+	    bt_svc->fw_log.btlog_enables1_high == 0) {
 		mutex_lock(&fw_log_filter);
 		if (bt_svc->service) {
 			bt_svc->bsmhcp_protocol->header.btlog_enables0_low = bt0_low;
@@ -1458,10 +1463,7 @@ static ssize_t scsc_bt_shm_h4_read_continue(char __user *buf, size_t len)
 
 		if (bt_svc->read_operation == BT_READ_OP_NONE) {
 			/* All done - reset the read interrupt to read the new FW log */
-			if (bt_svc->fw_log.fw_acl_read_state & FW_READ_VSC)
-				bt_svc->fw_log.fw_acl_read_state &= (FW_READ_ENABLE | FW_READ_VSC);
-			else
-				bt_svc->fw_log.fw_acl_read_state &= FW_READ_ENABLE;
+			bt_svc->fw_log.fw_acl_read_state &= FW_READ_ENABLE;
 		}
 		/* Is a HCI event read operation ongoing */
 	} else if (bt_svc->read_operation == BT_READ_OP_HCI_EVT) {
@@ -2110,7 +2112,6 @@ static ssize_t scsc_bt_circ_h4_read_fw_log_data(char __user *buf, size_t len)
 		 * HCI_VSC_COMPLETE_FW_LOG_BTSNOOP_LEN data regardless of the available amount of user memory
 		 */
 		if (bt_svc->fw_log.fw_acl_read_state & FW_READ_VSC) {
-			bt_svc->fw_log.fw_acl_read_state &= ~FW_READ_VSC;
 			h4_read_data_header_len = H4DMUX_HEADER_EVT;
 			h4_read_data_header[H4_HEADER_INDEX] = HCI_EVENT_PKT;
 			h4_read_data_header[1] = HCI_EVENT_COMMAND_COMPLETE;
@@ -2950,10 +2951,6 @@ void scsc_bt_fw_log_init(size_t len, size_t threshold)
 	bt_svc->fw_log.circ_buf_size = len;
 	bt_svc->fw_log.circ_buf_threshold = threshold;
 
-	/* Init spin lock for circ_buf */
-	spin_lock_init(&bt_svc->fw_log.write_lock);
-	spin_lock_init(&bt_svc->fw_log.read_lock);
-
 	/* Allocate the memeory for circ_buf */
 	bt_svc->fw_log.circ_buf.buf = kmalloc(len, GFP_KERNEL);
 
@@ -2989,21 +2986,21 @@ void scsc_bt_fw_log_release(void)
 	/* Stop read and write operation */
 	bt_svc->fw_log.fw_acl_read_state = FW_READ_DISABLE;
 
-	spin_lock(&bt_svc->fw_log.read_lock);
+	spin_lock(&fw_log_read_lock);
 	/* Release the memeory for fw_acl_read */
 	if (bt_svc->fw_log.fw_acl_read != NULL) {
 		kfree(bt_svc->fw_log.fw_acl_read);
 		bt_svc->fw_log.fw_acl_read = NULL;
 	}
-	spin_unlock(&bt_svc->fw_log.read_lock);
+	spin_unlock(&fw_log_read_lock);
 
-	spin_lock(&bt_svc->fw_log.write_lock);
+	spin_lock(&fw_log_write_lock);
 	/* Release the memeory for circ_buf.buf */
 	if (bt_svc->fw_log.circ_buf.buf != NULL) {
 		kfree(bt_svc->fw_log.circ_buf.buf);
 		bt_svc->fw_log.circ_buf.buf = NULL;
 	}
-	spin_unlock(&bt_svc->fw_log.write_lock);
+	spin_unlock(&fw_log_write_lock);
 
 	/* Deinit scsc_bt_fw_log struct */
 	memset(&bt_svc->fw_log, 0, sizeof(struct scsc_bt_fw_log));

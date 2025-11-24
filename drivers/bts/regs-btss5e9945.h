@@ -108,3 +108,4 @@
 #define SUB_RATIO		1382880
 #define READ5L			7136610
 #define READHD			5074863
+#define AVGBW_TO_ACTBW		3

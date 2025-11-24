@@ -313,6 +313,23 @@
 			<666000 533000 1539000 333000>,
 			<333000 267000 676000 80000>;
 
+		samsung,npunode-names =
+			"DNC",
+			"NPU";
+
+		samsung,npunode-num =
+			<6>;
+
+		samsung,npunode-freq =
+			/* dnc   core */
+			<800000 1066000>,
+			<666000 800000>,
+			<533000 666000>,
+			<444000 400000>,
+			<333000 333000>,
+			<267000 333000>;
+
+
 		samsung,npugovernor-num =
 			/* npu mif int */
 			<6 13 13>;

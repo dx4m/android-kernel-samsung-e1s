@@ -67,6 +67,8 @@ obj-y					+= npu/npu-fence.o
 obj-y					+= npu/npu-fence-sync.o
 endif
 
+obj-y					+= npu/npu-state.o
+
 obj-y	        += npu/npu-util-statekeeper.o
 
 obj-$(CONFIG_FIRMWARE_SRAM_DUMP_DEBUGFS)	        += npu/npu-util-memdump.o
@@ -159,6 +161,8 @@ ifeq ($(CONFIG_NPU_USE_FENCE_SYNC),y)
 npu-objs				+= npu/npu-fence.o
 npu-objs				+= npu/npu-fence-sync.o
 endif
+
+npu-objs				+= npu/npu-state.o
 
 ifeq ($(CONFIG_NPU_INTERFACE),y)
 npu-objs				+= npu/interface/hardware/npu-interface.o

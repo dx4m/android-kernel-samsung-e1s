@@ -17,20 +17,20 @@
 
 #if defined(CONFIG_EXYNOS_PLL_SLEEP) && defined(CONFIG_EXYNOS_BIAS_SLEEP)
 /* bias sleep can be enabled only when pll seep is enabled */
-static const u32 DSIM_PHY_BIAS_CON_VAL[] = {
-	0x00000010,
-	0x00000110,
-	0x0000B223, /* [15] BIAS_SLEEP_EN */
-	0x00000000,
-	0x00000200,
+static const u32 DSIM_PHY_BIAS_CON_VAL[][REGS_DUAL_DSIM_ID_MAX] = {
+	{0x00000010, 0x00000010},
+	{0x00000110, 0x00000110},
+	{0x0000B273, 0x0000B223}, /* [15] BIAS_SLEEP_EN */
+	{0x00000000, 0x00000000},
+	{0x00000200, 0x00000200},
 };
 #else
-static const u32 DSIM_PHY_BIAS_CON_VAL[] = {
-	0x00000010,
-	0x00000110,
-	0x00003223,
-	0x00000000,
-	0x00000200,
+static const u32 DSIM_PHY_BIAS_CON_VAL[][REGS_DUAL_DSIM_ID_MAX] = {
+	{0x00000010, 0x00000010},
+	{0x00000110, 0x00000110},
+	{0x00003273, 0x00003223},
+	{0x00000000, 0x00000000},
+	{0x00000200, 0x00000200},
 };
 #endif
 
@@ -53,12 +53,12 @@ static const u32 DSIM_PHY_MC_GNR_CON_VAL[] = {
 	0x00003C00,
 };
 
-static const u32 DSIM_PHY_MC_ANA_CON_VAL[] = {
+static const u32 DSIM_PHY_MC_ANA_CON_VAL[][REGS_DUAL_DSIM_ID_MAX] = {
 	/* EDGE_CON[14:12] DPHY=3'b111, CPHY=3'b001 */
-	0x00007122, /* Need to check default value of MC_ANA_CON0 */
-	0x00000030, /* Low-Power TX Driver Slew Rate Control */
-	0x00000002,
-	0x00000000,
+	{0x00007188, 0x00007122}, /* Need to check default value of MC_ANA_CON0 */
+	{0x00000030, 0x00000030},
+	{0x00000002, 0x00000002},
+	{0x00000000, 0x00000000},
 };
 
 /* same value in all master data lane */
@@ -69,18 +69,18 @@ static const u32 DSIM_PHY_MD_GNR_CON_VAL[] = {
 /* Need to check reg_cnt */
 #if defined(CONFIG_EXYNOS_PLL_SLEEP) && defined(CONFIG_EXYNOS_BIAS_SLEEP)
 /* bias sleep can be enabled only when pll seep is enabled */
-static const u32 DSIM_PHY_MD_ANA_CON_VAL[] = {
-	0x00007122,
-	0x00000030, /* Low-Power TX Driver Slew Rate Control */
-	0x00000808, /* EN_RSTN_SEL[3] , [11] BIAS_SLEEP_EN */
-	0x00004600, /* Fields of D3 are different with CMD */
+static const u32 DSIM_PHY_MD_ANA_CON_VAL[][REGS_DUAL_DSIM_ID_MAX] = {
+	{0x00007122, 0x00007122},
+	{0x00000030, 0x00000030}, /* Low-Power TX Driver Slew Rate Control */
+	{0x00000808, 0x00000808}, /* EN_RSTN_SEL[3] , [11] BIAS_SLEEP_EN */
+	{0x00004600, 0x00004600}, /* Fields of D3 are different with CMD */
 };
 #else
-static const u32 DSIM_PHY_MD_ANA_CON_VAL[] = {
-	0x00007122,
-	0x00000030, /* Low-Power TX Driver Slew Rate Control */
-	0x00000008, /* EN_RSTN_SEL[3]: All bits are reserved at D3 */
-	0x00004600, /* Fields of D3 are different with CMD */
+static const u32 DSIM_PHY_MD_ANA_CON_VAL[][REGS_DUAL_DSIM_ID_MAX] = {
+	{0x00007122, 0x00007122},
+	{0x00000030, 0x00000030}, /* Low-Power TX Driver Slew Rate Control */
+	{0x00000008, 0x00000008}, /* EN_RSTN_SEL[3] , [11] BIAS_SLEEP_EN */
+	{0x00004600, 0x00004600}, /* Fields of D3 are different with CMD */
 };
 #endif
 

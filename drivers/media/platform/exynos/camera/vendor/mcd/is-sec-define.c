@@ -1216,7 +1216,8 @@ int is_sec_cal_reload(void)
 
 		is_sec_read_module_id(rom_info, module_id, curr_rom_id);
 
-		if (strncmp(module_id, rom_info->rom_module_id, IS_MODULE_ID_SIZE)) {
+		if (strncmp(module_id, rom_info->rom_module_id, IS_MODULE_ID_SIZE)
+			|| vendor_priv->force_cal_reload) {
 			rom_info->read_done = false;
 			rom_info->sec2lsi_conv_done = false;
 			is_sec_run_fw_sel(curr_rom_id);

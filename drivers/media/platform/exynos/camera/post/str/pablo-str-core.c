@@ -114,7 +114,7 @@ struct str_priv_buf *str_ion_alloc(struct str_ion_ctx *ion_ctx, size_t size)
 	const char *heapname = "ion_system_heap";
 	struct str_priv_buf *buf;
 
-	buf = vzalloc(sizeof(*buf));
+	buf = pablo_zalloc(sizeof(*buf), GFP_KERNEL);
 	if (!buf)
 		return ERR_PTR(-ENOMEM);
 
@@ -161,7 +161,7 @@ err_attach:
 	dma_buf_put(buf->dma_buf);
 
 err_alloc:
-	vfree(buf);
+	pablo_free(buf);
 
 	pr_err("[STR:MEM][%s]Failed to allocate ION memory. size(%zu)\n", __func__, buf->size);
 	return ERR_PTR(ret);
@@ -180,7 +180,7 @@ void str_ion_free(struct str_priv_buf *buf)
 	dma_buf_detach(buf->dma_buf, buf->dma_attach);
 	dma_buf_put(buf->dma_buf);
 
-	vfree(buf);
+	pablo_free(buf);
 }
 
 static int __attribute__((unused)) _str_sysmmu_falut_handler(struct iommu_domain *domain,

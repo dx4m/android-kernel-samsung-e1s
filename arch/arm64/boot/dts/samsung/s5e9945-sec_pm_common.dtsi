@@ -27,6 +27,8 @@
 				compatible = "samsung,sec-pm-smpl-warn";
 				status = "okay";
 				policy_cpus = <4 7 9>;
+				pmic-smpl-warn-gpio = <&gpg3 0 0>;
+				sgpu_phandle = <&sgpu>;
 			};
 		}; /* end of __overlay__ */
 	}; /* end of fragment */

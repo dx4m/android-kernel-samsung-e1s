@@ -295,6 +295,11 @@ char *pablo_lib_get_stream_prefix(int instance);
 #define mdbg_pframe(fmt, obj, subdev, frame, args...) \
 	minfo_common("[%d:%s][%s][F%d]", fmt, obj->instance, obj->stm, subdev->name, frame->fcount, ##args)
 
+#define ssinfo(fmt, cis, args...)	\
+	info_common("%s [%d][%d][%s] ", fmt, __func__, (cis)->id,	\
+		(cis)->cis_data->sen_vsync_count,	\
+		((cis)->sensor_info) ? (cis)->sensor_info->name : "NULL", ##args)
+
 /*
  * =================================================================================================
  * LOG - DEBUG_SENSOR

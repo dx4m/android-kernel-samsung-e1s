@@ -862,7 +862,7 @@ int is_ischain_g_ddk_setfile_version(struct is_device_ischain *device,
 	int position;
 	struct ddk_setfile_ver *version_info;
 
-	version_info = vzalloc(sizeof(struct ddk_setfile_ver));
+	version_info = pablo_zalloc(sizeof(struct ddk_setfile_ver), GFP_KERNEL);
 	if (!version_info) {
 		merr("version_info is NULL", device);
 		ret = -ENOMEM;
@@ -877,7 +877,7 @@ int is_ischain_g_ddk_setfile_version(struct is_device_ischain *device,
 
 	ret = copy_to_user(user_ptr, version_info, sizeof(struct ddk_setfile_ver));
 
-	vfree(version_info);
+	pablo_free(version_info);
 p_err:
 	return ret;
 }

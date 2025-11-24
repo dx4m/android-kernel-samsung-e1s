@@ -49,6 +49,10 @@
 			htask-boost = < 0 0 0 0 >;
 		};
 
+		tex {
+			foreground = <101>;
+		};
+
 		et {
 			default-idx = < 1 >;
 			uarch-selection = < 1 >;

@@ -1513,7 +1513,6 @@ static void max77775_init_opcode
 	}
 #ifndef CONFIG_DISABLE_LOCKSCREEN_USB_RESTRICTION
 	else {
-		max77775_set_enable_alternate_mode(ALTERNATE_MODE_READY | ALTERNATE_MODE_STOP);
 	}
 #endif
 #if IS_ENABLED(CONFIG_PDIC_NOTIFIER)
@@ -3053,6 +3052,24 @@ void max77775_send_check_stuck_opcode(struct max77775_usbc_platform_data *usbpd_
 	read_data.opcode = OPCODE_BCCTRL1_R;
 	max77775_usbc_opcode_read(usbpd_data, &read_data);
 }
+
+void max77775_chg_check_stuck(int chgin_dtls)
+{
+	u8 vbdet;
+
+	struct max77775_usbc_platform_data *usbc_data = g_usbc_data;
+
+	max77775_read_reg(usbc_data->muic, MAX77775_USBC_REG_BC_STATUS, &vbdet);
+	vbdet = ((vbdet & 0x80) >> 7);
+	msg_maxim("vbdet %d, chgin_dtls %d", vbdet, chgin_dtls);
+
+	if ((vbdet == 0x00 && chgin_dtls == 0x03)
+		|| (vbdet == 0x01 && (chgin_dtls == 0x00 || chgin_dtls == 0x01 || chgin_dtls == 0x02))) {
+		msg_maxim("%s stuck suppose.", __func__);
+		max77775_send_check_stuck_opcode(usbc_data);
+	}
+}
+EXPORT_SYMBOL(max77775_chg_check_stuck);
 
 static irqreturn_t max77775_apcmd_irq(int irq, void *data)
 {

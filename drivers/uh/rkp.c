@@ -4,7 +4,7 @@
 #include <linux/mm.h>
 #include <asm/pgtable.h>
 
-bool rkp_started = false;
+bool rkp_started __rkp_ro = false;
 static u64 robuffer_base __rkp_ro;
 static u64 robuffer_size __rkp_ro;
 u64 early_module_core_text = 0;
@@ -40,8 +40,7 @@ void rkp_init(void)
 	init_data.tramp_pgd = (u64)__pa(tramp_pg_dir);
 	init_data.tramp_valias = (u64)TRAMP_VALIAS;
 #endif
-	uh_call(UH_APP_RKP, RKP_START, (u64)&init_data, (u64)kimage_voffset, 0, 0);
-	rkp_started = true;
+	uh_call(UH_APP_RKP, RKP_START, (u64)&init_data, (u64)&rkp_started, 0, 0);
 }
 
 /* init/main.c */

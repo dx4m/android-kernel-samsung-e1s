@@ -267,6 +267,8 @@ static int cp_shmem_check_mem_map_on_cp(struct device *dev)
 			shmem_index = SHMEM_DDM;
 		else if (!strncmp((const char *)&name, "STS\0", sizeof(name)))
 			shmem_index = SHMEM_CP_STATE;
+		else if (!strncmp((const char *)&name, "IFW\0", sizeof(name)))
+			shmem_index = SHMEM_WIFI;
 		else
 			continue;
 

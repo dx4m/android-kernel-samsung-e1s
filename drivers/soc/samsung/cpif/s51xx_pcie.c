@@ -187,14 +187,15 @@ send_doorbell_again:
 	return 0;
 
 check_cpl_timeout:
-	if (exynos_pcie_rc_get_cpl_timeout_state(s51xx_pcie->pcie_channel_num)) {
-		mif_err_limited("Can't send Interrupt(cto_retry_cnt: %d)!!!\n",
-				mc->pcie_cto_retry_cnt);
-		return 0;
-	}
+	if (exynos_pcie_rc_get_cpl_timeout_state(s51xx_pcie->pcie_channel_num) ||
+			exynos_pcie_rc_get_sudden_linkdown_state(s51xx_pcie->pcie_channel_num))
+		mif_err_limited("Can't send Interrupt(link_down_retry_cnt: %d, cto_retry_cnt: %d)!!!\n",
+				mc->pcie_linkdown_retry_cnt, mc->pcie_cto_retry_cnt);
+	else
+		exynos_pcie_rc_force_linkdown_work(s51xx_pcie->pcie_channel_num);
 
-	exynos_pcie_rc_register_dump(s51xx_pcie->pcie_channel_num);
-	return -EAGAIN;
+	exynos_pcie_rc_register_dump(s51xx_pcie->pcie_channel_num, 0);
+	return 0;
 }
 
 void first_save_s51xx_status(struct pci_dev *pdev)
@@ -360,7 +361,18 @@ static void s51xx_pcie_linkdown_cb(struct exynos_pcie_notify *noti)
 	if (mc->pcie_powered_on == false) {
 		pr_info("%s: skip cp crash during dislink sequence\n", __func__);
 		exynos_pcie_set_perst_gpio(mc->pcie_ch_num, 0);
+			return;
+		}
+
+		mif_err("s51xx LINK_DOWN notification callback function!!!\n");
+		mif_err("LINK_DOWN: a=%d c=%d\n", mc->pcie_linkdown_retry_cnt_all++,
+				mc->pcie_linkdown_retry_cnt);
+
+		if (mc->pcie_linkdown_retry_cnt++ < 10) {
+			mif_err("[%d] retry pcie poweron !!!\n", mc->pcie_linkdown_retry_cnt);
+			queue_work_on(2, mc->wakeup_wq, &mc->wakeup_work);
 	} else {
+		mif_err("[%d] force crash !!!\n", mc->pcie_linkdown_retry_cnt);
 		modem_force_crash_exit(mc);
 	}
 }
@@ -376,7 +388,7 @@ static void s51xx_pcie_cpl_timeout_cb(struct exynos_pcie_notify *noti)
 	pr_err("CPL: a=%d c=%d\n", mc->pcie_cto_retry_cnt_all++, mc->pcie_cto_retry_cnt);
 
 	pr_err("s51xx CPLTO RC regdump \n");
-	exynos_pcie_rc_register_dump(s51xx_pcie->pcie_channel_num);
+	exynos_pcie_rc_register_dump(s51xx_pcie->pcie_channel_num, 0);
 
 	if (mc->pcie_cto_retry_cnt++ < 10) {
 		pr_err("[%s][%d] retry pcie poweron !!!\n", __func__,

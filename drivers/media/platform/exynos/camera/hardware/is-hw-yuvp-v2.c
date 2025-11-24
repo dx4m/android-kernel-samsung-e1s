@@ -265,7 +265,7 @@ static int __nocfi is_hw_yuvp_open(struct is_hw_ip *hw_ip, u32 instance)
 	frame_manager_probe(hw_ip->framemgr, "HWYUVP");
 	frame_manager_open(hw_ip->framemgr, IS_MAX_HW_FRAME, false);
 
-	hw_ip->priv_info = vzalloc(sizeof(struct is_hw_yuvp));
+	hw_ip->priv_info = pablo_zalloc(sizeof(struct is_hw_yuvp), GFP_KERNEL);
 	if (!hw_ip->priv_info) {
 		mserr_hw("hw_ip->priv_info(null)", instance, hw_ip);
 		ret = -ENOMEM;
@@ -285,7 +285,7 @@ static int __nocfi is_hw_yuvp_open(struct is_hw_ip *hw_ip, u32 instance)
 		goto err_iqset_alloc;
 
 	rdma_max_cnt = yuvp_hw_g_rdma_max_cnt();
-	hw_yuvp->rdma = vzalloc(sizeof(struct is_common_dma) * rdma_max_cnt);
+	hw_yuvp->rdma = pablo_zalloc(sizeof(struct is_common_dma) * rdma_max_cnt, GFP_KERNEL);
 	if (!hw_yuvp->rdma) {
 		mserr_hw("Failed to allocate rdma", instance, hw_ip);
 		ret = -ENOMEM;
@@ -293,7 +293,7 @@ static int __nocfi is_hw_yuvp_open(struct is_hw_ip *hw_ip, u32 instance)
 	}
 
 	wdma_max_cnt = yuvp_hw_g_wdma_max_cnt();
-	hw_yuvp->wdma = vzalloc(sizeof(struct is_common_dma) * wdma_max_cnt);
+	hw_yuvp->wdma = pablo_zalloc(sizeof(struct is_common_dma) * wdma_max_cnt, GFP_KERNEL);
 	if (!hw_yuvp->wdma) {
 		mserr_hw("Failed to allocate wdma", instance, hw_ip);
 		ret = -ENOMEM;
@@ -341,16 +341,16 @@ static int __nocfi is_hw_yuvp_open(struct is_hw_ip *hw_ip, u32 instance)
 
 err_alloc_dma:
 	if (hw_yuvp->rdma)
-		vfree(hw_yuvp->rdma);
+		pablo_free(hw_yuvp->rdma);
 
 	if (hw_yuvp->wdma)
-		vfree(hw_yuvp->wdma);
+		pablo_free(hw_yuvp->wdma);
 
 err_iqset_alloc:
 	CALL_HW_HELPER_OPS(hw_ip, close, instance, &hw_yuvp->lib[instance]);
 
 err_chain_create:
-	vfree(hw_ip->priv_info);
+	pablo_free(hw_ip->priv_info);
 	hw_ip->priv_info = NULL;
 err_alloc:
 	frame_manager_close(hw_ip->framemgr);
@@ -434,10 +434,10 @@ static int is_hw_yuvp_close(struct is_hw_ip *hw_ip, u32 instance)
 
 	CALL_HW_HELPER_OPS(hw_ip, free_iqset);
 
-	vfree(hw_yuvp->rdma);
-	vfree(hw_yuvp->wdma);
+	pablo_free(hw_yuvp->rdma);
+	pablo_free(hw_yuvp->wdma);
 
-	vfree(hw_ip->priv_info);
+	pablo_free(hw_ip->priv_info);
 	hw_ip->priv_info = NULL;
 
 	frame_manager_close(hw_ip->framemgr);

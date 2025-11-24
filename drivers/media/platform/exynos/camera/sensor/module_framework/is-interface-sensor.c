@@ -1157,6 +1157,15 @@ u32 set_remosaic_zoom_ratio(struct is_sensor_interface *itf, u32 zoom_ratio)
 	cis_data = sensor_peri->cis.cis_data;
 	WARN_ON(!cis_data);
 
+#ifdef USE_CAMERA_SUPPORT_TCC
+	/* HAL passes bayer pattern bit to AE for only capture shot. : 20(RCP), 80(RCC), 81(TCC) */
+	if (zoom_ratio >= 80) {
+		cis_data->cur_bayer_pattern = zoom_ratio & 0x03; // 0:RGB 1:TETRA
+		zoom_ratio = (zoom_ratio >> 2) & 0xFF; // 2 ~ 9 bit : Zoom Value
+	} else {
+		cis_data->cur_bayer_pattern = 0;
+	}
+#endif
 	cis_data->cur_remosaic_zoom_ratio = zoom_ratio;
 
 	if (cis_data->cur_remosaic_zoom_ratio != cis_data->pre_remosaic_zoom_ratio)
@@ -4152,7 +4161,8 @@ int get_sensor_applied_seamless_mode(struct is_sensor_interface *itf,
 	if (!cis_data->stream_on)
 		applied_seamless_mode->mode &= ~SENSOR_MODE_AEB;
 
-	if (cis_data->seamless_update_vsync_cnt + ctrl_delay == vsync_count)
+	if (!cis_data->stream_on
+		|| (cis_data->seamless_update_vsync_cnt + ctrl_delay == vsync_count))
 		info("%s [%d][%d][%s] SS_DBG LN2[%d] LN4[%d] 12bit[%d] AEB[%d] RM[%d,%d]\n",
 			__func__, sensor_peri->cis.id,
 			vsync_count, sensor_peri->module->sensor_name,

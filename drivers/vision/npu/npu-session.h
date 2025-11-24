@@ -250,6 +250,8 @@ struct npu_session {
 	u32 io_workload;
 	u32 featuremapdata_type;
 	bool is_instance_1;
+	u64 start_time;
+	bool is_bootup_error_handling_called;
 };
 
 typedef int (*session_cb)(struct npu_session *);

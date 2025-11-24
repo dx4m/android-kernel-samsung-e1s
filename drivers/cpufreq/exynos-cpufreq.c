@@ -620,7 +620,7 @@ static int exynos_cpufreq_suspend(struct cpufreq_policy *policy)
 }
 
 static int __exynos_cpufreq_resume(struct cpufreq_policy *policy,
-		struct exynos_cpufreq_domain *domain)
+		struct exynos_cpufreq_domain *domain, bool release_min)
 {
 	if (unlikely(!domain))
 		return -EINVAL;
@@ -628,15 +628,19 @@ static int __exynos_cpufreq_resume(struct cpufreq_policy *policy,
 	mutex_lock(&domain->lock);
 	mutex_unlock(&domain->lock);
 
-	freq_qos_update_request(&domain->suspend_max_qos_req, domain->max_freq);
-	freq_qos_update_request(&domain->suspend_min_qos_req, domain->min_freq);
+	if (release_min) {
+		freq_qos_update_request(&domain->suspend_min_qos_req, domain->min_freq);
+		freq_qos_update_request(&domain->suspend_max_qos_req, domain->max_freq);
+	} else {
+		freq_qos_update_request(&domain->suspend_max_qos_req, domain->max_freq);
+	}
 
 	return 0;
 }
 
 static int exynos_cpufreq_resume(struct cpufreq_policy *policy)
 {
-	return __exynos_cpufreq_resume(policy, find_domain(policy->cpu));
+	return __exynos_cpufreq_resume(policy, find_domain(policy->cpu), false);
 }
 
 static int exynos_cpufreq_online(struct cpufreq_policy *policy)
@@ -1124,7 +1128,7 @@ static int exynos_cpufreq_pm_notifier(struct notifier_block *notifier,
 			if (!policy)
 				continue;
 
-			if (__exynos_cpufreq_resume(policy, domain)) {
+			if (__exynos_cpufreq_resume(policy, domain, true)) {
 				cpufreq_cpu_put(policy);
 				return NOTIFY_BAD;
 			}
@@ -1336,8 +1340,8 @@ static int init_freq_qos(struct exynos_cpufreq_domain *domain,
 	if (ret < 0)
 		return ret;
 
-	/* boost_duration = 40s - now */
-	boost_duration = ktime_to_ms(ktime_sub(ktime_set(40, 0), ktime_get()));
+	/* boost_duration = 70s - now */
+	boost_duration = ktime_to_ms(ktime_sub(ktime_set(70, 0), ktime_get()));
 	if (boost_duration < 0)
 		return 0;
 

@@ -1760,7 +1760,6 @@ static void __mfc_core_nal_q_handle_stream_output(struct mfc_ctx *ctx, int slice
 	mfc_ctx_debug(2, "[NALQ][STREAM] Slice type flag: %d\n", dst_mb->vb.flags);
 
 	vb2_set_plane_payload(&dst_mb->vb.vb2_buf, 0, strm_size);
-	mfc_rate_update_bitrate(ctx, strm_size);
 	mfc_rate_update_framerate(ctx);
 
 	index = dst_mb->vb.vb2_buf.index;
@@ -2491,6 +2490,15 @@ static void __mfc_core_nal_q_handle_released_buf(struct mfc_core *core, struct m
 				dec->refcnt++;
 				mfc_ctx_debug(3, "[NALQ][REFINFO] Dqueued DPB[%d] released fd: %d\n",
 						i, dec->dpb[i].fd[0]);
+
+				if (dec->dpb[i].new_fd != -1) {
+					dec->ref_buf[dec->refcnt].fd[0] = dec->dpb[i].new_fd;
+					dec->refcnt++;
+					dec->dpb[i].new_fd = -1;
+					mfc_ctx_debug(3, "[NALQ][REFINFO] Dqueued DPB[%d] released fd: %d\n",
+							i, dec->dpb[i].fd[0]);
+				}
+
 				/*
 				 * Except queued buffer,
 				 * the released DPB is deleted from dpb_table

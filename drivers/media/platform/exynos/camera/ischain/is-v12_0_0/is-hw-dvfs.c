@@ -384,6 +384,8 @@ static int is_hw_dvfs_get_rear_single_scenario(
 					return IS_DVFS_SN_REAR_SINGLE_VIDEO_UHD60_SUPERSTEADY;
 				if (vendor == IS_DVFS_SCENARIO_VENDOR_PSM)
 					return IS_DVFS_SN_REAR_SINGLE_VIDEO_UHD60_PSM;
+				if (param->hf)
+					return IS_DVFS_SN_REAR_SINGLE_VIDEO_UHD60_HF;
 				return IS_DVFS_SN_REAR_SINGLE_VIDEO_UHD60;
 			case IS_DVFS_FPS_120:
 				return IS_DVFS_SN_REAR_SINGLE_VIDEO_UHD120;

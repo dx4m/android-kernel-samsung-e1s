@@ -619,7 +619,7 @@ static void pablo_debug_event_fops_kunit_test(struct kunit *test)
 	/* Setup required data structures */
 	inode = (struct inode *)kunit_kzalloc(test, sizeof(struct inode), 0);
 	file = (struct file *)kunit_kzalloc(test, sizeof(struct file), 0);
-	usr_buf = (char *)kvmalloc(sz, 0);
+	usr_buf = (char *)pablo_malloc(sz, GFP_KERNEL);
 
 	/* TC #1. File open */
 	inode->i_private = (void *)debug;

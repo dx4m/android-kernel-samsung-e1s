@@ -675,7 +675,7 @@ static int mfc_enc_s_fmt_vid_out_mplane(struct file *file, void *priv,
 	}
 
 	if (ctx->otf_handle) {
-		mfc_ctx_info("[OTF] skip source s_fmt\n");
+		mfc_ctx_info("[OTF] skip src s_fmt\n");
 		return 0;
 	}
 
@@ -812,6 +812,7 @@ static int mfc_enc_reqbufs(struct file *file, void *priv,
 					  struct v4l2_requestbuffers *reqbufs)
 {
 	struct mfc_ctx *ctx = fh_to_mfc_ctx(file->private_data);
+	struct _otf_handle *otf_handle = ctx->otf_handle;
 	int ret = 0;
 
 	mfc_ctx_debug_enter();
@@ -821,13 +822,17 @@ static int mfc_enc_reqbufs(struct file *file, void *priv,
 		return -EINVAL;
 	}
 
-	if (ctx->otf_handle) {
-		mfc_ctx_info("[OTF] skip reqbufs\n");
-		return 0;
-	}
-
 	if (reqbufs->type == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE) {
 		mfc_ctx_debug(4, "enc dst reqbuf(%d)\n", reqbufs->count);
+
+		if (otf_handle) {
+			mfc_ctx_debug(2, "[OTF] start header generation\n");
+			mfc_rm_qos_control(ctx, MFC_QOS_ON);
+			otf_handle->otf_ctrls_done = 1;
+			mfc_core_otf_request_work(ctx);
+			return 0;
+		}
+
 		if (reqbufs->count == 0) {
 			ret = vb2_reqbufs(&ctx->vq_dst, reqbufs);
 			ctx->capture_state = QUEUE_FREE;
@@ -847,6 +852,11 @@ static int mfc_enc_reqbufs(struct file *file, void *priv,
 
 		ctx->capture_state = QUEUE_BUFS_REQUESTED;
 	} else if (reqbufs->type == V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE) {
+		if (otf_handle) {
+			mfc_ctx_info("[OTF] skip src reqbufs\n");
+			return 0;
+		}
+
 		mfc_ctx_debug(4, "enc src reqbuf(%d)\n", reqbufs->count);
 		if (reqbufs->count == 0) {
 			ret = vb2_reqbufs(&ctx->vq_src, reqbufs);
@@ -888,7 +898,8 @@ static int mfc_enc_querybuf(struct file *file, void *priv,
 	mfc_ctx_debug_enter();
 
 	if (ctx->otf_handle) {
-		mfc_ctx_info("[OTF] skip source querybuf\n");
+		mfc_ctx_info("[OTF] skip %s querybuf\n",
+			buf->type == V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE ? "src" : "dst");
 		return 0;
 	}
 
@@ -932,7 +943,8 @@ static int mfc_enc_qbuf(struct file *file, void *priv, struct v4l2_buffer *buf)
 	mfc_ctx_debug_enter();
 
 	if (ctx->otf_handle) {
-		mfc_ctx_info("[OTF] skip qbuf\n");
+		mfc_ctx_info("[OTF] skip %s qbuf\n",
+			buf->type == V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE ? "src" : "dst");
 		return 0;
 	}
 
@@ -1005,7 +1017,8 @@ static int mfc_enc_dqbuf(struct file *file, void *priv, struct v4l2_buffer *buf)
 	mfc_ctx_debug_enter();
 
 	if (ctx->otf_handle) {
-		mfc_ctx_info("[OTF] skip dqbuf\n");
+		mfc_ctx_info("[OTF] skip %s dqbuf\n",
+			buf->type == V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE ? "src" : "dst");
 		return 0;
 	}
 
@@ -1044,7 +1057,8 @@ static int mfc_enc_streamon(struct file *file, void *priv,
 	mfc_ctx_debug_enter();
 
 	if (ctx->otf_handle) {
-		mfc_ctx_info("[OTF] skip streamon\n");
+		mfc_ctx_info("[OTF] skip %s streamon\n",
+			type == V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE ? "src" : "dst");
 		return 0;
 	}
 
@@ -1081,7 +1095,8 @@ static int mfc_enc_streamoff(struct file *file, void *priv,
 	mfc_ctx_debug_enter();
 
 	if (ctx->otf_handle) {
-		mfc_ctx_info("[OTF] skip streamoff\n");
+		mfc_ctx_info("[OTF] skip %s streamoff\n",
+			type == V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE ? "src" : "dst");
 		return 0;
 	}
 

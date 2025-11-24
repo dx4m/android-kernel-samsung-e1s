@@ -413,7 +413,8 @@ void ems_update_cpu_capacity(int cpu)
 	unsigned long freq_capacity = arch_capacity, prev;
 	unsigned int max_freq = 0, max_freq_orig = 0;
 
-	ego_get_max_freq(cpu, &max_freq, &max_freq_orig);
+	if (emstune_adaptive_cap())
+		ego_get_max_freq(cpu, &max_freq, &max_freq_orig);
 
 	if (max_freq_orig && max_freq != max_freq_orig)
 		freq_capacity = mult_frac(freq_capacity, max_freq, max_freq_orig);

@@ -183,6 +183,7 @@
  * REG_PD_STATUS2
  */
 #define BIT_PD_DataRole			BIT(7)
+#define BIT_PD_STOP_MODE		BIT(6)
 #define BIT_PD_ENTER_MODE		BIT(5)
 #define BIT_PD_PSRDY			BIT(4)
 #define BIT_FCT_ID				BITS(3, 0)

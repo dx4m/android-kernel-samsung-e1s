@@ -269,7 +269,7 @@ static int pablo_crta_bufmgr_open(struct pablo_crta_bufmgr *crta_bufmgr)
 	dbg_adt(1, "%s\n", __func__);
 
 	/* alloc priv */
-	bufmgr = vzalloc(sizeof(struct crta_bufmgr_v1));
+	bufmgr = pablo_zalloc(sizeof(struct crta_bufmgr_v1), GFP_KERNEL);
 	if (!bufmgr) {
 		err_adt("failed to alloc crta_bufmgr_v1");
 		return -ENOMEM;
@@ -294,7 +294,7 @@ static int pablo_crta_bufmgr_open(struct pablo_crta_bufmgr *crta_bufmgr)
 err_attach_buf:
 	__pablo_crta_bufmgr_free_buf(bufmgr);
 err_alloc_buf:
-	vfree(crta_bufmgr->priv);
+	pablo_free(crta_bufmgr->priv);
 	crta_bufmgr->priv = NULL;
 	return ret;
 }
@@ -328,7 +328,7 @@ static int pablo_crta_bufmgr_close(struct pablo_crta_bufmgr *crta_bufmgr)
 		__pablo_crta_bufmgr_free_buf(bufmgr);
 	}
 
-	vfree(crta_bufmgr->priv);
+	pablo_free(crta_bufmgr->priv);
 	crta_bufmgr->priv = NULL;
 
 	return 0;
@@ -586,9 +586,9 @@ int pablo_crta_bufmgr_probe(void)
 
 	for (buf_type = PABLO_CRTA_BUF_BASE; buf_type < PABLO_CRTA_BUF_MAX; buf_type++) {
 		size = array_size(sizeof(struct pablo_crta_bufmgr), bufmgr_info[buf_type].bufmgr_num);
-		__crta_bufmgr[buf_type] = vzalloc(size);
+		__crta_bufmgr[buf_type] = pablo_zalloc(size, GFP_KERNEL);
 		if (!__crta_bufmgr[buf_type]) {
-			probe_err("vzalloc failed");
+			probe_err("pablo_zalloc failed");
 			goto err_alloc;
 		}
 		for (bufmgr_idx = 0; bufmgr_idx < bufmgr_info[buf_type].bufmgr_num; bufmgr_idx++) {
@@ -602,7 +602,7 @@ int pablo_crta_bufmgr_probe(void)
 
 err_alloc:
 	while (buf_type-- > PABLO_CRTA_BUF_BASE)
-		vfree(__crta_bufmgr[buf_type]);
+		pablo_free(__crta_bufmgr[buf_type]);
 
 	return -ENOMEM;
 }

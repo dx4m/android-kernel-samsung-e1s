@@ -250,7 +250,7 @@ static void pablo_setup_module_pins_cfg_regulator_kunit_test(struct kunit *test)
 	im_regulator = kunit_kzalloc(test, sizeof(struct is_module_regulator), 0);
 	KUNIT_ASSERT_NOT_ERR_OR_NULL(test, im_regulator);
 
-	regulator = kzalloc(sizeof(struct regulator), 0);
+	regulator = pablo_zalloc(sizeof(struct regulator), GFP_KERNEL);
 	KUNIT_ASSERT_NOT_ERR_OR_NULL(test, regulator);
 
 	INIT_LIST_HEAD(&regulator->list);
@@ -305,7 +305,7 @@ static void pablo_setup_module_pins_cfg_regulator_kunit_test(struct kunit *test)
 	/* TC #5. Turn off regulator. */
 	rdev->ena_gpio_state = 1;
 
-	regulator = kzalloc(sizeof(struct regulator), 0);
+	regulator = pablo_zalloc(sizeof(struct regulator), GFP_KERNEL);
 	KUNIT_ASSERT_NOT_ERR_OR_NULL(test, regulator);
 
 	INIT_LIST_HEAD(&regulator->list);

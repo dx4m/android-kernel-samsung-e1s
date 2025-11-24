@@ -54,7 +54,9 @@ void sensor_3lu_cis_set_mode_group(u32 mode)
 	case SENSOR_3LU_4000X3000_30FPS_DSG:
 	case SENSOR_3LU_4000X3000_30FPS_ADC:
 	case SENSOR_3LU_4000X3000_30FPS_12BIT_LN2:
+	case SENSOR_3LU_4000X3000_15FPS_12BIT_LN4:
 		sensor_3lu_mode_groups[SENSOR_3LU_MODE_LN2] = SENSOR_3LU_4000X3000_30FPS_12BIT_LN2;
+		sensor_3lu_mode_groups[SENSOR_3LU_MODE_LN4] = SENSOR_3LU_4000X3000_15FPS_12BIT_LN4;
 		break;
 	case SENSOR_3LU_4000X2252_30FPS_DSG:
 	case SENSOR_3LU_4000X2252_60FPS_ADC:
@@ -516,8 +518,8 @@ int sensor_3lu_cis_mode_change(struct v4l2_subdev *subdev, u32 mode)
 	ret |= cis->ixc_ops->write16(cis->client, 0xFCFC, 0x4000);
 	ret |= cis->ixc_ops->write8(cis->client, 0x0E00, 0x00);
 
-	info("[%s] mode[%d] 12bit[%d] LN[%d] AEB[%d]\n",
-		__func__, mode,
+	info("[%s] [SEN_DBG] mode[%d, %s] 12bit[%d] LN[%d] AEB[%d]\n",
+		__func__, mode, cis->sensor_info->mode_infos[mode]->name,
 		cis->cis_data->cur_12bit_mode,
 		cis->cis_data->cur_lownoise_mode,
 		cis->cis_data->cur_hdr_mode);
@@ -773,7 +775,7 @@ static int cis_3lu_probe_i2c(struct i2c_client *client,
 	/* belows are depend on sensor cis. MUST check sensor spec */
 	cis->bayer_order = OTF_INPUT_ORDER_BAYER_GR_BG;
 	cis->reg_addr = &sensor_3lu_reg_addr;
-	cis->priv_runtime = kzalloc(sizeof(struct sensor_3lu_private_runtime), GFP_KERNEL);
+	cis->priv_runtime = pablo_zalloc(sizeof(struct sensor_3lu_private_runtime), GFP_KERNEL);
 	if (!cis->priv_runtime) {
 		kfree(cis->cis_data);
 		kfree(cis->subdev);

@@ -13,8 +13,10 @@
 #ifndef __EXYNOS_DRM_BTS_H__
 #define __EXYNOS_DRM_BTS_H__
 
+#include "linux/kthread.h"
 #include <linux/types.h>
 #include <soc/samsung/exynos_pm_qos.h>
+#include <soc/samsung/bts.h>
 #if IS_ENABLED(CONFIG_ARM_EXYNOS_DEVFREQ) || IS_ENABLED(CONFIG_ARM_EXYNOS_ESCA_DEVFREQ)
 #include <soc/samsung/exynos-devfreq.h>
 #else
@@ -32,7 +34,7 @@ struct exynos_drm_crtc;
 #define BTS_DPU_MAX		(2)
 #define BTS_DECON_MAX		(4)
 
-#define UHD_PIXELS		(6167040)
+#define UHD_PIXELS		(6144000)
 
 #define UPDATE_BW_FMT		"prev:(%u %u), cur(%u %u)"
 #define UPDATE_BW_ARG_BTS(b)				\
@@ -55,6 +57,12 @@ enum decon_bts_scen {
 	DPU_BS_DP_DEFAULT,
 	/* add scenario index if necessary */
 	DPU_BS_MAX
+};
+
+enum decon_tdm_resource {
+	DPU_TDM_HDR,
+	DPU_TDM_SAJC,
+	DPU_TDM_MAX,
 };
 
 struct exynos_drm_crtc;
@@ -175,6 +183,7 @@ struct dpu_bts {
 	u32 df_mif_idx;
 	u32 df_int_idx;
 	u32 df_disp_idx;
+	u32 tdm_rsc_count[DPU_TDM_MAX];
 	struct bts_decon_info bts_info;
 	struct dpu_bts_ops *ops;
 	struct exynos_pm_qos_request mif_qos;
@@ -183,6 +192,15 @@ struct dpu_bts {
 
 	struct dpu_bts_win_config win_config[BTS_WIN_MAX];
 	struct dpu_bts_win_config wb_config;
+
+	struct bts_bw bw_applied;
+	u32 bw_limit;
+	bool is_max_perf;
+	struct completion bts_comp;
+	struct task_struct *bts_thread;
+	struct kthread_worker bts_worker;
+	struct kthread_work bts_work;
+	struct mutex bts_lock;
 };
 
 extern struct dpu_bts_ops dpu_bts_control;

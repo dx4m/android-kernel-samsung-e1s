@@ -954,4 +954,11 @@ static inline unsigned long abox_get_waiting_jiffies(bool coarse)
 */
 extern int abox_print_power_usage(struct device *dev, void *data);
 
+/**
+ * abox status check for abox ipc
+ * @param[in]   dev             pointer to struct dev which invokes this API
+ * @param[in]	data		pointer to abox_data structure
+ */
+extern bool abox_can_calliope_ipc(struct device *dev, struct abox_data *data);
+
 #endif /* __SND_SOC_ABOX_H */

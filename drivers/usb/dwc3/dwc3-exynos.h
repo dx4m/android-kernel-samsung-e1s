@@ -17,6 +17,8 @@
  * GNU General Public License for more details.
  */
 
+#include <linux/cpufreq.h>
+
 #ifndef __LINUX_USB_DWC3_EXYNOS_H
 #define __LINUX_USB_DWC3_EXYNOS_H
 
@@ -108,16 +110,23 @@ struct dwc3_exynos {
 	int			vbus_state;
 	struct dwc3_exynos_config config;
 
+#if IS_ENABLED(CONFIG_USB_EXYNOS_RETRY_CONFIGURATION)
 	/* Timer and retry count for USB device reconnection */
 	struct timer_list	usb_connect_timer;
 	int			retry_cnt;
 	int			retry_disable;
 	int			connection_fail;
+#endif
 
 	struct delayed_work	usb_qos_lock_delayed_work;
 	struct work_struct		int_kprobe_work;
 	int			is_perf;
 	int			lazy_vbus_up;
+
+	/* CPU minlock */
+	struct workqueue_struct	*cpufreq_wq;
+	struct work_struct cpufreq_work;
+	struct freq_qos_request qos_req_cpu_cl0;
 
 	bool		usb_data_enabled;
 };

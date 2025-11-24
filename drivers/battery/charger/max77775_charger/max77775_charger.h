@@ -378,6 +378,7 @@ struct max77775_charger_data {
 	struct delayed_work	isr_work;
 	struct delayed_work wc_current_work;
 	struct delayed_work wc_chg_current_work;
+	struct delayed_work chgin_work;
 #if defined(CONFIG_USE_POGO)
 	struct delayed_work	wcin_det_work;
 #endif
@@ -405,6 +406,7 @@ struct max77775_charger_data {
 	unsigned int	input_current;
 	unsigned int	charging_current;
 	unsigned int	vbus_state;
+	unsigned int	chgin_dtls;
 	int		aicl_curr;
 	bool	slow_charging;
 	int		status;

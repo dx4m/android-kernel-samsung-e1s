@@ -225,7 +225,7 @@ struct pablo_sync_repro *pablo_sync_repro_probe(void)
 {
 	struct pablo_sync_repro *sync_repro;
 
-	sync_repro = vzalloc(sizeof(struct pablo_sync_repro));
+	sync_repro = pablo_zalloc(sizeof(struct pablo_sync_repro), GFP_KERNEL);
 	if (!sync_repro) {
 		err("failed to allocate sync_repro");
 		return NULL;

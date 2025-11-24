@@ -161,6 +161,9 @@ struct mapped_device {
 #define DMF_POST_SUSPENDING 8
 #define DMF_EMULATE_ZONE_APPEND 9
 
+
+/* Added for flush once per each request_queue */
+#define DMF_SEC_FLUSH_ONCE_SAME_RQ 30
 /* Added for reliable write */
 #define DMF_RELIABLE_WRITE	31
 

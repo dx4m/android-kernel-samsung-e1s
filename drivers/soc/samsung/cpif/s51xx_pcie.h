@@ -15,10 +15,13 @@ extern void first_save_s51xx_status(struct pci_dev *pdev);
 extern int s51xx_pcie_init(struct modem_ctl *mc);
 extern int exynos_pcie_host_v1_register_event(struct exynos_pcie_register_event *reg);
 /* not used: extern int exynos_pcie_host_v1_deregister_event(struct exynos_pcie_register_event *reg); */
-extern void exynos_pcie_rc_register_dump(int ch_num);
+extern void exynos_pcie_rc_register_dump(int ch_num, int full_dump);
 extern int exynos_pcie_rc_set_outbound_atu(int ch_num, u32 target_addr, u32 offset, u32 size);
 extern bool exynos_pcie_rc_get_cpl_timeout_state(int ch_num);
 extern void exynos_pcie_rc_set_cpl_timeout_state(int ch_num, bool recovery);
+extern bool exynos_pcie_rc_get_sudden_linkdown_state(int ch_num);
+extern void exynos_pcie_rc_set_sudden_linkdown_state(int ch_num, bool recovery);
+extern void exynos_pcie_rc_force_linkdown_work(int ch_num);
 
 struct s51xx_pcie {
 	unsigned int busdev_num;

@@ -156,7 +156,7 @@ int __is_mcu_hw_set_init_peri(void __iomem *base)
 	recover_val = src & 0xFFFFFF00;
 	recover_val |= 0x00000055;
 	is_mcu_set_reg(base, OIS_PERI2_PUD_CTRL, recover_val);
-#elif defined(CONFIG_CAMERA_BRY_V7)
+#elif defined(CONFIG_CAMERA_BRY_V7) || defined(CONFIG_CAMERA_RSY_V13)
 	src = is_mcu_get_reg(base, OIS_PERI_CON_CTRL);
 	recover_val = (src & 0xFFFFFF00) | 0x00000022;
 	is_mcu_set_reg(base, OIS_PERI_CON_CTRL, recover_val);
@@ -227,7 +227,7 @@ int __is_mcu_hw_set_clear_peri(void __iomem *base)
 	src = is_mcu_get_reg(base, OIS_PERI2_PUD_CTRL);
 	recover_val = src & 0xFFFFFF00;
 	is_mcu_set_reg(base, OIS_PERI2_PUD_CTRL, recover_val);
-#elif defined(CONFIG_CAMERA_BRY_V7)
+#elif defined(CONFIG_CAMERA_BRY_V7) || defined(CONFIG_CAMERA_RSY_V13)
 	src = is_mcu_get_reg(base, OIS_PERI_CON_CTRL);
 	recover_val = src & 0xFFFFFF00;
 	is_mcu_set_reg(base, OIS_PERI_CON_CTRL, recover_val);
@@ -476,3 +476,11 @@ int __is_mcu_hw_peri2_dump(void __iomem *base)
 	return 0;
 }
 
+int __is_mcu_hw_peri_remap_dump(void __iomem *base)
+{
+	info_mcu("%s I2C remap : %08X", __func__,
+		is_hw_get_field(base, &ois_mcu_regs[OIS_CM0P_REMAP_I2C_ADDR],  &ois_mcu_fields[F_OIS_CM0P_I2C_ADDR]));
+	info_mcu("%s SPI remap : %08X", __func__,
+		is_hw_get_field(base, &ois_mcu_regs[OIS_CM0P_REMAP_SPI_ADDR],  &ois_mcu_fields[F_OIS_CM0P_SPI_ADDR]));
+	return 0;
+}

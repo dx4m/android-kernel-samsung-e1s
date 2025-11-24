@@ -1345,7 +1345,7 @@ static int cis_hp2_probe_i2c(struct i2c_client *client,
 	cis->use_wb_gain = true;
 	cis->use_bpc_otp = true;
 	cis->reg_addr = &sensor_hp2_reg_addr;
-	cis->priv_runtime = kzalloc(sizeof(struct sensor_hp2_private_runtime), GFP_KERNEL);
+	cis->priv_runtime = pablo_zalloc(sizeof(struct sensor_hp2_private_runtime), GFP_KERNEL);
 	if (!cis->priv_runtime) {
 		kfree(cis->cis_data);
 		kfree(cis->subdev);

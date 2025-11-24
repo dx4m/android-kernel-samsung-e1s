@@ -1695,6 +1695,14 @@ static long jsqz_ioctl(struct file *filp,
 				, "%s: user data copied, now launching processing...\n"
 				, __func__);
 
+			if ((data.user_mtask.video_info.width > 0x1fff) ||
+				(data.user_mtask.video_info.height > 0xfff) || (data.user_mtask.video_info.stride > 0x1fff)) {
+				dev_err(jsqz_device->dev,
+					"%s: image width or height is out of range, width : %d, height : %d, stride %d\n",
+					__func__, data.user_mtask.video_info.width, data.user_mtask.video_info.height, data.user_mtask.video_info.stride);
+				return -EINVAL;
+			}
+
 			/*
 			 * jsqz_process() does not wake up
 			 * until the given task finishes
@@ -1950,6 +1958,14 @@ static long jsqz_compat_ioctl32(struct file *filp,
 			task.user_mtask.buf_in.fd = data.buf_in.fd;
 		else
 			task.user_mtask.buf_in.userptr = data.buf_in.userptr;
+
+		if ((task.user_mtask.video_info.width > 0x1fff) ||
+			(task.user_mtask.video_info.height > 0xfff) || (task.user_mtask.video_info.stride > 0x1fff)) {
+			dev_err(jsqz_device->dev,
+				"%s: image width or height is out of range, width : %d, height : %d, stride %d\n",
+				__func__, task.user_mtask.video_info.width, task.user_mtask.video_info.height, task.user_mtask.video_info.stride);
+			return -EINVAL;
+		}
 
 
 		/*

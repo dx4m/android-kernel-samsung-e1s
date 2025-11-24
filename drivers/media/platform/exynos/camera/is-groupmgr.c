@@ -2544,7 +2544,7 @@ void is_group_release(struct is_device_ischain *device, u32 slot)
 		return;
 
 	if (device && device->group[slot]) {
-		kvfree(device->group[slot]);
+		pablo_free(device->group[slot]);
 		device->group[slot] = NULL;
 	}
 }
@@ -2567,7 +2567,7 @@ int is_group_probe(struct is_device_sensor *sensor,
 	if (device) {
 		stream = device->instance;
 		device_type = IS_DEVICE_ISCHAIN;
-		group = kvzalloc(sizeof(struct is_group), GFP_KERNEL);
+		group = pablo_zalloc(sizeof(struct is_group), GFP_KERNEL);
 		if (ZERO_OR_NULL_PTR(group)) {
 			minfo("failed to alloc group slot(%d)\n", device, slot);
 			return -ENOMEM;

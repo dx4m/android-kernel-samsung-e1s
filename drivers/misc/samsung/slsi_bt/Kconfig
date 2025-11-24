@@ -1,28 +1,47 @@
 config SLSI_BT
 	tristate "SLSI MX BT support"
-	depends on (SCSC_CORE || KUNIT_SLSI_BT_TEST)
+	depends on (SCSC_CORE || SLSI_BT_KUNIT_TEST)
+	depends on (BT || SLSI_BT_KUNIT_TEST)
 
-choice
-	prompt "Data transport interface"
-	depends on SLSI_BT
-		default SLSI_BT_USE_UART_INTERFACE
 config SLSI_BT_USE_UART_INTERFACE
-		bool "UART interface"
+	bool "UART interface"
+	depends on SLSI_BT
+	default n
+	help
+	  Choose here to select to use uart interface with tty
+
+config SLSI_BT_USE_HCI_INTERFACE
+	bool "HCI interface"
+	depends on SLSI_BT
+	default n
+	help
+	  Choose here to select to use the serdev interface
+
 config SLSI_BT_USE_MIF_INTERFACE
-		bool "MIF interface"
-endchoice
+	bool "MIF interface"
+	depends on SLSI_BT
+	default n
+	help
+	  Choose here to select to use the MIF interface
+
+config SLSI_BT_USE_TTY_INTERFACE
+	bool "TTY UART interface"
+	default n
+	depends on SLSI_BT_USE_UART_INTERFACE
+	help
+	  Select the tty device file.
 
 config SLSI_BT_TTY_DEVICE_NAME
 	string "TTY device filename"
 	default "ttySAC1"
-	depends on SLSI_BT_USE_UART_INTERFACE
+	depends on SLSI_BT_USE_TTY_INTERFACE
 	help
 	  Select the tty device file.
 
 config SLSI_BT_TTY_BAUD
 	int "Baud rate"
 	default 4800000
-	depends on SLSI_BT_USE_UART_INTERFACE
+	depends on SLSI_BT_USE_TTY_INTERFACE
 	help
 	  Select baud rate for serial interface.
 
@@ -40,6 +59,13 @@ config SLSI_BT_BCSP
 	help
 	  Select the SLSI BT BCSP driver.
 
+config SLSI_BT_LR_WPAN
+	default N
+	tristate "Enable LR-WPAN driver"
+	depends on SLSI_BT
+	help
+	  Select the SLSI BT LR_WPAN driver.
+
 config SLSI_BT_ADDRESS_IN_FILE
 	default N
 	tristate "SCSC MX BT support"
@@ -53,3 +79,32 @@ config SLSI_BT_ADDRESS_FILENAME
 	default "/mnt/vendor/efs/bluetooth/bt_addr"
 	help
 	  Select the named BT address override file.
+
+config SLSI_BT_FWLOG_SNOOP
+	default y
+	tristate "Enable FWLOG BT Snoop"
+	depends on SLSI_BT
+	help
+	  Select if you want fwlog to bt snoop.
+
+config SLSI_BT_FASTPATH
+	default y
+	tristate "Enable Fastpath support"
+	depends on SLSI_BT
+	depends on SLSI_BT_BCSP
+	help
+	  Select if you want to enable Fastpath support.
+
+config SLSI_BT_USE_SLSI_CORE_MODULE
+	bool "Refer slsi_core/ to use find a interface of scsc mx"
+	default n
+	depends on SLSI_BT
+	help
+	  The directory of the SCSC MX Core driver that the bt driver refers to.
+
+config SLSI_BT_USE_PCIE_SCSC_MODULE
+	bool "Refer pcie_scsc/ instead of scsc/ to use SCSC MX APIs"
+	default n
+	depends on SLSI_BT
+	help
+	  The directory of the SCSC MX Core driver that the bt driver refers to.

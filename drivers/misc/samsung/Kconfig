@@ -1,5 +1,10 @@
 source "drivers/misc/samsung/gpio_debug/Kconfig"
+if SOC_S5E8845
 source "drivers/misc/samsung/scsc/Kconfig"
+endif
+if SOC_S5E9945
+source "drivers/misc/samsung/pcie_scsc/Kconfig"
+endif
 source "drivers/misc/samsung/scsc_bt/Kconfig"
 source "drivers/misc/samsung/slsi_bt/Kconfig"
 source "drivers/misc/samsung/kic/Kconfig"

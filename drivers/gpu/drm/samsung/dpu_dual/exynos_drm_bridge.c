@@ -55,6 +55,23 @@ static void exynos_bridge_atomic_pre_enable(struct drm_bridge *bridge,
 	DPU_ATRACE_END(__func__);
 }
 
+void exynos_drm_bridge_earlyopen(struct drm_bridge *bridge)
+{
+	struct exynos_drm_bridge *exynos_bridge = to_exynos_bridge(bridge);
+	const struct exynos_drm_bridge_funcs *funcs = exynos_bridge->funcs;
+	struct exynos_drm_bridge_state *exynos_bridge_state =
+		bridge_to_exynos_bridge_state(bridge);
+
+	if (unlikely(!funcs))
+		return;
+
+	if (exynos_bridge_state->earlyopen && funcs->earlyopen) {
+		if (funcs->earlyopen(exynos_bridge))
+			exynos_bridge_state->lastclosed = false;
+	}
+}
+EXPORT_SYMBOL(exynos_drm_bridge_earlyopen);
+
 static void exynos_bridge_atomic_enable(struct drm_bridge *bridge,
 					struct drm_bridge_state *old_bridge_state)
 {
@@ -69,6 +86,10 @@ static void exynos_bridge_atomic_enable(struct drm_bridge *bridge,
 		return;
 
 	DPU_ATRACE_BEGIN(__func__);
+	if (exynos_bridge_state->lastclosed && funcs->earlyopen) {
+		if (funcs->earlyopen(exynos_bridge))
+			exynos_bridge_state->lastclosed = false;
+	}
 	if (!psr_req && psr_en && funcs->psr_stop) {
 		funcs->psr_stop(exynos_bridge);
 		exynos_bridge_state->psr_enabled = false;
@@ -116,16 +137,21 @@ static void exynos_bridge_atomic_post_disable(struct drm_bridge *bridge,
 	DPU_ATRACE_END(__func__);
 }
 
-static void exynos_bridge_post_disable(struct drm_bridge *bridge)
+void exynos_drm_bridge_lastclose(struct drm_bridge *bridge)
 {
 	struct exynos_drm_bridge *exynos_bridge = to_exynos_bridge(bridge);
 	const struct exynos_drm_bridge_funcs *funcs = exynos_bridge->funcs;
+	struct exynos_drm_bridge_state *exynos_bridge_state =
+				bridge_to_exynos_bridge_state(bridge);
 
 	DPU_ATRACE_BEGIN(__func__);
-	if (funcs && funcs->lastclose)
-		funcs->lastclose(exynos_bridge);
+	if (funcs && funcs->lastclose) {
+		if (funcs->lastclose(exynos_bridge))
+			exynos_bridge_state->lastclosed = true;
+	}
 	DPU_ATRACE_END(__func__);
 }
+EXPORT_SYMBOL(exynos_drm_bridge_lastclose);
 
 static void exynos_bridge_mode_set(struct drm_bridge *bridge,
 				  const struct drm_display_mode *mode,
@@ -139,15 +165,19 @@ static void exynos_bridge_mode_set(struct drm_bridge *bridge,
 }
 
 static int exynos_drm_bridge_atomic_check(struct drm_bridge *bridge,
-						 struct drm_bridge_state *bridge_state,
-						 struct drm_crtc_state *crtc_state,
-						 struct drm_connector_state *conn_state)
+					  struct drm_bridge_state *bridge_state,
+					  struct drm_crtc_state *crtc_state,
+					  struct drm_connector_state *conn_state)
 {
 	struct exynos_drm_bridge_state *exynos_bridge_state =
 				to_exynos_bridge_state(bridge_state);
 
 	exynos_bridge_state->psr_request =
 			crtc_state && crtc_state->self_refresh_active;
+
+	if (crtc_state->active && !crtc_state->active_changed &&
+			exynos_bridge_state->lastclosed)
+		exynos_bridge_state->earlyopen = true;
 
 	return 0;
 }
@@ -166,8 +196,10 @@ exynos_drm_bridge_atomic_duplicate_state(struct drm_bridge *bridge)
 	new = kzalloc(sizeof(*new), GFP_KERNEL);
 	if (new) {
 		__drm_atomic_helper_bridge_duplicate_state(bridge, &new->base);
-		if (old)
+		if (old) {
 			new->psr_enabled = old->psr_enabled;
+			new->lastclosed = old->lastclosed;
+		}
 	}
 
 	return &new->base;
@@ -194,6 +226,8 @@ struct drm_bridge_state *exynos_drm_bridge_atomic_reset(struct drm_bridge *bridg
 	state = &exynos_state->base;
 	exynos_state->psr_request = false;
 	exynos_state->psr_enabled = false;
+	exynos_state->lastclosed = false;
+	exynos_state->earlyopen = false;
 
 	__drm_atomic_helper_bridge_reset(bridge, state);
 
@@ -207,7 +241,6 @@ static const struct drm_bridge_funcs exynos_bridge_funcs = {
 	.atomic_enable 			= exynos_bridge_atomic_enable,
 	.atomic_disable 		= exynos_bridge_atomic_disable,
 	.atomic_post_disable 		= exynos_bridge_atomic_post_disable,
-	.post_disable 			= exynos_bridge_post_disable,
 	.mode_set 			= exynos_bridge_mode_set,
 	.atomic_check			= exynos_drm_bridge_atomic_check,
 	.atomic_duplicate_state		= exynos_drm_bridge_atomic_duplicate_state,

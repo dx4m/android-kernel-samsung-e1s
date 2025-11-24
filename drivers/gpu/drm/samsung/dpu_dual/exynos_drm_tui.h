@@ -20,19 +20,30 @@ struct stui_buf_info;
 struct decon_device;
 struct exynos_drm_crtc_state;
 
+#define DISP_ID_MAIN                    (0x0U << 0)
+#define DISP_ID_SUB                     (0x1U << 0)
+#define DISP_ID_MASK                    (0xFU << 0)
+#define DISP_TYPE_SINGLE                (0x0U << 4)
+#define DISP_TYPE_DUAL                  (0x1U << 4)
+#define DISP_TYPE_MASK                  (0xFU << 4)
+#define DISP_MODE_VIDEO                 (0x0U << 8)
+#define DISP_MODE_COMMAND               (0x1U << 8)
+#define DISP_MODE_MASK                  (0xFU << 8)
+#define DISP_FLAG_MASK                  (DISP_ID_MASK | DISP_TYPE_MASK | DISP_MODE_MASK)
+
 struct resolution_info {
 	uint32_t xres;
 	uint32_t yres;
-	uint32_t mode;
+	uint32_t mode;		/* TODO: Merge to flag */
+	uint32_t disp_flag;
 };
 
 /* TODO: change with self_refresh */
-bool is_tui_trans(const struct drm_crtc_state *crtc_state);
 int exynos_drm_atomic_check_tui(struct drm_atomic_state *state);
 
 int exynos_atomic_enter_tui(void);
 int exynos_atomic_exit_tui(void);
-void exynos_tui_register(struct drm_crtc *crtc);
+int exynos_tui_register(struct drm_device *drmdev);
 
 void exynos_tui_get_resolution(struct resolution_info *res_info);
 #if IS_ENABLED(CONFIG_SAMSUNG_TUI)

@@ -1463,7 +1463,7 @@
 	status = "okay";
 	use-sysmmu = "false";
 	ip-ver = <0x994500>;
-	use-ia = "false";
+	use-ia = "true";
 	ep-device-type = <EP_TYPE_SAMSUNG_MODEM>;
 	max-link-speed = <LINK_SPEED_GEN3>;
 	num-lanes = <2>;

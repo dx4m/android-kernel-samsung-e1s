@@ -45,20 +45,18 @@ struct exynos_hiber_profile {
 
 struct exynos_hibernation {
 	u32 id;
-	atomic_t trig_cnt;
+	ktime_t entry_time;
 	atomic_t block_cnt;
 	struct mutex lock;
-	struct kthread_work work;
 	struct decon_device *decon;
 
 	bool available;
-	bool early_wakeup_enable;
-	struct task_struct *exit_thread;
-	struct kthread_worker exit_worker;
+	struct task_struct *thread;
+	struct kthread_worker worker;
+	struct kthread_work entry_work;
 	struct kthread_work exit_work;
 	/* hibernation exit count only increasing through sysfs */
 	u32 early_wakeup_cnt;
-	unsigned int min_entry_fps;
 
 	struct exynos_hiber_profile profile;
 };

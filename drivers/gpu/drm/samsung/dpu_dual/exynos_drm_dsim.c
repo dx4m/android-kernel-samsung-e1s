@@ -2389,7 +2389,7 @@ static int dsim_probe(struct platform_device *pdev)
 	dsim->state = DSIM_STATE_SUSPEND;
 	pm_runtime_enable(dsim->dev);
 	pm_runtime_use_autosuspend(dsim->dev);
-	pm_runtime_set_autosuspend_delay(dsim->dev, 1);
+	pm_runtime_set_autosuspend_delay(dsim->dev, 50);
 
 	pm_runtime_get_sync(dsim->dev);
 

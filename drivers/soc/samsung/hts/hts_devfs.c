@@ -121,8 +121,7 @@ static int hts_fops_mmap(struct file *filp, struct vm_area_struct *vma)
 
 	if (data == NULL ||
 		data->pmu == NULL ||
-		requested_size < PAGE_SIZE ||
-		requested_size % DATA_UNIT_SIZE != 0)
+		requested_size != PAGE_SIZE * 2)
 		return -EINVAL;
 
 	spin_lock_irqsave(&data->pmu->lock, flags);
@@ -192,6 +191,8 @@ static long hts_fops_ioctl(struct file *filp, unsigned int cmd, unsigned long ar
 	struct hts_data *data = container_of(filp->f_op, struct hts_data, devfs.fops);
 	long ret = 0;
 
+	mutex_lock(&data->ioctl_lock);
+
 	switch (cmd) {
 	case IOCTL_MODIFY_TICK:
 		hts_modify_signal_tick(data, arg);
@@ -246,8 +247,10 @@ static long hts_fops_ioctl(struct file *filp, unsigned int cmd, unsigned long ar
 		ret = hts_set_total_threshold(data, arg);
 		break;
 	default:
-		return -EINVAL;
+		ret = -EINVAL;
 	}
+
+	mutex_unlock(&data->ioctl_lock);
 
 	return ret;
 }

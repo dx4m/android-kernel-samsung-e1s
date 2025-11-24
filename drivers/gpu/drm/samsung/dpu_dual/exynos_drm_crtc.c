@@ -35,7 +35,6 @@
 #include <exynos_drm_crtc.h>
 #include <exynos_drm_drv.h>
 #include <exynos_drm_plane.h>
-#include <exynos_drm_tui.h>
 #include <exynos_drm_profiler.h>
 #include <exynos_drm_format.h>
 #include <exynos_drm_decon.h>
@@ -163,19 +162,10 @@ static void exynos_drm_crtc_atomic_disable(struct drm_crtc *crtc,
 	enter_hiber = is_crtc_psr_enabled(crtc, old_state);
 	if (enter_hiber && ops->atomic_enter_hiber)
 		ops->atomic_enter_hiber(exynos_crtc);
-	else if (!enter_hiber && ops->disable)
+	else if (!enter_hiber && ops->disable) {
 		ops->disable(exynos_crtc);
-
-	if (crtc->state->event && !crtc->state->active) {
-		spin_lock_irq(&crtc->dev->event_lock);
-		drm_crtc_send_vblank_event(crtc, crtc->state->event);
-		spin_unlock_irq(&crtc->dev->event_lock);
-
-		crtc->state->event = NULL;
-	}
-
-	if (!enter_hiber && ops->disable)
 		drm_crtc_vblank_off(crtc);
+	}
 
 	DPU_ATRACE_END(__func__);
 }
@@ -374,31 +364,32 @@ static const struct drm_crtc_helper_funcs exynos_crtc_helper_funcs = {
 	.atomic_disable	= exynos_drm_crtc_atomic_disable,
 };
 
-void exynos_crtc_arm_event(struct exynos_drm_crtc *exynos_crtc)
+void exynos_crtc_arm_event(struct drm_crtc *crtc,
+			  struct drm_crtc_state *crtc_state)
 {
 	struct dma_fence *fence;
-	struct drm_crtc *crtc = &exynos_crtc->base;
-	struct drm_pending_vblank_event *event = crtc->state->event;
+	struct exynos_drm_crtc *exynos_crtc = to_exynos_crtc(crtc);
+	struct exynos_drm_crtc_state *exynos_crtc_state = to_exynos_crtc_state(crtc_state);
+	struct drm_pending_vblank_event *event = crtc_state->event;
 	unsigned long flags;
 
 	if (!event)
 		return;
 
-	crtc->state->event = NULL;
+	crtc_state->event = NULL;
 
-	WARN_ON(drm_crtc_vblank_get(crtc) != 0);
-
+	WARN_ON(exynos_crtc_state->event);
 	spin_lock_irqsave(&crtc->dev->event_lock, flags);
-	WARN_ON(exynos_crtc->event != NULL);
 	fence = event->base.fence;
 	if (fence)
 		DPU_EVENT_LOG("ARM_CRTC_OUT_FENCE", exynos_crtc, EVENT_FLAG_FENCE,
 				FENCE_FMT, FENCE_ARG(fence));
-	exynos_crtc->event = event;
+	exynos_crtc_state->event = event;
 	spin_unlock_irqrestore(&crtc->dev->event_lock, flags);
 }
 
-void exynos_crtc_send_event(struct exynos_drm_crtc *exynos_crtc)
+void exynos_crtc_send_event(struct exynos_drm_crtc *exynos_crtc,
+			    struct exynos_drm_crtc_state *exynos_crtc_state)
 {
 	struct drm_device *dev;
 	unsigned long flags;
@@ -409,11 +400,9 @@ void exynos_crtc_send_event(struct exynos_drm_crtc *exynos_crtc)
 	dev = exynos_crtc->base.dev;
 	spin_lock_irqsave(&dev->event_lock, flags);
 
-	if (exynos_crtc->event) {
-		drm_send_event_locked(exynos_crtc->base.dev, &exynos_crtc->event->base);
-		exynos_crtc->event = NULL;
-		drm_crtc_vblank_put(&exynos_crtc->base);
-	}
+	if (exynos_crtc_state->event)
+		drm_send_event_locked(exynos_crtc->base.dev, &exynos_crtc_state->event->base);
+
 	spin_unlock_irqrestore(&dev->event_lock, flags);
 }
 
@@ -505,6 +494,10 @@ exynos_drm_crtc_duplicate_state(struct drm_crtc *crtc)
 	copy->boost_bts_fps = 0;
 	copy->expected_present_time = 0;
 	copy->skip_update = false;
+	copy->event = NULL;
+	copy->out_fence.ptr = NULL;
+	copy->out_fence.sync_file = NULL;
+	copy->out_fence.fd = -1;
 
 	if (copy->partial)
 		drm_property_blob_get(copy->partial);
@@ -560,6 +553,16 @@ static int exynos_drm_crtc_set_property(struct drm_crtc *crtc,
 	} else if ((p->expected_present_time) &&
 			(property == p->expected_present_time)) {
 		exynos_crtc_state->expected_present_time = val;
+	} else if ((p->out_fence_ptr) && (property == p->out_fence_ptr)) {
+		s32 __user *fence_ptr = u64_to_user_ptr(val);
+
+		if (!fence_ptr)
+			return 0;
+
+		if (put_user(-1, fence_ptr))
+			return -EFAULT;
+
+		exynos_crtc_state->out_fence.ptr = fence_ptr;
 	} else {
 		ret = -EINVAL;
 	}
@@ -652,6 +655,8 @@ static int exynos_drm_crtc_get_property(struct drm_crtc *crtc,
 	else if ((p->expected_present_time) &&
 			(property == p->expected_present_time))
 		*val = exynos_crtc_state->expected_present_time;
+	else if ((p->out_fence_ptr) && (property == p->out_fence_ptr))
+		*val = 0;
 	else
 		return -EINVAL;
 
@@ -840,6 +845,11 @@ int exynos_drm_crtc_create_properties(struct drm_device *drm_dev)
 	if (!p->restrictions)
 		return -ENOMEM;
 
+	p->out_fence_ptr = drm_property_create_range(drm_dev, 0, "out_fence_ptr",
+			0, U64_MAX);
+	if (!p->out_fence_ptr)
+		return -ENOMEM;
+
 	return 0;
 }
 
@@ -905,6 +915,7 @@ exynos_drm_crtc_create(struct drm_device *drm_dev, unsigned int index,
 
 	drm_crtc_helper_add(crtc, &exynos_crtc_helper_funcs);
 
+	drm_object_attach_property(&crtc->base, p->out_fence_ptr, 0);
 	/* valid only for LCD display */
 	if (exynos_crtc->possible_type & EXYNOS_DISPLAY_TYPE_DSI) {
 		drm_object_attach_property(&crtc->base, p->adjusted_vblank, 0);
@@ -943,7 +954,6 @@ exynos_drm_crtc_create(struct drm_device *drm_dev, unsigned int index,
 
 	exynos_crtc->hibernation = exynos_hibernation_register(exynos_crtc);
 	exynos_crtc->profiler = exynos_profiler_register(exynos_crtc);
-	exynos_tui_register(&exynos_crtc->base);
 
 	return exynos_crtc;
 }

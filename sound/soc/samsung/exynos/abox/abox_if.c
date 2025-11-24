@@ -723,7 +723,6 @@ static int abox_if_set_sysclk(struct snd_soc_dai *dai,
 	}
 
 	abox_register_bclk_usage(dev, abox_data, dai_id, rate, channels, width);
- 
 
 	mux_rate = clk_get_rate(abox_data->clk_audif);
 	if (mux_rate == 0)

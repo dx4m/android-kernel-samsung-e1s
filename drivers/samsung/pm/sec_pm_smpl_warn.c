@@ -21,8 +21,14 @@
 #include <linux/cpufreq.h>
 #include <linux/pm_qos.h>
 #include <linux/interrupt.h>
+#include <linux/sec_class.h>
 #include <linux/sec_pm_smpl_warn.h>
 #include <soc/samsung/freq-qos-tracer.h>
+#include <soc/samsung/exynos_pm_qos.h>
+
+#define BUF_SIZE	128
+#define PIN_HIGH	1
+#define PIN_LOW		0
 
 struct cpufreq_dev {
 	struct cpufreq_frequency_table *freq_table;
@@ -36,16 +42,24 @@ struct cpufreq_dev {
 };
 
 struct sec_pm_smpl_warn_info {
-	struct device		*dev;
-	int			num_policy_cpus;
-	u32			*policy_cpus;
-	int			ocp_warn_gpio;
-	int			ocp_warn_irq;
-	unsigned int		ocp_warn_cnt;
+	struct device			*dev;
+	struct device			*sec_dev;
+	int				num_policy_cpus;
+	u32				*policy_cpus;
+	int				smpl_warn_gpio;
+	int				ocp_warn_gpio;
+	int				ocp_warn_irq;
+	unsigned int			ocp_warn_cnt;
+	ktime_t				ocp_warn_start_time;
+	s64				ocp_warn_accumulated_time;
 };
 
 static DEFINE_MUTEX(cpufreq_dev_list_lock);
 static LIST_HEAD(cpufreq_dev_list);
+
+static unsigned int *gpu_freq_table;
+static unsigned int gpu_freq_table_size;
+static struct exynos_pm_qos_request sec_pm_gpu_max_qos;
 
 static unsigned long throttle_count;
 static bool smpl_warn_init_done;
@@ -82,6 +96,38 @@ static unsigned long get_level(struct cpufreq_dev *cdev,
 	return level;
 }
 
+static void sec_pm_throttle_gpu_freq(unsigned long count)
+{
+	unsigned long freq;
+	unsigned int idx = gpu_freq_table_size / 2;
+
+	idx += count;
+
+	if (idx >= gpu_freq_table_size)
+		return;
+
+	freq = gpu_freq_table[idx];
+
+	pr_info("%s: %lu\n", __func__, freq);
+
+	if (sec_pm_gpu_max_qos.exynos_pm_qos_class) {
+		if (exynos_pm_qos_request_active(&sec_pm_gpu_max_qos))
+			exynos_pm_qos_update_request(&sec_pm_gpu_max_qos, freq);
+	}
+}
+
+static void sec_pm_unthrottle_gpu_freq(void)
+{
+	unsigned long freq = PM_QOS_GPU_FREQ_MAX_DEFAULT_VALUE;
+
+	pr_info("%s\n", __func__);
+
+	if (sec_pm_gpu_max_qos.exynos_pm_qos_class) {
+		if (exynos_pm_qos_request_active(&sec_pm_gpu_max_qos))
+			exynos_pm_qos_update_request(&sec_pm_gpu_max_qos, freq);
+	}
+}
+
 /* This function should be called during SMPL_WARN interrupt is active */
 int sec_pm_smpl_warn_throttle_by_one_step(void)
 {
@@ -116,6 +162,9 @@ int sec_pm_smpl_warn_throttle_by_one_step(void)
 		sec_pm_smpl_warn_set_max_freq(cdev, level);
 	}
 
+	/* Throttle GPU frequency */
+	sec_pm_throttle_gpu_freq(throttle_count);
+
 	return throttle_count;
 }
 EXPORT_SYMBOL_GPL(sec_pm_smpl_warn_throttle_by_one_step);
@@ -138,10 +187,12 @@ void sec_pm_smpl_warn_unthrottle(void)
 
 	list_for_each_entry(cdev, &cpufreq_dev_list, node)
 		sec_pm_smpl_warn_set_max_freq(cdev, 0);
+
+	sec_pm_unthrottle_gpu_freq();
 }
 EXPORT_SYMBOL_GPL(sec_pm_smpl_warn_unthrottle);
 
-static unsigned int find_next_max(struct cpufreq_frequency_table *table,
+static unsigned int find_next_max_cpufreq(struct cpufreq_frequency_table *table,
 				  unsigned int prev_max)
 {
 	struct cpufreq_frequency_table *pos;
@@ -155,27 +206,189 @@ static unsigned int find_next_max(struct cpufreq_frequency_table *table,
 	return max;
 }
 
+static ssize_t gpu_freq_max_pm_qos_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	size_t count = 0;
+	int val;
+
+	val = exynos_pm_qos_read_req_value(sec_pm_gpu_max_qos.exynos_pm_qos_class,
+			&sec_pm_gpu_max_qos);
+
+	if (val < 0) {
+		pr_err("%s: failed to read requested value\n", __func__);
+		return count;
+	}
+	count += snprintf(buf, PAGE_SIZE, "%d\n", val);
+
+	return count;
+}
+
+static ssize_t gpu_freq_max_pm_qos_store(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t count)
+{
+	u32 qos_value;
+
+	if (kstrtou32(buf, 0, &qos_value))
+		return -EINVAL;
+
+	if (sec_pm_gpu_max_qos.exynos_pm_qos_class) {
+		if (exynos_pm_qos_request_active(&sec_pm_gpu_max_qos))
+			exynos_pm_qos_update_request(&sec_pm_gpu_max_qos, qos_value);
+	}
+
+	return count;
+}
+static DEVICE_ATTR_RW(gpu_freq_max_pm_qos);
+
+static ssize_t gpu_freq_table_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	size_t count = 0;
+	unsigned int i;
+
+	for (i = 0; i < gpu_freq_table_size; i++) {
+		count += scnprintf(&buf[count], (PAGE_SIZE - count - 2),
+				"%u\n", gpu_freq_table[i]);
+	}
+
+	return count;
+}
+static DEVICE_ATTR_RO(gpu_freq_table);
+
+static ssize_t smpl_warn_val_show(struct device *dev,
+				struct device_attribute *attr, char *buf)
+{
+	struct sec_pm_smpl_warn_info *info = dev_get_drvdata(dev);
+	ssize_t ret = 0;
+	int state = gpio_get_value(info->smpl_warn_gpio);
+
+	if (info->smpl_warn_gpio < 0) {
+		dev_info(info->dev, "%s: No smpl_warn pin\n", __func__);
+		return ret;
+	}
+
+	/* smpl warn: active low */
+	dev_info(info->dev, "smpl_warn_val: %d\n", state);
+
+	ret = snprintf(buf, sizeof(int), "%d\n", !!state);
+
+	return ret;
+}
+static DEVICE_ATTR_RO(smpl_warn_val);
+
+static ssize_t ocp_warn_cnt_show(struct device *dev,
+				struct device_attribute *attr, char *buf)
+{
+	struct sec_pm_smpl_warn_info *info = dev_get_drvdata(dev);
+	ssize_t ret = 0;
+
+	ret = snprintf(buf, BUF_SIZE,
+			"\"TYPE\":\"0\",\"COUNT\":\"%u\",\"TIME\":\"%lld\",\"LEVEL\":\"0\"",
+			info->ocp_warn_cnt, info->ocp_warn_accumulated_time);
+
+	/* reset after read */
+	info->ocp_warn_cnt = 0;
+	info->ocp_warn_accumulated_time = 0;
+
+	return ret;
+}
+static DEVICE_ATTR_RO(ocp_warn_cnt);
+
+static struct attribute *sec_pm_smpl_warn_sysfs_attrs[] = {
+	&dev_attr_gpu_freq_max_pm_qos.attr,
+	&dev_attr_gpu_freq_table.attr,
+	&dev_attr_smpl_warn_val.attr,
+	&dev_attr_ocp_warn_cnt.attr,
+	NULL
+};
+static const struct attribute_group sec_pm_smpl_warn_sysfs_attr_group = {
+	.attrs = sec_pm_smpl_warn_sysfs_attrs,
+};
+
 static irqreturn_t sec_pm_ocp_warn_irq_thread(int irq, void *data)
 {
 	struct sec_pm_smpl_warn_info *info = data;
 	int state = gpio_get_value(info->ocp_warn_gpio);
 
-	info->ocp_warn_cnt++;
-	dev_info(info->dev, "OCP_WARN: %d, cnt: %u\n", state,
-			info->ocp_warn_cnt);
+	if (state == PIN_HIGH) {
+		info->ocp_warn_cnt++;
+		if (info->ocp_warn_start_time == 0)
+			info->ocp_warn_start_time = ktime_get();
+
+		dev_info(info->dev, "OCP_WARN state: %d, cnt: %u\n", state,
+				info->ocp_warn_cnt);
+	} else if (state == PIN_LOW) {
+		if (info->ocp_warn_start_time) {
+			ktime_t current_time = ktime_get();
+			info->ocp_warn_accumulated_time +=
+				ktime_ms_delta(current_time, info->ocp_warn_start_time);
+			info->ocp_warn_start_time = 0;
+		}
+		dev_info(info->dev, "OCP_WARN state: %d, accu(%lld ms)\n",
+				state, info->ocp_warn_accumulated_time);
+	}
 
 	return IRQ_HANDLED;
+}
+
+static unsigned int find_next_max_value(unsigned int array[],
+		unsigned int array_size, unsigned int prev_max)
+{
+	unsigned int i, max = 0;
+
+	for (i = 0; i < array_size; i++) {
+		if (array[i] > max && array[i] < prev_max)
+			max = array[i];
+	}
+
+	return max;
+}
+
+static int fill_gpu_freq_table_in_descending_order(struct sec_pm_smpl_warn_info *info)
+{
+	unsigned int i, freq = -1;
+	unsigned int *freq_table;
+
+	freq_table = kcalloc(gpu_freq_table_size, sizeof(*freq_table),
+			GFP_KERNEL);
+	if (!freq_table)
+		return -ENOMEM;
+
+	memcpy(freq_table, gpu_freq_table,
+			sizeof(*freq_table) * gpu_freq_table_size);
+
+	for (i = 0; i < gpu_freq_table_size; i++) {
+		freq = find_next_max_value(freq_table,
+				gpu_freq_table_size, freq);
+		gpu_freq_table[i] = freq;
+
+		if (!freq)
+			dev_warn(info->dev, "%s: table has duplicate entries\n",
+					__func__);
+	}
+
+	kfree(freq_table);
+	return 0;
 }
 
 static int sec_pm_smpl_warn_parse_dt(struct sec_pm_smpl_warn_info *info)
 {
 	struct device_node *dn;
 	int ret;
+	u32 sgpu_phandle;
+	struct device_node *sgpu_node;
 
 	if (!info)
 		return -ENODEV;
 
 	dn = info->dev->of_node;
+
+	info->smpl_warn_gpio = of_get_named_gpio(dn, "pmic-smpl-warn-gpio", 0);
+	if (info->smpl_warn_gpio < 0) {
+		dev_info(info->dev, "%s: No smpl_warn pin\n", __func__);
+		info->smpl_warn_gpio = -1;
+	}
 
 	info->ocp_warn_gpio = of_get_named_gpio(dn, "if-pmic-ocp-warn-gpio", 0);
 	if (info->ocp_warn_gpio < 0) {
@@ -194,6 +407,35 @@ static int sec_pm_smpl_warn_parse_dt(struct sec_pm_smpl_warn_info *info)
 
 	ret = of_property_read_u32_array(dn, "policy_cpus", info->policy_cpus,
 			info->num_policy_cpus);
+
+	/* Get GPU freq_table from sgpu device tree */
+	ret = of_property_read_u32(dn, "sgpu_phandle", &sgpu_phandle);
+	if (ret) {
+		dev_err(info->dev, "There is no sgpu in DT (%d)", ret);
+		return -EINVAL;
+	}
+
+	sgpu_node = of_find_node_by_phandle(sgpu_phandle);
+	if (!sgpu_node) {
+		dev_err(info->dev, "It cannot find module node in DT");
+		return -EINVAL;
+	}
+
+	gpu_freq_table_size =
+		of_property_count_u32_elems(sgpu_node, "freq_table");
+	if (gpu_freq_table_size <= 0)
+		return -EINVAL;
+
+	gpu_freq_table = devm_kcalloc(info->dev, gpu_freq_table_size,
+			sizeof(*gpu_freq_table), GFP_KERNEL);
+	if (!gpu_freq_table)
+		return -ENOMEM;
+
+	if (of_property_read_u32_array(sgpu_node, "freq_table",
+				gpu_freq_table, gpu_freq_table_size))
+		return -ENODATA;
+
+	ret = fill_gpu_freq_table_in_descending_order(info);
 
 	return ret;
 }
@@ -234,7 +476,7 @@ static int init_cpufreq_dev(struct sec_pm_smpl_warn_info *info, unsigned int idx
 
 	/* Fill freq_table in descending order of frequencies */
 	for (i = 0, freq = -1; i <= cdev->max_level; i++) {
-		freq = find_next_max(policy->freq_table, freq);
+		freq = find_next_max_cpufreq(policy->freq_table, freq);
 		cdev->freq_table[i].frequency = freq;
 
 		/* Warn for duplicate entries */
@@ -294,6 +536,9 @@ static int sec_pm_smpl_warn_probe(struct platform_device *pdev)
 		}
 	}
 
+	exynos_pm_qos_add_request(&sec_pm_gpu_max_qos, PM_QOS_GPU_THROUGHPUT_MAX,
+			PM_QOS_GPU_FREQ_MAX_DEFAULT_VALUE);
+
 	if (info->ocp_warn_gpio >= 0) {
 		info->ocp_warn_irq = gpio_to_irq(info->ocp_warn_gpio);
 		ret = devm_request_threaded_irq(info->dev, info->ocp_warn_irq,
@@ -306,6 +551,17 @@ static int sec_pm_smpl_warn_probe(struct platform_device *pdev)
 				"Failed to register OCP_WARN IRQ: %d\n", ret);
 	}
 
+	info->sec_dev = sec_device_create(info, "sec_pm_smpl_warn");
+	if (IS_ERR(info->sec_dev))
+		return -ENODEV;
+
+	ret = sysfs_create_group(&info->sec_dev->kobj,
+			&sec_pm_smpl_warn_sysfs_attr_group);
+	if (ret) {
+		sec_device_destroy(info->sec_dev->devt);
+		return -ENODEV;
+	}
+
 	smpl_warn_init_done = true;
 
 	return 0;
@@ -314,8 +570,9 @@ static int sec_pm_smpl_warn_probe(struct platform_device *pdev)
 static int sec_pm_smpl_warn_remove(struct platform_device *pdev)
 {
 	struct cpufreq_dev *cdev;
+	struct sec_pm_smpl_warn_info *info = platform_get_drvdata(pdev);
 
-	pr_info("%s\n", __func__);
+	dev_info(info->dev, "%s\n", __func__);
 
 	mutex_lock(&cpufreq_dev_list_lock);
 	list_for_each_entry(cdev, &cpufreq_dev_list, node) {
@@ -323,6 +580,11 @@ static int sec_pm_smpl_warn_remove(struct platform_device *pdev)
 		freq_qos_tracer_remove_request(&cdev->qos_req);
 	}
 	mutex_unlock(&cpufreq_dev_list_lock);
+
+	exynos_pm_qos_remove_request(&sec_pm_gpu_max_qos);
+
+	if (!IS_ERR_OR_NULL(info->sec_dev))
+		sec_device_destroy(info->sec_dev->devt);
 
 	return 0;
 }

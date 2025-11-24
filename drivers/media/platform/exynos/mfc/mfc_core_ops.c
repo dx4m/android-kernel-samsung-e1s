@@ -354,6 +354,8 @@ static int __mfc_force_close_inst(struct mfc_core *core, struct mfc_ctx *ctx)
 {
 	struct mfc_core_ctx *core_ctx = core->core_ctx[ctx->num];
 	enum mfc_inst_state prev_state;
+	struct mfc_dec *dec = ctx->dec_priv;
+	struct mfc_dev *dev = core->dev;
 
 	if (core_ctx->state == MFCINST_FREE)
 		return 0;
@@ -379,6 +381,18 @@ static int __mfc_force_close_inst(struct mfc_core *core, struct mfc_ctx *ctx)
 
 	/* Free resources */
 	mfc_release_instance_context(core_ctx);
+
+	if (MFC_FEATURE_SUPPORT(dev, dev->pdata->metadata_interface))
+		mfc_release_metadata_buffer(ctx);
+
+	if (dec->hdr10_plus_full)
+		vfree(dec->hdr10_plus_full);
+
+	if (dec->hdr10_plus_info)
+		vfree(dec->hdr10_plus_info);
+
+	if (dec->av1_film_grain_info)
+		vfree(dec->av1_film_grain_info);
 
 	return 0;
 }
@@ -589,13 +603,12 @@ int mfc_core_instance_deinit(struct mfc_core *core, struct mfc_ctx *ctx)
 	mfc_release_metadata_buffer(ctx);
 	mfc_release_codec_buffers(core_ctx);
 	mfc_release_instance_context(core_ctx);
-
-	mfc_core_release_hwlock_ctx(core_ctx);
-	mfc_core_destroy_listable_wq_ctx(core_ctx);
-
 	if (ctx->type == MFCINST_ENCODER)
 		mfc_release_enc_roi_buffer(core_ctx);
 
+	mfc_core_release_hwlock_ctx(core_ctx);
+
+	mfc_core_destroy_listable_wq_ctx(core_ctx);
 	mfc_delete_queue(&core_ctx->src_buf_queue);
 
 	core->core_ctx[core_ctx->num] = 0;
@@ -744,8 +757,6 @@ int mfc_core_instance_open(struct mfc_core *core, struct mfc_ctx *ctx)
 	mfc_debug(2, "Got instance number inst_no: %d\n", core_ctx->inst_no);
 
 	core->sched->enqueue_work(core, core_ctx);
-	if (ctx->otf_handle)
-		core->sched->enqueue_otf_work(core, core_ctx, true);
 	if (core->sched->is_work(core))
 		core->sched->queue_work(core);
 

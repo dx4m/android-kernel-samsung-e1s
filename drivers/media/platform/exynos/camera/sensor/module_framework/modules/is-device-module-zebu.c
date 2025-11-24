@@ -797,7 +797,7 @@ static int sensor_module_zebu_probe(struct platform_device *pdev)
 	pdata = dev_get_platdata(dev);
 	device = &core->sensor[pdata->id];
 
-	subdev_module = kzalloc(sizeof(struct v4l2_subdev), GFP_KERNEL);
+	subdev_module = pablo_zalloc(sizeof(struct v4l2_subdev), GFP_KERNEL);
 	if (!subdev_module) {
 		err("subdev_module is NULL");
 		ret = -ENOMEM;
@@ -842,7 +842,7 @@ static int sensor_module_zebu_probe(struct platform_device *pdev)
 	module->private_data = NULL;
 
 	/* Sensor peri */
-	module->private_data = devm_kzalloc(&pdev->dev,
+	module->private_data = devm_zalloc(&pdev->dev,
 		sizeof(struct is_device_sensor_peri), GFP_KERNEL);
 	if (!module->private_data) {
 		dev_err(&pdev->dev, "is_device_sensor_peri is NULL");

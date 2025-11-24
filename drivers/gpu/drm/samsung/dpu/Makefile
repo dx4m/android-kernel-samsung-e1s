@@ -111,7 +111,8 @@ exynos-drm-y := $(dpu-dual-dir)/exynos_drm_drv.o		\
 		$(dpu-dual-dir)/exynos_drm_dsc.o		\
 		$(dpu-dual-dir)/exynos_drm_hibernation.o	\
 		$(dpu-dual-dir)/exynos_drm_sfr_dma.o		\
-		$(dpu-dual-dir)/exynos_drm_bridge.o
+		$(dpu-dual-dir)/exynos_drm_bridge.o		\
+		$(dpu-dual-dir)/exynos_drm_fence.o
 
 exynos-drm-$(CONFIG_DRM_MCD_COMMON) += $(dpu-dual-dir)/mcd_cal/mcd_drm_dsim.o
 exynos-drm-$(CONFIG_DRM_MCD_COMMON) += $(dpu-dual-dir)/mcd_cal/mcd_drm_helper.o

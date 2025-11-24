@@ -79,6 +79,7 @@ obj-$(CONFIG_CAMERA_CIS_3LU_OBJ) += is-cis-3lu.o
 obj-$(CONFIG_CAMERA_CIS_3LU_DPHY_OBJ) += is-cis-3lu-dphy.o
 obj-$(CONFIG_CAMERA_CIS_IMX564_OBJ) += is-cis-imx564.o
 obj-$(CONFIG_CAMERA_CIS_IMX766_OBJ) += is-cis-imx766.o
+obj-$(CONFIG_CAMERA_CIS_IMX825_OBJ) += is-cis-imx825.o
 
 EXTRA_CFLAGS += -I$(srctree)/drivers/media/platform/exynos/camera
 EXTRA_CFLAGS += -I$(srctree)/drivers/media/platform/exynos/camera/include

@@ -108,7 +108,8 @@ int sensor_3j1_cis_mode_change(struct v4l2_subdev *subdev, u32 mode)
 
 	cis->cis_data->sens_config_index_pre = mode;
 
-	info("[%s] mode changed(%d)\n", __func__, mode);
+	info("[%s] [SEN_DBG] mode changed(%d, %s)\n", __func__,
+		mode, cis->sensor_info->mode_infos[mode]->name);
 
 EXIT:
 	IXC_MUTEX_UNLOCK(cis->ixc_lock);

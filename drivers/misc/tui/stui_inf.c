@@ -22,8 +22,8 @@
 #include "stui_inf.h"
 
 #define TUI_REE_EXTERNAL_EVENT	42
-#define SESSION_CANCEL_DELAY	150
-#define MAX_WAIT_CNT		10
+#define SESSION_CANCEL_DELAY	10
+#define MAX_WAIT_CNT		150
 
 #define TUIHW_LOG_TAG "tuill_hw"
 

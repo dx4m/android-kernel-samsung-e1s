@@ -92,7 +92,8 @@
 #define SHMEM_DDM		12
 #define SHMEM_GNSS_FW		13
 #define SHMEM_CP_STATE		14
-#define MAX_CP_SHMEM		15
+#define SHMEM_WIFI		15
+#define MAX_CP_SHMEM		16
 
 /* TPMON measure */
 #define TPMON_MEASURE_TP		0

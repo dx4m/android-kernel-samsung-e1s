@@ -1,0 +1,4 @@
+config SLSI_BT_KUNIT_TEST
+	tristate "SLSI BT UNIT TEST"
+	help
+	  Select to unittest on KUnit framework

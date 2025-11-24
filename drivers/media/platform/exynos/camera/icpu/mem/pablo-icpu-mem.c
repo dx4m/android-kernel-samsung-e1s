@@ -18,6 +18,7 @@
 #include "pablo-icpu.h"
 #include "pablo-icpu-mem.h"
 #include "pablo-icpu-mem-wrapper.h"
+#include "pablo-mem.h"
 
 static struct icpu_logger _log = {
 	.level = LOGLEVEL_INFO,
@@ -88,7 +89,7 @@ void *pablo_icpu_mem_alloc(u32 type, size_t size, const char *heapname, unsigned
 		return NULL;
 	}
 
-	ibuf = kzalloc(sizeof(struct icpu_buf), GFP_KERNEL);
+	ibuf = pablo_zalloc(sizeof(struct icpu_buf), GFP_KERNEL);
 	if (!ibuf) {
 		ICPU_ERR("ibuf alloc fail");
 		return NULL;
@@ -102,7 +103,7 @@ void *pablo_icpu_mem_alloc(u32 type, size_t size, const char *heapname, unsigned
 	ret = __icpu_buf_ops[type]->alloc(_icpu_mem.priv, ibuf);
 	if (ret) {
 		ICPU_ERR("alloc fail, ret(%d)", ret);
-		kfree(ibuf);
+		pablo_free(ibuf);
 		ibuf = NULL;
 	}
 
@@ -117,7 +118,7 @@ void pablo_icpu_mem_free(void *buf)
 
 	__icpu_buf_ops[__get_type(buf)]->free(buf);
 
-	kfree(buf);
+	pablo_free(buf);
 }
 KUNIT_EXPORT_SYMBOL(pablo_icpu_mem_free);
 

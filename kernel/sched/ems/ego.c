@@ -22,6 +22,25 @@
 #define IOWAIT_BOOST_MIN	(SCHED_CAPACITY_SCALE / 8)
 #define HIST_SIZE		40
 #define	RATIO_UNIT		1000
+#define DEFAULT_PELT_MARGIN (25)
+
+struct step_table {
+	unsigned int	margin_freq;
+	unsigned int	low_pelt_margin;
+	unsigned int	*latency;
+	unsigned int	*latency_freq;
+	unsigned long	*raw_latency; /* this will be used for only calculate */
+};
+
+struct step_latency_info {
+	unsigned int	*latency_freq;
+	unsigned int	*latency;
+};
+
+struct step_margin_info {
+	unsigned int	margin_freq;
+	unsigned int	low_pelt_margin;
+};
 
 struct ego_policy {
 	struct cpufreq_policy	*policy;
@@ -35,6 +54,17 @@ struct ego_policy {
 	unsigned int		eng_freq;	/* lowest energy freq */
 	unsigned int		max_freq;
 	unsigned int		max_freq_orig;
+
+	/* Step parameters for step latency & margin */
+	unsigned int		latency_step;
+	unsigned int		latency_step_power;
+	unsigned int		margin_step;
+	unsigned int		margin_step_power;
+	struct step_table			step_table;
+	struct step_latency_info	step_latency_info;
+	struct step_margin_info		step_margin_info;
+
+	unsigned int		policy_table_size;
 
 	/* The next fields are only needed if fast switch cannot be used: */
 	struct			irq_work irq_work;
@@ -92,6 +122,9 @@ struct ego_cpu {
 
 struct kobject *ego_kobj;
 static DEFINE_PER_CPU(struct ego_cpu, ego_cpu);
+static int step_latency_enable = 0;
+static int step_margin_enable = 0;
+static bool step_flag = false;
 
 /*********************************************************************/
 /*			EGO Specific Implementation		     */
@@ -113,6 +146,33 @@ static unsigned int get_diff_num_levels(struct cpufreq_policy *policy, unsigned 
 	return abs(index1 - index2);
 }
 
+static unsigned int ego_get_latency_level(struct ego_policy *egp, unsigned int next_freq)
+{
+	int i;
+
+	if (!step_latency_enable || !step_flag)
+		return 0;
+
+	for (i = 1; i < egp->latency_step; i++) {
+		if (next_freq < egp->step_latency_info.latency_freq[i]) {
+			return i - 1;
+		}
+	}
+	return egp->latency_step - 1;
+}
+
+static void ego_change_pelt_margin(struct ego_policy *egp, unsigned int next_freq)
+{
+	if (next_freq >= egp->step_margin_info.margin_freq) {
+		egp->pelt_margin =
+			egp->step_margin_info.low_pelt_margin;
+
+		return;
+	}
+
+	egp->pelt_margin = DEFAULT_PELT_MARGIN;
+}
+
 #define ESG_MAX_DELAY_PERIODS 5
 /*
  * Return true if we can delay frequency update because the requested frequency
@@ -124,28 +184,217 @@ static unsigned int get_diff_num_levels(struct cpufreq_policy *policy, unsigned 
  * It also means change in frequency level equal to 1 would need to
  * wait 5 ticks for it to take effect.
  */
-static bool ego_postpone_freq_update(struct ego_policy *egp, u64 time, unsigned int target_freq)
+static bool ego_postpone_freq_update(struct ego_policy *egp, u64 time,
+							unsigned int *target_freq)
 {
-	unsigned int diff_num_levels, num_periods, elapsed, margin;
+	unsigned int diff_num_levels, num_periods, elapsed, margin, latency_level;
+	s64 target_latency_ns;
 
 	if (egp->need_freq_update)
 		return false;
 
 	elapsed = time - egp->last_freq_update_time;
 
-	if (egp->policy->cur < target_freq)
-		return elapsed < egp->up_rate_limit_ns;
+	if (egp->policy->cur < *target_freq) {
+		if (!step_flag || !step_latency_enable)
+			return elapsed < egp->up_rate_limit_ns;
+
+		latency_level = ego_get_latency_level(egp, *target_freq);
+		target_latency_ns = egp->step_latency_info.latency[latency_level] * NSEC_PER_MSEC;
+		if (elapsed < target_latency_ns) {
+			int latency_freq = egp->step_latency_info.latency_freq[latency_level];
+			if (latency_level && latency_freq > egp->policy->cur) {
+				*target_freq = latency_freq;
+				return false;
+			}
+
+			return true;
+		}
+		else
+			return false;
+	}
 
 	margin  = egp->freq_update_delay_ns >> 2;
 	num_periods = (elapsed + margin) / egp->freq_update_delay_ns;
 	if (num_periods > ESG_MAX_DELAY_PERIODS)
 		return false;
 
-	diff_num_levels = get_diff_num_levels(egp->policy, target_freq);
+	diff_num_levels = get_diff_num_levels(egp->policy, *target_freq);
 	if (diff_num_levels > ESG_MAX_DELAY_PERIODS - num_periods)
 		return false;
 	else
 		return true;
+}
+
+/*********************************************************************/
+/*			EGO step latency API		     	*/
+/*********************************************************************/
+
+static int ego_get_step_power(struct ego_policy *egp, unsigned int step)
+{
+	int cpu = cpumask_first(&egp->cpus);
+
+	return (et_max_dpower(cpu) - et_min_dpower(cpu)) / step;
+}
+
+/*
+ * Step latency is needed for getting dynamic up-rate-limit time.
+ * Gather dynamic power and capacity from energy table,
+ * and divide them based on ego step.
+ * We can get freq zones corresponding to each step power.
+ *
+ * Calculate (dynamic power / capacity) averages for all freq zones.
+ * After that, match the smallest average(low freq) of each clusters to 4ms(latency).
+ * We know the ratio of averages,
+ * so we can scale the biggest average(high freq) according to the smallest average.
+ *
+ * Now, we know the smallest and the biggest latency for each clusters.
+ * And the rest latencies will be set linearly.
+ */
+static void ego_calculate_step_latency(struct ego_policy *egp)
+{
+	struct cpufreq_frequency_table *freq_table;
+	struct cpufreq_policy *policy;
+	unsigned long *dp_divide_cap;
+	unsigned long dp, cap, sum = 0;
+	int index = 1, count = 0, i;
+	int cpu = cpumask_first(&egp->cpus);
+
+	/*
+	 * Allocate calculating elements and caculate latency_freq.
+	 * Then, caculate dp / cap average value for each step
+	 * to get step latencies.
+	 */
+	policy = cpufreq_cpu_get(cpu);
+
+	egp = per_cpu(ego_cpu, cpu).egp;
+
+	freq_table = policy->freq_table;
+	egp->policy_table_size = et_table_size(cpu);
+	dp = et_min_dpower(cpu);
+
+	egp->latency_step_power =
+		ego_get_step_power(egp, egp->latency_step);
+
+	dp_divide_cap =
+		kcalloc(egp->policy_table_size,
+				sizeof(unsigned long), GFP_KERNEL);
+
+	/* divide freq with step power */
+	for (i = 0; i < egp->latency_step; i++) {
+		egp->step_table.latency_freq[i] =
+			et_dpower_to_freq(cpu, dp);
+		dp += egp->latency_step_power;
+	}
+
+	/* calculate dp / cap average value for each step */
+	for (i = 0; i < egp->policy_table_size; i++) {
+		dp = et_freq_to_dpower(cpumask_first(&egp->cpus),
+				freq_table[i].frequency);
+		cap = et_freq_to_cap(cpumask_first(&egp->cpus),
+				freq_table[i].frequency);
+
+		dp *= SCHED_FIXEDPOINT_SCALE;
+
+		if (freq_table[i].frequency ==
+					egp->step_table.latency_freq[index]) {
+			dp_divide_cap[index-1] = sum / count;
+			index += 1; sum = 0; count = 0;
+
+			if (index == egp->latency_step)
+				break;
+		}
+
+		sum += (dp / cap);
+		count += 1;
+	}
+
+
+	for (; i < egp->policy_table_size; i++) {
+            dp = et_freq_to_dpower(cpumask_first(&egp->cpus),
+                            freq_table[i].frequency);
+            cap = et_freq_to_cap(cpumask_first(&egp->cpus),
+                            freq_table[i].frequency);
+
+            dp *= SCHED_FIXEDPOINT_SCALE;
+
+            sum += (dp / cap);
+            count += 1;
+    }
+
+	dp_divide_cap[egp->latency_step - 1] = sum / count;
+
+	/* Calculate raw latencies with dp / cap average */
+	for (i = 0; i < egp->latency_step; i++)
+		egp->step_table.raw_latency[i] =
+			(STEP_MIN_LATENCY * SCHED_FIXEDPOINT_SCALE) *
+				dp_divide_cap[i] / dp_divide_cap[0];
+
+	/* min latency will be always STEP_MIN_LATENCY(4ms) */
+	egp->step_table.latency[0] =
+		(int)(STEP_MIN_LATENCY * SCHED_FIXEDPOINT_SCALE);
+
+	kfree(dp_divide_cap);
+}
+
+static void ego_adjust_step_latency(struct ego_policy *max_egp)
+{
+	int cpu = 0, i;
+	unsigned long step_latency_val = 0;
+	struct ego_policy *egp;
+
+	for_each_possible_cpu(cpu) {
+		if (cpu != cpumask_first(cpu_clustergroup_mask(cpu)))
+			continue;
+
+		egp = per_cpu(ego_cpu, cpu).egp;
+		/*
+		 * big cluster's max latency
+		 * is the standard of calculating other latencies
+		 */
+		egp->step_table.latency[egp->latency_step - 1] =
+				(int)egp->step_table.raw_latency[egp->latency_step - 1] *
+							STEP_MAX_LATENCY * SCHED_FIXEDPOINT_SCALE;
+		egp->step_table.latency[egp->latency_step - 1] /=
+			max_egp->step_table.raw_latency[max_egp->latency_step - 1];
+
+		egp->step_table.latency[egp->latency_step - 1] =
+			min(egp->step_table.latency[egp->latency_step - 1],
+					(unsigned int)(STEP_MAX_LATENCY * SCHED_FIXEDPOINT_SCALE));
+
+		step_latency_val =
+			egp->step_table.latency[egp->latency_step - 1]
+				- egp->step_table.latency[0];
+		step_latency_val /= egp->latency_step - 1;
+
+		/* calculate middle latency with latency step */
+		for (i = 1; i < egp->latency_step-1; i++)
+			egp->step_table.latency[i] =
+				egp->step_table.latency[i-1] + step_latency_val;
+
+		for (i = 0; i < egp->latency_step; i++) {
+			egp->step_table.latency[i] /= SCHED_FIXEDPOINT_SCALE;
+
+			/* up-rate-limit is alwayes bigger than 4ms */
+			egp->step_table.latency[i] =
+				max(egp->step_table.latency[i], (unsigned int)STEP_MIN_LATENCY);
+		}
+
+		kfree(egp->step_table.raw_latency);
+	}
+}
+
+static void ego_calculate_step_margin(struct ego_policy *egp)
+{
+	unsigned long dp;
+	int cpu = cpumask_first(&egp->cpus);
+
+	egp->margin_step_power = ego_get_step_power(egp, egp->margin_step);
+	dp = et_min_dpower(cpu);
+	dp += egp->margin_step_power;
+
+	egp->step_table.margin_freq =
+		et_dpower_to_freq(cpu, dp);
 }
 
 /*********************************************************************/
@@ -183,12 +432,34 @@ static struct notifier_block ego_sysbusy_notifier = {
 /*********************************************************************/
 /*		      EGO mode change notifier		     */
 /*********************************************************************/
-#define DEFAULT_PELT_MARGIN	(25)	/* 25% in default */
+static int ego_verify_emstune_latency_info(struct emstune_set *cur_set,
+		struct ego_policy *egp, int cpu, enum step_latency_flags flag)
+{
+	int i;
+
+	for (i = 0; i < egp->latency_step; i++) {
+		if (flag == STEP_LATENCY) {
+			if (!cur_set->cpufreq_gov.step_latency_ns[cpu][i])
+				return 0;
+		}
+
+		else if (flag == STEP_LATENCY_FREQ) {
+			if (!cur_set->cpufreq_gov.step_latency_freq[cpu][i])
+				return 0;
+		}
+	}
+
+	return 1;
+}
+
 static int ego_mode_update_callback(struct notifier_block *nb, unsigned long val, void *v)
 {
 	struct emstune_set *cur_set = (struct emstune_set *)v;
 	struct ego_policy *egp;
-	int cpu;
+	int cpu, i;
+
+	step_latency_enable = cur_set->cpufreq_gov.step_latency_enable;
+	step_margin_enable = cur_set->cpufreq_gov.step_margin_enable;
 
 	for_each_possible_cpu(cpu) {
 		if (cpu != cpumask_first(cpu_clustergroup_mask(cpu)))
@@ -200,6 +471,60 @@ static int ego_mode_update_callback(struct notifier_block *nb, unsigned long val
 
 		egp->pelt_boost = cur_set->cpufreq_gov.pelt_boost[cpu];
 		egp->htask_boost = cur_set->cpufreq_gov.htask_boost[cpu];
+		/* step latency info update */
+		if (step_latency_enable && step_flag) {
+			if (ego_verify_emstune_latency_info
+					(cur_set, egp, cpu, STEP_LATENCY)) {
+				for (i = 0; i < egp->latency_step; i++)
+					egp->step_latency_info.latency[i] =
+						cur_set->cpufreq_gov.step_latency_ns[cpu][i];
+			}
+			else {
+				for (i = 0; i < egp->latency_step; i++)
+					egp->step_latency_info.latency[i] =
+						egp->step_table.latency[i];
+			}
+
+			if (ego_verify_emstune_latency_info(cur_set, egp, cpu,
+						STEP_LATENCY_FREQ)) {
+				for (i = 0; i < egp->latency_step; i++)
+					egp->step_latency_info.latency_freq[i] =
+						cur_set->cpufreq_gov.step_latency_freq[cpu][i];
+				}
+			else {
+				for (i = 0; i < egp->latency_step; i++)
+					egp->step_latency_info.latency_freq[i] =
+						egp->step_table.latency_freq[i];
+			}
+		}
+
+		else {
+			for (i = 0; i < egp->latency_step; i++) {
+				egp->step_latency_info.latency[i] = 4;
+				egp->step_latency_info.latency_freq[i] = 0;
+			}
+		}
+
+		if (step_margin_enable && step_flag) {
+			/* step margin info update */
+			if (cur_set->cpufreq_gov.low_pelt_margin[cpu])
+				egp->step_margin_info.low_pelt_margin =
+					cur_set->cpufreq_gov.low_pelt_margin[cpu];
+			else
+				egp->step_margin_info.low_pelt_margin =
+					egp->step_table.low_pelt_margin;
+
+			if (cur_set->cpufreq_gov.margin_freq[cpu])
+				egp->step_margin_info.margin_freq =
+					cur_set->cpufreq_gov.margin_freq[cpu];
+			else
+				egp->step_margin_info.margin_freq =
+					egp->step_table.margin_freq;
+		}
+		else {
+			egp->step_margin_info.low_pelt_margin = DEFAULT_PELT_MARGIN;
+			egp->step_margin_info.margin_freq = 0;
+		}
 	}
 
 	return NOTIFY_OK;
@@ -207,6 +532,35 @@ static int ego_mode_update_callback(struct notifier_block *nb, unsigned long val
 
 static struct notifier_block ego_mode_update_notifier = {
 	.notifier_call = ego_mode_update_callback,
+	.priority = INT_MIN,
+};
+
+/*********************************************************************/
+/*		      	EGO step latency notifier		*/
+/*********************************************************************/
+static int ego_step_callback(struct notifier_block *nb, unsigned long val, void *v)
+{
+	int cpu = *(int *)v;
+	struct ego_cpu *egc = &per_cpu(ego_cpu, cpu);
+	struct ego_policy *egp = egc->egp;
+
+	egp->latency_step = DEFAULT_LATENCY_STEP;
+	egp->margin_step = DEFAULT_MARGIN_STEP;
+	egp->step_table.low_pelt_margin = DEFAULT_LOW_PELT_MARGIN;
+
+	ego_calculate_step_latency(egp);
+	ego_calculate_step_margin(egp);
+
+	if (cpumask_test_cpu(cpu, cpu_clustergroup_mask(VENDOR_NR_CPUS-1))) {
+		ego_adjust_step_latency(egp);
+		step_flag = true;
+	}
+
+	return NOTIFY_OK;
+}
+
+static struct notifier_block ego_step_notifier = {
+	.notifier_call = ego_step_callback,
 };
 
 /*********************************************************************/
@@ -348,17 +702,34 @@ int ego_get_adaptive_freq(unsigned int cpu, unsigned int *low_freq, unsigned int
 }
 EXPORT_SYMBOL(ego_get_adaptive_freq);
 
-int ego_reset_adaptive_freq(unsigned int cpu)
+static void ego_limits(struct cpufreq_policy *policy);
+int ego_reset_adaptive_freq(unsigned int cpu, bool release)
 {
 	struct ego_policy *egp;
+	bool idle = true;
 
 	if (!cpu_possible(cpu))
 		return -EFAULT;
 
 	egp = per_cpu(ego_cpu, cpu).egp;
+	if (unlikely(!egp))
+		return -ENOMEM;
 
 	egp->adaptive_low_freq_kernel = 0;
 	egp->adaptive_high_freq_kernel = 0;
+
+	if (release && ego_is_working(egp)) {
+		for_each_cpu(cpu, &egp->cpus) {
+			if (!cpu_active(cpu))
+				continue;
+			if (!available_idle_cpu(cpu)) {
+				idle = false;
+				break;
+			}
+		}
+		if (idle)
+			ego_limits(egp->policy);
+	}
 
 	return 0;
 }
@@ -488,10 +859,26 @@ static void ego_deferred_update(struct ego_policy *egp, u64 time, unsigned int n
 	}
 }
 
+static unsigned long ego_resolve_freq_reversal(struct ego_policy *egp,
+		unsigned long freq)
+{
+	if (egp->pelt_margin == DEFAULT_PELT_MARGIN &&
+			freq > egp->step_margin_info.margin_freq)
+		return egp->step_margin_info.margin_freq;
+
+	return freq;
+}
+
 static inline unsigned long ego_map_util_freq(struct ego_policy *egp, unsigned long util,
 		unsigned long freq, unsigned long cap)
 {
-	return ((freq * (100 + egp->pelt_margin)) / 100) * util / cap;
+	unsigned long return_freq =
+		((freq * (100 + egp->pelt_margin)) / 100) * util / cap;
+
+	if (step_flag && step_margin_enable)
+		return_freq = ego_resolve_freq_reversal(egp, return_freq);
+
+	return return_freq;
 }
 
 /**
@@ -887,8 +1274,13 @@ static void ego_update_shared(struct update_util_data *hook, u64 time, unsigned 
 	if (ego_should_update_freq(egp, time)) {
 		next_f = ego_next_freq_shared(egc, time);
 
-		if (ego_postpone_freq_update(egp, time, next_f))
+		if (ego_postpone_freq_update(egp, time, &next_f))
 			goto out;
+
+		if (step_margin_enable && step_flag)
+			ego_change_pelt_margin(egp, next_f);
+		else
+			egp->pelt_margin = DEFAULT_PELT_MARGIN;
 
 		if (egp->policy->fast_switch_enabled)
 			ego_fast_switch(egp, time, next_f);
@@ -967,6 +1359,60 @@ static ssize_t store_##name(struct kobject *k, const char *buf, size_t count)	\
 	return count;								\
 }
 
+#define ego_latency_show(name)							\
+static ssize_t show_##name(struct kobject *k, char *buf)			\
+{										\
+	struct ego_policy *egp = container_of(k, struct ego_policy, kobj);	\
+	ssize_t total = 0;							\
+	int i;									\
+	for (i = 0; i < egp->latency_step; i++) {				\
+		int ret = sprintf(buf, "%u ", egp->step_latency_info.name[i]);	\
+		if(ret < 0) return ret;						\
+		buf += ret;							\
+		total += ret;							\
+	}									\
+	total += sprintf(buf, "\n");						\
+										\
+	return total;								\
+}										\
+
+#define ego_latency_store(name)							\
+static ssize_t store_##name(struct kobject *k, const char *buf, size_t count)	\
+{										\
+	struct ego_policy *egp = container_of(k, struct ego_policy, kobj);	\
+	int i;									\
+										\
+	for (i = 0; i < egp->latency_step; i++) {				\
+		int ret = sscanf(buf, "%u", &egp->step_latency_info.name[i]);	\
+		if (ret != 1) return -EINVAL;					\
+		buf = strchr(buf, ' ');						\
+		if (!buf) break;						\
+		buf++;								\
+	}									\
+	return count;								\
+}
+
+#define ego_margin_show(name)							\
+static ssize_t show_##name(struct kobject *k, char *buf)			\
+{										\
+	struct ego_policy *egp = container_of(k, struct ego_policy, kobj);	\
+										\
+	return sprintf(buf, "%d\n", egp->step_margin_info.name);		\
+}										\
+
+#define ego_margin_store(name)							\
+static ssize_t store_##name(struct kobject *k, const char *buf, size_t count)	\
+{										\
+	struct ego_policy *egp = container_of(k, struct ego_policy, kobj);	\
+	int data;								\
+										\
+	if (!sscanf(buf, "%d", &data))						\
+		return -EINVAL;							\
+										\
+	egp->step_margin_info.name = data;					\
+	return count;								\
+}
+
 ego_show(ratio);
 ego_store(ratio);
 ego_attr_rw(ratio);
@@ -977,6 +1423,21 @@ ego_attr_rw(dis_buck_share);
 ego_show(somac_wall);
 ego_store(somac_wall);
 ego_attr_rw(somac_wall);
+
+ego_margin_show(low_pelt_margin);
+ego_margin_store(low_pelt_margin);
+ego_attr_rw(low_pelt_margin);
+ego_margin_show(margin_freq);
+ego_margin_store(margin_freq);
+ego_attr_rw(margin_freq);
+
+ego_latency_show(latency);
+ego_latency_store(latency);
+ego_attr_rw(latency);
+
+ego_latency_show(latency_freq);
+ego_latency_store(latency_freq);
+ego_attr_rw(latency_freq);
 
 static ssize_t show(struct kobject *kobj, struct attribute *at, char *buf)
 {
@@ -1002,6 +1463,10 @@ static struct attribute *ego_attrs[] = {
 	&ratio_attr.attr,
 	&somac_wall_attr.attr,
 	&dis_buck_share_attr.attr,
+	&latency_attr.attr,
+	&latency_freq_attr.attr,
+	&low_pelt_margin_attr.attr,
+	&margin_freq_attr.attr,
 	NULL
 };
 ATTRIBUTE_GROUPS(ego);
@@ -1055,6 +1520,44 @@ static int ego_adaptive_init(struct cpufreq_policy *policy)
 	ret |= sysfs_create_file(&policy->kobj, &adaptive_low_freq_kernel.attr);
 
 	return ret;
+}
+
+static void ego_alloc_step_latency_info(struct ego_policy *egp)
+{
+	/* alloc step latency info */
+	egp->step_latency_info.latency_freq =
+		kcalloc(DEFAULT_LATENCY_STEP, sizeof(unsigned int), GFP_KERNEL);
+	egp->step_latency_info.latency =
+		kcalloc(DEFAULT_LATENCY_STEP, sizeof(unsigned int), GFP_KERNEL);
+
+	/* alloc step table info */
+	egp->step_table.latency_freq =
+		kcalloc(DEFAULT_LATENCY_STEP, sizeof(unsigned int), GFP_KERNEL);
+	egp->step_table.latency =
+		kcalloc(DEFAULT_LATENCY_STEP, sizeof(unsigned int), GFP_KERNEL);
+	egp->step_table.raw_latency =
+		kcalloc(DEFAULT_LATENCY_STEP, sizeof(unsigned long), GFP_KERNEL);
+
+	return;
+}
+
+static void ego_free_step_latency_info(struct ego_policy *egp)
+{
+	/* free step latency info */
+	if (egp->step_latency_info.latency_freq)
+		kfree(egp->step_latency_info.latency_freq);
+	if (egp->step_latency_info.latency)
+		kfree(egp->step_latency_info.latency);
+
+	/* free step table info */
+	if (egp->step_table.latency_freq)
+		kfree(egp->step_table.latency_freq);
+	if (egp->step_table.latency)
+		kfree(egp->step_table.latency);
+	if (egp->step_table.raw_latency)
+		kfree(egp->step_table.raw_latency);
+
+	return;
 }
 
 /********************** cpufreq governor interface *********************/
@@ -1272,6 +1775,9 @@ static int ego_register(struct kobject *ems_kobj)
 	sysbusy_register_notifier(&ego_sysbusy_notifier);
 	emstune_register_notifier(&ego_mode_update_notifier);
 
+	if (cpumask_equal(cpu_online_mask, cpu_possible_mask))
+		et_register_notifier(&ego_step_notifier);
+
 	return cpufreq_register_governor(&energy_aware_gov);
 }
 
@@ -1306,6 +1812,9 @@ static int ego_parse_dt(struct device_node *dn, struct ego_policy *egp)
 
 	if (of_property_read_u32(dn, "somac_wall", &egp->somac_wall))
 		egp->somac_wall = UINT_MAX;
+
+	if (cpumask_equal(cpu_online_mask, cpu_possible_mask))
+		ego_alloc_step_latency_info(egp);
 
 	return 0;
 }
@@ -1352,8 +1861,11 @@ int ego_pre_init(struct kobject *ems_kobj)
 
 fail:
 	for_each_possible_cpu(cpu) {
-		if (per_cpu(ego_cpu, cpu).egp)
+		if (per_cpu(ego_cpu, cpu).egp) {
+			if (cpumask_equal(cpu_online_mask, cpu_possible_mask))
+				ego_free_step_latency_info(per_cpu(ego_cpu, cpu).egp);
 			kfree(per_cpu(ego_cpu, cpu).egp);
+		}
 		per_cpu(ego_cpu, cpu).egp = NULL;
 	}
 

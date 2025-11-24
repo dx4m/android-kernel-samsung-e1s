@@ -1,0 +1,11 @@
+# SPDX-License-Identifier: GPL-2.0
+#
+# MHI bus
+#
+# Copyright (c) 2021, Linaro Ltd.
+#
+
+source "mhi/host/Kconfig"
+source "mhi/ep/Kconfig"
+source "mhi/devices/Kconfig"
+source "mhi/controllers/Kconfig"

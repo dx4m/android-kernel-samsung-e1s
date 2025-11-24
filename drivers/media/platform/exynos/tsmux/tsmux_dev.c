@@ -1027,6 +1027,56 @@ int tsmux_ioctl_m2m_run(struct tsmux_context *ctx, struct tsmux_m2m_cmd_queue *a
 	return ret;
 }
 #else
+
+int tsmux_check_m2m_cmd_queue(struct tsmux_m2m_cmd_queue *cmd_queue) {
+	struct tsmux_job *m2m_job;
+	struct file *file;
+	struct dma_buf *dma_buf;
+	int ret = 0;
+	int i;
+
+	print_tsmux(TSMUX_DBG, "++\n");
+
+	for (i = 0; i < TSMUX_MAX_M2M_CMD_QUEUE_NUM; i++) {
+		m2m_job = &cmd_queue->m2m_job[i];
+		file = fget(m2m_job->in_buf.ion_buf_fd);
+		if (!file) {
+			ret = -1;
+			break;
+		}
+
+		dma_buf = file->private_data;
+		if (!dma_buf || (dma_buf->size < m2m_job->in_buf.buffer_size) ||
+			(dma_buf->size < m2m_job->in_buf.actual_size)) {
+			fput(file);
+			ret = -1;
+			break;
+		}
+		print_tsmux(TSMUX_DBG, "i %d, dma_bufsize %zu, in_buf buffer_size %d actual_size %d\n",
+			i, dma_buf->size, m2m_job->in_buf.buffer_size, m2m_job->in_buf.actual_size);
+		fput(file);
+
+		file = fget(m2m_job->out_buf.ion_buf_fd);
+		if (!file) {
+			ret = -1;
+			break;
+		}
+		dma_buf = file->private_data;
+		if (!dma_buf || (dma_buf->size < m2m_job->out_buf.buffer_size)) {
+			fput(file);
+			ret = -1;
+			break;
+		}
+		print_tsmux(TSMUX_DBG, "i %d, dma_buf->size %zu, out_buf.buffer_size %d\n",
+			i, dma_buf->size, m2m_job->out_buf.buffer_size);
+		fput(file);
+	}
+
+	print_tsmux(TSMUX_DBG, "--\n");
+
+	return ret;
+}
+
 int tsmux_ioctl_m2m_run(struct tsmux_context *ctx, struct tsmux_m2m_cmd_queue *arg)
 {
 	int ret = 0;
@@ -1051,6 +1101,11 @@ int tsmux_ioctl_m2m_run(struct tsmux_context *ctx, struct tsmux_m2m_cmd_queue *a
 
 	if (copy_from_user(&temp_m2m_cmd_queue, arg, sizeof(struct tsmux_m2m_cmd_queue))) {
 		print_tsmux(TSMUX_ERR, "fail copy_from_user\n");
+		return -EFAULT;
+	}
+
+	if (tsmux_check_m2m_cmd_queue(&temp_m2m_cmd_queue)) {
+		print_tsmux(TSMUX_ERR, "m2m cmd queue is invalid\n");
 		return -EFAULT;
 	}
 

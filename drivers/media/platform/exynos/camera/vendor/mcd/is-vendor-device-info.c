@@ -706,7 +706,7 @@ int is_vendor_device_info_get_bpc_otp_data(void __user *user_data)
 
 	sensor_position = bpc_otp_ctrl.param1;
 
-	bpc_data = vzalloc(DEVICE_INFO_BPC_OTP_SIZE_MAX * sizeof(char));
+	bpc_data = pablo_zalloc(DEVICE_INFO_BPC_OTP_SIZE_MAX * sizeof(char), GFP_KERNEL);
 
 	is_vendor_device_info_read_bpc_otp(sensor_position, bpc_data, &bpc_size);
 
@@ -722,7 +722,7 @@ int is_vendor_device_info_get_bpc_otp_data(void __user *user_data)
 		ret = -EINVAL;
 	}
 
-	vfree(bpc_data);
+	pablo_free(bpc_data);
 
 	return ret;
 }
@@ -765,7 +765,7 @@ int is_vendor_device_info_get_mipi_phy(void __user *user_data)
 
 	phy_num = csi->phy_sf_tbl->sz_comm + csi->phy_sf_tbl->sz_lane;
 
-	phy_setfile_string = vzalloc(DEVICE_INFO_MIPI_PHY_MAX_SIZE * sizeof(char));
+	phy_setfile_string = pablo_zalloc(DEVICE_INFO_MIPI_PHY_MAX_SIZE * sizeof(char), GFP_KERNEL);
 
 	strcpy(phy_setfile_string, cis->sensor_info->name);
 
@@ -822,7 +822,7 @@ int is_vendor_device_info_get_mipi_phy(void __user *user_data)
 		ret  = -EINVAL;
 	}
 
-	vfree(phy_setfile_string);
+	pablo_free(phy_setfile_string);
 #endif
 
 	return ret;
@@ -865,7 +865,7 @@ int is_vendor_device_info_set_mipi_phy(void __user *user_data)
 	csi = v4l2_get_subdevdata(sensor->subdev_csi);
 	cis = (struct is_cis *)v4l2_get_subdevdata(sensor_peri->subdev_cis);
 
-	phy_setfile_string = vzalloc(DEVICE_INFO_MIPI_PHY_MAX_SIZE * sizeof(char));
+	phy_setfile_string = pablo_zalloc(DEVICE_INFO_MIPI_PHY_MAX_SIZE * sizeof(char), GFP_KERNEL);
 
 	if (copy_from_user((void *)phy_setfile_string, mipi_phy_ctrl.uint8_ptr,
 			sizeof(uint8_t) * mipi_phy_ctrl.ptr_size)) {
@@ -931,7 +931,7 @@ int is_vendor_device_info_set_mipi_phy(void __user *user_data)
 			phy->index, phy->max_lane, token_sub);
 	}
 
-	vfree(phy_setfile_string);
+	pablo_free(phy_setfile_string);
 #endif
 
 	return ret;
@@ -1012,3 +1012,93 @@ exit:
 
 	return ret;
 }
+
+int is_vendor_device_info_get_mtf_data(void __user *user_data)
+{
+	int ret = 0;
+	struct is_vendor_rom *rom_info;
+	int position;
+	int rom_id;
+	int rom_cal_index;
+	int mtf_offset;
+	char *cal_buf;
+	struct device_info_data_ctrl mtf_data_addr_ctrl;
+
+	if (copy_from_user((void *)&mtf_data_addr_ctrl, user_data, sizeof(struct device_info_data_ctrl))) {
+		err("%s : failed to copy data from user", __func__);
+		ret = -EINVAL;
+	}
+
+	position = mtf_data_addr_ctrl.param1;
+	is_vendor_get_rom_info_from_position(position, &rom_id, &rom_cal_index);
+
+	if (rom_id == ROM_ID_NOTHING) {
+		err("%s : invalid camera position (%d)", __func__, position);
+		return -EINVAL;
+	}
+
+	is_sec_get_rom_info(&rom_info, rom_id);
+	cal_buf = rom_info->buf;
+
+	if (cal_buf == NULL) {
+		err("%s: cal_buf is NULL", __func__);
+		return -EINVAL;
+	}
+
+	if (rom_cal_index == 1)
+		mtf_offset = rom_info->rom_header_sensor2_mtf_data_addr;
+	else
+		mtf_offset = rom_info->rom_header_mtf_data_addr;
+
+	if (mtf_offset != -1) {
+		if (copy_to_user(mtf_data_addr_ctrl.void_ptr, (void *)&cal_buf[mtf_offset], IS_RESOLUTION_DATA_SIZE)) {
+			err("%s : failed to copy data to user", __func__);
+			return -EINVAL;
+		}
+	}
+
+	return 0;
+}
+
+int is_vendor_device_info_get_sfr_data(void __user *user_data)
+{
+	int ret = 0;
+	struct is_vendor_rom *rom_info;
+	int position;
+	int rom_id;
+	char *cal_buf;
+	int sfr_offset;
+	struct device_info_data_ctrl sfr_data_addr_ctrl;
+
+	if (copy_from_user((void *)&sfr_data_addr_ctrl, user_data, sizeof(struct device_info_data_ctrl))) {
+		err("%s : failed to copy data from user", __func__);
+		ret = -EINVAL;
+	}
+
+	position = sfr_data_addr_ctrl.param1;
+	rom_id = is_vendor_get_rom_id_from_position(position);
+
+	if (rom_id == ROM_ID_NOTHING) {
+		err("%s : invalid camera position (%d)", __func__, position);
+		return -EINVAL;
+	}
+
+	is_sec_get_rom_info(&rom_info, rom_id);
+	cal_buf = rom_info->buf;
+
+	if (cal_buf == NULL) {
+		err("%s: cal_buf is NULL", __func__);
+		return -EINVAL;
+	}
+
+	sfr_offset = rom_info->rom_header_sfr_data_addr;
+
+	if (sfr_offset != -1) {
+		if (copy_to_user(sfr_data_addr_ctrl.void_ptr, (void *)&cal_buf[sfr_offset], IS_SFR_CAL_SIZE)) {
+			err("%s : failed to copy data to user", __func__);
+			ret = -EINVAL;
+		}
+	}
+
+	return ret;
+};

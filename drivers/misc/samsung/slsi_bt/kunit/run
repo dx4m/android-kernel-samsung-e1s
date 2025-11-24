@@ -1,0 +1,57 @@
+##/bin/bash
+
+KERNEL_ROOT="$(pwd | sed -e 's/\/drivers\/misc\//\n/g' | sed '2d')"
+DIR_PATH="$(pwd)/$(dirname $0)"
+CONFIG_PATH="$DIR_PATH/kunit_config"
+
+FLAG_CLEAN=1
+FLAG_LCOV=1
+
+while [[ "$#" -gt 0 ]]; do
+	case $1 in
+		--no-clean) FLAG_CLEAN=0; shift;;
+		--no-lcov) FLAG_LCOV=0; shift;;
+		*) echo "Unknown parameter: $1"; exit 1;;
+	esac
+	shift
+done
+
+echo "================ info ================"
+echo "Kernel root: ${KERNEL_ROOT}"
+echo "Dir path: ${DIR_PATH}"
+echo "Config path: ${CONFIG_PATH}"
+echo "FLAG_CLEAN: ${FLAG_CLEAN}"
+echo "FLAG_LCOV: ${FLAG_LCOV}"
+echo "======================================"
+
+# kunit path
+KUNIT_RUNNER="$KERNEL_ROOT/tools/testing/kunit/kunit.py"
+if test -f "$KUNIT_RUNNER"; then
+	if [[ $FLAG_CLEAN -eq 1 ]]; then
+		echo "[BT KUNIT] rm -rf $KERNEL_ROOT/.kunit"
+		rm -rf $KERNEL_ROOT/.kunit
+	fi
+
+	# Build
+	$KUNIT_RUNNER run --kunitconfig $CONFIG_PATH --timeout=10 --jobs=6
+
+	if [[ "$?" -eq 0 ]]; then
+
+		# Output setting
+		TEM_OUT="$KERNEL_ROOT/out_tem$(date +'%y%m%d%H%M%S')"
+		COV_FILE="$TEM_OUT/cov.info$(date +'%y%m%d%H%M%S')"
+		#TEM_OUT="$KERNEL_ROOT/out_tem"
+		#COV_FILE="$TEM_OUT/cov.info"
+
+		if [[ $FLAG_LCOV -eq 1 ]]; then
+			echo "[BT KUNIT] ============ lcov and generate html to $TEM_OUT ==========="
+			mkdir $TEM_OUT
+			lcov --capture --directory $KERNEL_ROOT/.kunit/drivers/misc/samsung/ --output-file $COV_FILE
+			genhtml $COV_FILE --output-directory $TEM_OUT
+
+			echo "[BT KUNIT] Finish. output: $TEM_OUT"
+		fi
+	fi
+else
+	echo "Cannot find kunit.py ($KUNIT_RUNNER)"
+fi

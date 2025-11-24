@@ -283,18 +283,18 @@ static int laser_af_vl53l8_probe(struct device *dev)
 		}
 	}
 
-	laser_af = kzalloc(sizeof(struct is_laser_af), GFP_KERNEL);
+	laser_af = pablo_zalloc(sizeof(struct is_laser_af), GFP_KERNEL);
 	if (!laser_af) {
 		err("laser_af is NULL");
 		ret = -ENOMEM;
 		goto p_err;
 	}
 
-	subdev_laser_af = kzalloc(sizeof(struct v4l2_subdev), GFP_KERNEL);
+	subdev_laser_af = pablo_zalloc(sizeof(struct v4l2_subdev), GFP_KERNEL);
 	if (!subdev_laser_af) {
 		err("subdev_laser_af is NULL");
 		ret = -ENOMEM;
-		kfree(laser_af);
+		pablo_free(laser_af);
 		goto p_err;
 	}
 
@@ -319,10 +319,10 @@ static int laser_af_vl53l8_probe(struct device *dev)
 
 p_err:
 	if (laser_af)
-		kfree(laser_af);
+		pablo_free(laser_af);
 
 	if (subdev_laser_af)
-		kfree(subdev_laser_af);
+		pablo_free(subdev_laser_af);
 
 	return ret;
 }

@@ -121,6 +121,7 @@
 		need_smc = <0x22010204>;
 		cmu_id = <0x22030000>;
 		status = "okay";
+		pd-active-wakeup;
 		#power-domain-cells = <0>;
 	};
 

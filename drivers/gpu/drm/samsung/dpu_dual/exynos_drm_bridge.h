@@ -28,6 +28,8 @@ struct exynos_drm_bridge_state {
 	struct drm_bridge_state base;
 	bool psr_request;
 	bool psr_enabled;
+	bool lastclosed;
+	bool earlyopen;
 };
 
 #define to_exynos_bridge(e) \
@@ -61,7 +63,8 @@ struct exynos_drm_bridge_funcs {
 	void (*reset)(struct exynos_drm_bridge *bridge);
 	void (*psr_stop)(struct exynos_drm_bridge *bridge);
 	void (*psr_start)(struct exynos_drm_bridge *bridge);
-	void (*lastclose)(struct exynos_drm_bridge *bridge);
+	bool (*lastclose)(struct exynos_drm_bridge *bridge);
+	bool (*earlyopen)(struct exynos_drm_bridge *bridge);
 };
 
 /*
@@ -79,6 +82,8 @@ struct exynos_drm_bridge {
 
 void exynos_drm_bridge_init(struct device *dev, struct exynos_drm_bridge *exynos_bridge,
 			const struct exynos_drm_bridge_funcs *funcs);
+void exynos_drm_bridge_lastclose(struct drm_bridge *bridge);
 void exynos_drm_bridge_reset(struct drm_bridge *bridge, enum exynos_bridge_reset_pos pos);
 bool exynos_drm_bridge_lp11_reset(struct drm_bridge *bridge);
+void exynos_drm_bridge_earlyopen(struct drm_bridge *bridge);
 #endif

@@ -21,6 +21,7 @@ void pcie_sysmmu_disable(int ch_num);
 void pcie_sysmmu_set_use_iocc(int ch_num);
 void pcie_sysmmu_all_buff_free(int ch_num);
 int pcie_sysmmu_add_pcie_fault_handler(void (*func)(int, int));
+void pcie_iommu_tlb_invalidate_all(int pcie_channel);
 #else
 static void __maybe_unused pcie_sysmmu_enable(int ch_num)
 {
@@ -57,6 +58,11 @@ static int pcie_sysmmu_add_pcie_fault_handler(void (*func)(int, int))
 	pr_err("PCIe SysMMU is NOT Enabled!!!\n");
 
 	return -ENODEV;
+}
+
+static void pcie_iommu_tlb_invalidate_all(int pcie_channel)
+{
+	pr_err("PCIe SysMMU is NOT Enabled!!!\n");
 }
 #endif
 #endif /* _EXYNOS_PCIE_IOMMU_EXP_H_ */

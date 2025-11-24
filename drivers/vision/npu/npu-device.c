@@ -512,6 +512,10 @@ int npu_device_bootup(struct npu_device *device)
 	return ret;
 
 err_proto_open:
+	ret2 = npu_interface_force_suspend(&device->system);
+	if (ret2)
+		npu_err("fail(%d) in npu_interface_force_suspend\n", ret2);
+
 	ret2 = npu_system_suspend(&device->system);
 	if (ret2)
 		npu_err("fail(%d) in npu_system_suspend\n", ret2);

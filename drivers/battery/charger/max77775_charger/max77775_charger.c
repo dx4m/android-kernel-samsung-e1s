@@ -12,6 +12,7 @@
 #define DEBUG
 
 #include <linux/mfd/max77775-private.h>
+#include <linux/usb/typec/maxim/max77775_usbc.h>
 #include <linux/debugfs.h>
 #include <linux/seq_file.h>
 #include <linux/power_supply.h>
@@ -2801,6 +2802,33 @@ static const struct file_operations max77775_debugfs_fops = {
 	.release = single_release,
 };
 
+static irqreturn_t max77775_chgin_irq(int irq, void *data)
+{
+	struct max77775_charger_data *charger = data;
+	u8 reg_data;
+
+	pr_info("%s : irq(%d)\n", __func__, irq);
+
+	max77775_read_reg(charger->i2c, MAX77775_CHG_REG_DETAILS_00, &reg_data);
+	reg_data = (reg_data & MAX77775_CHGIN_DTLS) >> MAX77775_CHGIN_DTLS_SHIFT;
+	pr_info("%s : before 0x%02x, after 0x%02x\n", __func__, charger->chgin_dtls, reg_data);
+
+	charger->chgin_dtls = reg_data;
+
+	if (!delayed_work_pending(&charger->chgin_work))
+		schedule_delayed_work(&charger->chgin_work, msecs_to_jiffies(200));
+
+	return IRQ_HANDLED;
+}
+
+static void max77775_chgin_isr_work(struct work_struct *work)
+{
+	struct max77775_charger_data *charger =
+	    container_of(work, struct max77775_charger_data, chgin_work.work);
+
+	max77775_chg_check_stuck(charger->chgin_dtls);
+}
+
 static void max77775_chg_isr_work(struct work_struct *work)
 {
 	struct max77775_charger_data *charger =
@@ -3518,6 +3546,7 @@ static int max77775_charger_probe(struct platform_device *pdev)
 	INIT_DELAYED_WORK(&charger->wc_current_work, max77775_wc_current_work);
 	INIT_DELAYED_WORK(&charger->wc_chg_current_work, max77775_wc_chg_current_work);
 	INIT_DELAYED_WORK(&charger->set_icl_wcin_otg_work, set_icl_wcin_otg_work);
+	INIT_DELAYED_WORK(&charger->chgin_work, max77775_chgin_isr_work);
 
 	charger_cfg.drv_data = charger;
 	charger->psy_chg = power_supply_register(&pdev->dev,
@@ -3555,6 +3584,14 @@ static int max77775_charger_probe(struct platform_device *pdev)
 	}
 
 	max77775_read_reg(charger->i2c, MAX77775_CHG_REG_INT_OK, &reg_data);
+
+	charger->irq_chgin = pdata->irq_base + MAX77775_CHG_IRQ_CHGIN_I;
+	ret = request_threaded_irq(charger->irq_chgin, NULL,
+					max77775_chgin_irq, 0,
+					"chgin-irq", charger);
+	if (ret < 0)
+		pr_err("%s: fail to request chgin IRQ: %d: %d\n",
+		       __func__, charger->irq_chgin, ret);
 
 	charger->irq_bypass = pdata->irq_base + MAX77775_CHG_IRQ_BYP_I;
 	ret = request_threaded_irq(charger->irq_bypass, NULL,
@@ -3821,6 +3858,7 @@ free_chg:
 	cancel_delayed_work(&charger->aicl_work);
 	cancel_delayed_work(&charger->wc_current_work);
 	cancel_delayed_work(&charger->wc_chg_current_work);
+	cancel_delayed_work_sync(&charger->chgin_work);
 #if defined(CONFIG_USE_POGO)
 	cancel_delayed_work(&charger->wcin_det_work);
 #endif

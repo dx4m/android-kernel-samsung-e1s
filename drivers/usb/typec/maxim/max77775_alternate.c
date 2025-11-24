@@ -1359,56 +1359,62 @@ void max77775_set_enable_alternate_mode(int mode)
 		return;
 	}
 
-	if (mode & ALTERNATE_MODE_NOT_READY) {
-		check_is_driver_loaded = 0;
-		msg_maxim("alternate mode is not ready!");
-	} else if (mode & ALTERNATE_MODE_READY) {
-		check_is_driver_loaded = 1;
-		msg_maxim("alternate mode is ready!");
+	if ((mode & ALTERNATE_MODE_STOP)) {
+		max77775_set_alternate_mode_opcode(usbpd_data,
+			MAXIM_ENABLE_ALTERNATE_SRCCAP);
+		msg_maxim("alternate mode is stopped! enable srccap ");
 	} else {
-		;
-	}
+		if (mode & ALTERNATE_MODE_NOT_READY) {
+			check_is_driver_loaded = 0;
+			msg_maxim("alternate mode is not ready!");
+		} else if (mode & ALTERNATE_MODE_READY) {
+			check_is_driver_loaded = 1;
+			msg_maxim("alternate mode is ready!");
+		} else {
+			;
+		}
 
-	if (check_is_driver_loaded) {
-		switch (is_first_booting) {
-		case 0: /*this routine is calling after complete a booting.*/
-			if (mode & ALTERNATE_MODE_START) {
-				max77775_set_alternate_mode_opcode(usbpd_data,
-					MAXIM_ENABLE_ALTERNATE_SRC_VDM);
-				msg_maxim("[NO BOOTING TIME] !!!alternate mode is started!");
-			} else if (mode & ALTERNATE_MODE_STOP) {
-				max77775_set_alternate_mode_opcode(usbpd_data,
-					MAXIM_ENABLE_ALTERNATE_SRCCAP);
-				msg_maxim("[NO BOOTING TIME] alternate mode is stopped!");
-			}
-			break;
-		case 1:
-			if (mode & ALTERNATE_MODE_START) {
-				msg_maxim("[ON BOOTING TIME] !!!alternate mode is started!");
-				max77775_set_alternate_mode_opcode(usbpd_data,
-					MAXIM_ENABLE_ALTERNATE_SRC_VDM);
-				msg_maxim("!![ON BOOTING TIME] SEND THE PACKET REGARDING IN CASE OF VR/DP ");
-				/* FOR THE DEX FUNCTION. */
-				max77775_print_usbc_status_register(usbpd_data);
+		if (check_is_driver_loaded) {
+			switch (is_first_booting) {
+			case 0: /*this routine is calling after complete a booting.*/
+				if (mode & ALTERNATE_MODE_START) {
+					max77775_set_alternate_mode_opcode(usbpd_data,
+						MAXIM_ENABLE_ALTERNATE_SRC_VDM);
+					msg_maxim("[NO BOOTING TIME] !!!alternate mode is started!");
+				} else if (mode & ALTERNATE_MODE_STOP) {
+					max77775_set_alternate_mode_opcode(usbpd_data,
+						MAXIM_ENABLE_ALTERNATE_SRCCAP);
+					msg_maxim("[NO BOOTING TIME] alternate mode is stopped!");
+				}
+				break;
+			case 1:
+				if (mode & ALTERNATE_MODE_START) {
+					msg_maxim("[ON BOOTING TIME] !!!alternate mode is started!");
+					max77775_set_alternate_mode_opcode(usbpd_data,
+						MAXIM_ENABLE_ALTERNATE_SRC_VDM);
+					msg_maxim("!![ON BOOTING TIME] SEND THE PACKET REGARDING IN CASE OF VR/DP ");
+					/* FOR THE DEX FUNCTION. */
+					max77775_print_usbc_status_register(usbpd_data);
 
-				max77775_print_usbc_int_mask_register(usbpd_data);
+					max77775_print_usbc_int_mask_register(usbpd_data);
 
-				max77775_set_usbc_int_mask_register(usbpd_data);
+					max77775_set_usbc_int_mask_register(usbpd_data);
 #if defined(CONFIG_MAX77775_CCOPEN_AFTER_WATERCABLE)
-				max77775_print_usbc_spare_register(usbpd_data);
+					max77775_print_usbc_spare_register(usbpd_data);
 #endif
-				usbpd_data->is_first_booting = 0;
-			} else if (mode & ALTERNATE_MODE_STOP) {
+					usbpd_data->is_first_booting = 0;
+				} else if (mode & ALTERNATE_MODE_STOP) {
 #ifndef CONFIG_DISABLE_LOCKSCREEN_USB_RESTRICTION
-				max77775_set_alternate_mode_opcode(usbpd_data,
-					MAXIM_ENABLE_ALTERNATE_SRCCAP);
+					max77775_set_alternate_mode_opcode(usbpd_data,
+						MAXIM_ENABLE_ALTERNATE_SRCCAP);
 #endif
-				msg_maxim("[ON BOOTING TIME] alternate mode is stopped!");
+					msg_maxim("[ON BOOTING TIME] alternate mode is stopped!");
+				}
+				break;
+			default:
+				msg_maxim("[Never calling] is_first_booting [ %d]", is_first_booting);
+				break;
 			}
-			break;
-		default:
-			msg_maxim("[Never calling] is_first_booting [ %d]", is_first_booting);
-			break;
 		}
 	}
 }

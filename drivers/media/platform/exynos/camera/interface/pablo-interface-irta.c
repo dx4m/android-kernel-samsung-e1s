@@ -265,7 +265,7 @@ int pablo_interface_irta_probe(void)
 {
 	int i;
 
-	itf_irta = kvzalloc(array_size(sizeof(struct pablo_interface_irta), IS_STREAM_COUNT),
+	itf_irta = pablo_zalloc(array_size(sizeof(struct pablo_interface_irta), IS_STREAM_COUNT),
 				GFP_KERNEL);
 	if (ZERO_OR_NULL_PTR(itf_irta)) {
 		err("failed to allocate itf_irta\n");
@@ -281,7 +281,7 @@ KUNIT_EXPORT_SYMBOL(pablo_interface_irta_probe);
 
 int pablo_interface_irta_remove(void)
 {
-	kvfree(itf_irta);
+	pablo_free(itf_irta);
 	itf_irta = NULL;
 
 	return 0;

@@ -492,6 +492,8 @@ static void fuse_args_to_req(struct fuse_req *req, struct fuse_args *args)
 	req->in.h.nodeid = args->nodeid;
 	req->in.h.padding = args->error_in;
 	req->args = args;
+	if (args->is_ext)
+		req->in.h.total_extlen = args->in_args[args->ext_idx].size / 8;
 	if (args->end)
 		__set_bit(FR_ASYNC, &req->flags);
 }
@@ -1248,6 +1250,10 @@ static ssize_t fuse_dev_do_read(struct fuse_dev *fud, struct file *file,
 	if (!(current->flags & PF_MEMALLOC_NOFS))
 		memalloc_nofs_save();
 
+	if (!IS_ENABLED(CONFIG_SAMSUNG_PRODUCT_SHIP) &&
+			(current->flags & PF_NOFREEZE) == 0)
+		current->flags |= PF_NOFREEZE;
+
  restart:
 	for (;;) {
 		spin_lock(&fiq->lock);
@@ -1340,6 +1346,9 @@ static ssize_t fuse_dev_do_read(struct fuse_dev *fud, struct file *file,
 	smp_mb__after_atomic();
 	if (test_bit(FR_INTERRUPTED, &req->flags))
 		queue_interrupt(req);
+
+	fuse_sec_start_hook(req);
+
 	fuse_put_request(req);
 
 	return reqsize;
@@ -1518,7 +1527,7 @@ static int fuse_notify_inval_entry(struct fuse_conn *fc, unsigned int size,
 	buf[outarg.namelen] = 0;
 
 	down_read(&fc->killsb);
-	err = fuse_reverse_inval_entry(fc, outarg.parent, 0, &name);
+	err = fuse_reverse_inval_entry(fc, outarg.parent, 0, &name, outarg.flags);
 	up_read(&fc->killsb);
 	kfree(buf);
 	return err;
@@ -1566,7 +1575,7 @@ static int fuse_notify_delete(struct fuse_conn *fc, unsigned int size,
 	buf[outarg.namelen] = 0;
 
 	down_read(&fc->killsb);
-	err = fuse_reverse_inval_entry(fc, outarg.parent, outarg.child, &name);
+	err = fuse_reverse_inval_entry(fc, outarg.parent, outarg.child, &name, 0);
 	up_read(&fc->killsb);
 	kfree(buf);
 	return err;
@@ -1635,9 +1644,11 @@ static int fuse_notify_store(struct fuse_conn *fc, unsigned int size,
 
 		this_num = min_t(unsigned, num, PAGE_SIZE - offset);
 		err = fuse_copy_page(cs, &page, offset, this_num, 0);
-		if (!err && offset == 0 &&
-		    (this_num == PAGE_SIZE || file_size == end))
+		if (!PageUptodate(page) && !err && offset == 0 &&
+		    (this_num == PAGE_SIZE || file_size == end)) {
+			zero_user_segment(page, this_num, PAGE_SIZE);
 			SetPageUptodate(page);
+		}
 		unlock_page(page);
 		put_page(page);
 
@@ -1972,6 +1983,8 @@ static ssize_t fuse_dev_do_write(struct fuse_dev *fud,
 	if (!test_bit(FR_PRIVATE, &req->flags))
 		list_del_init(&req->list);
 	spin_unlock(&fpq->lock);
+
+	fuse_sec_end_hook(req);
 
 	fuse_request_end(req);
 out:

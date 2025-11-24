@@ -387,12 +387,29 @@ struct emstune_freqboost {
 	int ratio[CGROUP_COUNT][VENDOR_NR_CPUS];
 };
 
+#define DEFAULT_LATENCY_STEP	4
+#define DEFAULT_MARGIN_STEP 	2
+#define STEP_MIN_LATENCY	4
+#define STEP_MAX_LATENCY	24
+#define DEFAULT_LOW_PELT_MARGIN	6
+
+enum step_latency_flags {
+	STEP_LATENCY = 0,
+	STEP_LATENCY_FREQ,
+};
+
 /* emstune - cpufreq governor parameters */
 struct emstune_cpufreq_gov {
 	int htask_boost[VENDOR_NR_CPUS];
 	int pelt_boost[VENDOR_NR_CPUS];
 	int window_count[VENDOR_NR_CPUS];
 	int htask_ratio_threshold[VENDOR_NR_CPUS];
+	int step_latency_enable;
+	int step_margin_enable;
+	int step_latency_ns[VENDOR_NR_CPUS][DEFAULT_LATENCY_STEP];
+	int step_latency_freq[VENDOR_NR_CPUS][DEFAULT_LATENCY_STEP];
+	int low_pelt_margin[VENDOR_NR_CPUS];
+	int margin_freq[VENDOR_NR_CPUS];
 };
 
 struct emstune_cpuidle_gov {
@@ -503,6 +520,7 @@ struct emstune_set {
 };
 
 extern int emstune_sched_boost(void);
+extern bool emstune_adaptive_cap(void);
 extern int emstune_support_uclamp(void);
 extern int emstune_should_spread(void);
 extern bool emstune_need_cgroup_boost(struct task_struct *p);
@@ -994,15 +1012,21 @@ extern void ego_update_frequency_limits(struct cpufreq_policy *policy);
 extern int et_init(struct kobject *ems_kobj);
 extern void et_init_table(struct cpufreq_policy *policy);
 extern unsigned int et_cur_freq_idx(int cpu);
+extern unsigned int et_table_size(int cpu);
 extern unsigned long et_cur_cap(int cpu);
 extern unsigned long et_max_cap(int cpu);
 extern unsigned long et_freq_to_cap(int cpu, unsigned long freq);
+extern unsigned long et_freq_to_dpower(int cpu, unsigned long freq);
+extern unsigned long et_dpower_to_cap(int cpu, unsigned long dpower);
+extern unsigned long et_dpower_to_freq(int cpu, unsigned long dpower);
 extern void et_update_freq(int cpu, unsigned long freq);
 extern void et_fill_energy_state(struct tp_env *env, struct cpumask *cpus,
 		struct energy_state *states, unsigned long capacity, int dsu_cpu);
 extern unsigned long et_compute_system_energy(const struct list_head *csd_head,
 		struct energy_state *states, int target_cpu, struct energy_backup *backup);
 extern int et_get_table_index_by_ipc(struct tp_env *env);
+extern unsigned long et_min_dpower(int cpu);
+extern unsigned long et_max_dpower(int cpu);
 #else /* CONFIG_SCHED_EMS_FREQ_SELECT */
 static inline void ems_freq_select_init(struct platform_device *pdev) { };
 

@@ -13,6 +13,7 @@
 #include "gadget.h"
 #include "dwc3-exynos.h"
 #include "exynos_usb_tpmon.h"
+#include "exynos-otg.h"
 
 #include <linux/platform_device.h>
 #include "../host/xhci.h"
@@ -62,6 +63,26 @@ static int exit_dwc3_gadget_ep_queue(struct kretprobe_instance *ri,
 }
 
 
+static int entry_storage_probe(struct kretprobe_instance *ri,
+					struct pt_regs *regs)
+{
+	pr_info("%s +++\n", __func__);
+	g_dwc3_exynos->is_perf = 1;
+	queue_work(g_dwc3_exynos->cpufreq_wq, &g_dwc3_exynos->cpufreq_work);
+
+	return 0;
+}
+
+static int entry_usb_stor_disconnect(struct kretprobe_instance *ri,
+					struct pt_regs *regs)
+{
+	pr_info("%s +++\n", __func__);
+	g_dwc3_exynos->is_perf = 0;
+	queue_work(g_dwc3_exynos->cpufreq_wq, &g_dwc3_exynos->cpufreq_work);
+
+	return 0;
+}
+
 #define ENTRY_EXIT(name) {\
 	.handler = exit_##name,\
 	.entry_handler = entry_##name,\
@@ -78,7 +99,9 @@ static int exit_dwc3_gadget_ep_queue(struct kretprobe_instance *ri,
 }
 
 static struct kretprobe dwc3_kret_probes[] = {
-	ENTRY_EXIT(dwc3_gadget_ep_queue)
+	ENTRY_EXIT(dwc3_gadget_ep_queue),
+	ENTRY(storage_probe),
+	ENTRY(usb_stor_disconnect),
 };
 
 int dwc3_kretprobe_init(void)

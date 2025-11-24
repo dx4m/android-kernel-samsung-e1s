@@ -324,12 +324,12 @@ static void dsim_reg_set_dphy_param_dither(u32 id, struct stdphy_pms *dphy_pms)
 }
 
 /* BIAS Block Control Register */
-static void dsim_reg_set_bias_con(u32 id, const u32 *blk_ctl)
+static void dsim_reg_set_bias_con(u32 id, const u32 (*blk_ctl)[DSIM_DSI_INTF_MAX])
 {
 	u32 i;
 
 	for (i = 0; i < 5; i++)
-		dsim_phy_extra_write(id, DSIM_PHY_BIAS_CON(i), blk_ctl[i]);
+		dsim_phy_extra_write(id, DSIM_PHY_BIAS_CON(i), blk_ctl[i][id]);
 }
 
 static void dsim_reg_set_hs_vod(u32 id, const u32 vod)
@@ -359,13 +359,13 @@ static void dsim_reg_set_mc_gnr_con(u32 id, const u32 *blk_ctl)
 }
 
 /* Master Clock Lane Analog Block Control Register */
-static void dsim_reg_set_mc_ana_con(u32 id, const u32 *blk_ctl)
+static void dsim_reg_set_mc_ana_con(u32 id, const u32 (*blk_ctl)[DSIM_DSI_INTF_MAX])
 {
 	u32 i;
-	u32 reg_cnt = 2;
+	u32 reg_cnt = ARRAY_SIZE(DSIM_PHY_MC_ANA_CON_VAL);
 
 	for (i = 0; i < reg_cnt; i++)
-		dsim_phy_write(id, DSIM_PHY_MC_ANA_CON(i), blk_ctl[i]);
+		dsim_phy_write(id, DSIM_PHY_MC_ANA_CON(i), blk_ctl[i][id]);
 }
 
 /* Master Data Lane General Control Register */
@@ -380,15 +380,15 @@ static void dsim_reg_set_md_gnr_con(u32 id, const u32 *blk_ctl)
 }
 
 /* Master Data Lane Analog Block Control Register */
-static void dsim_reg_set_md_ana_con(u32 id, const u32 *blk_ctl)
+static void dsim_reg_set_md_ana_con(u32 id, const u32 (*blk_ctl)[DSIM_DSI_INTF_MAX])
 {
 	u32 i;
 
 	for (i = 0; i < MAX_DSIM_DATALANE_CNT; i++) {
-		dsim_phy_write(id, DSIM_PHY_MD_ANA_CON0(i), blk_ctl[0]);
-		dsim_phy_write(id, DSIM_PHY_MD_ANA_CON1(i), blk_ctl[1]);
-		dsim_phy_write(id, DSIM_PHY_MD_ANA_CON2(i), blk_ctl[2]);
-		dsim_phy_write(id, DSIM_PHY_MD_ANA_CON3(i), blk_ctl[3]);
+		dsim_phy_write(id, DSIM_PHY_MD_ANA_CON0(i), blk_ctl[0][id]);
+		dsim_phy_write(id, DSIM_PHY_MD_ANA_CON1(i), blk_ctl[1][id]);
+		dsim_phy_write(id, DSIM_PHY_MD_ANA_CON2(i), blk_ctl[2][id]);
+		dsim_phy_write(id, DSIM_PHY_MD_ANA_CON3(i), blk_ctl[3][id]);
 	}
 	/* overwrite value for MD */
 	dsim_phy_write(id, DSIM_PHY_MD_ANA_CON2(3), 0x0);
@@ -2542,6 +2542,23 @@ dsim_check_wide_freq_hop_range(u32 center_clk, u32 hs_clk)
 		return DSIM_WIDE_FRE_HOP_MID;
 }
 
+static int dsim_reg_wait_frame_idle(u32 id)
+{
+	u32 val;
+	int ret;
+
+	ret = readl_poll_timeout_atomic(dsim_regs_desc(id)->regs + DSIM_MIPI_STATUS,
+			val, !(val & DSIM_MIPI_STATUS_FRM_PROCESSING), 10, 10000);
+
+	if (ret) {
+		cal_log_err(id, "failed to wait frame idle of DSIM%d\n", id);
+		return ret;
+	} else
+		cal_log_debug(id, "succeeded to wait frame idle of DSIM%d\n", id);
+
+	return 0;
+}
+
 static void dsim_reg_update_dphy_timing(u32 id, u32 hs_clk, u32 hop_hs_clk)
 {
 	struct dsim_device *dsim = get_dsim_drvdata(id);
@@ -2565,6 +2582,8 @@ static void dsim_reg_update_dphy_timing(u32 id, u32 hs_clk, u32 hop_hs_clk)
 
 	if (dphy_timing_hs_clk < SKEW_CAL_REF_CLOCK)
 		hsmode = 1;
+
+	dsim_reg_wait_frame_idle(id);
 
 	/* get DPHY timing values using hs clock and escape clock */
 	dsim_reg_get_dphy_timing(id, dphy_timing_hs_clk, dsim->clk_param.esc_clk, &t);

@@ -549,9 +549,9 @@ int is_resourcemgr_probe(struct is_resourcemgr *resourcemgr, void *private_data,
 
 #ifdef ENABLE_KERNEL_LOG_DUMP
 #if IS_ENABLED(CONFIG_EXYNOS_SNAPSHOT)
-	resourcemgr->kernel_log_buf = kzalloc(exynos_ss_get_item_size("log_kernel"), GFP_KERNEL);
+	resourcemgr->kernel_log_buf = pablo_zalloc(exynos_ss_get_item_size("log_kernel"), GFP_KERNEL);
 #elif IS_ENABLED(CONFIG_DEBUG_SNAPSHOT)
-	resourcemgr->kernel_log_buf = kzalloc(dbg_snapshot_get_item_size("log_kernel"), GFP_KERNEL);
+	resourcemgr->kernel_log_buf = pablo_zalloc(dbg_snapshot_get_item_size("log_kernel"), GFP_KERNEL);
 #endif
 #endif
 

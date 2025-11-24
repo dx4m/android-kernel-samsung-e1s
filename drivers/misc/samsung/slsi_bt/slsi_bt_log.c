@@ -1,22 +1,28 @@
 #include <linux/module.h>
 #include <linux/ctype.h>
+#include <linux/string.h>
 
-#ifdef CONFIG_SCSC_LOG_COLLECTION
-#include <scsc/scsc_log_collector.h>
+#include "scsc_mx_module.h"
+#if IS_ENABLED(CONFIG_SCSC_LOG_COLLECTION)
+#include IN_SCSC_INC(scsc_log_collector.h)
 #endif
+#include IN_SCSC_SRC(scsc_mx_impl.h)
+#include IN_SCSC_SRC(mxlog.h)
+#include IN_SCSC_SRC(mxlog_transport.h)
 
 #include "slsi_bt_log.h"
 #include "slsi_bt_property.h"
+#include "hci_pkt.h"
+#include "hci_h4.h"
 
-#include "../scsc/scsc_mx_impl.h"
-#include "../scsc/mxlog.h"
-#include "../scsc/mxlog_transport.h"
 #include "slsi_bt_controller.h"
 
 static void *property_data;
+static const struct firm_log_filter fw_filter_default = {
+	.uint64 = { 0ull, 0ull} };
 static struct firm_log_filter fw_filter;
 
-static unsigned int dev_host_tr_data_log_filter;
+static unsigned int dev_host_tr_data_log_filter = BTTR_LOG_FILTER_DEFAULT;
 module_param(dev_host_tr_data_log_filter, int, S_IRUGO | S_IWUSR);
 MODULE_PARM_DESC(dev_host_tr_data_log_filter, "Host transport layer log filter");
 
@@ -30,11 +36,185 @@ module_param_cb(btlog_enables, &slsi_btlog_enables_ops, NULL, S_IRUGO|S_IWUSR);
 MODULE_PARM_DESC(btlog_enables,
 	"Set the enables for btlog sources in Bluetooth firmware (127..0)");
 
+static int btlog_reset(const char *val, const struct kernel_param *kp);
+static struct kernel_param_ops slsi_btlog_reset_ops;
+module_param_cb(btlog_reset, &slsi_btlog_reset_ops, NULL, S_IWUSR);
+MODULE_PARM_DESC(logfilter_reset,
+	 "Set the enables for btlog sources to default");
+
 /* Legacy. Recommend to use btlog_enables. */
 static struct kernel_param_ops slsi_mxlog_filter_ops;
 module_param_cb(mxlog_filter, &slsi_mxlog_filter_ops, NULL, S_IRUGO | S_IWUSR);
 MODULE_PARM_DESC(mxlog_filter,
 	 "Set the enables for btlog sources in Bluetooth firmware (31..0)");
+
+static void update_fw_logfilter(void)
+{
+#if IS_ENABLED(CONFIG_SLSI_BT_USE_UART_INTERFACE) || IS_ENABLED(CONFIG_SLSI_BT_USE_HCI_INTERFACE)
+	struct hci_trans *htr = (struct hci_trans *)property_data;
+
+	slsi_bt_property_set_logmask(htr, fw_filter.uint32, 4);
+#else
+	slsi_bt_controller_update_fw_log_filter(fw_filter.uint64);
+#endif
+}
+
+#if IS_ENABLED(CONFIG_SLSI_BT_FWLOG_SNOOP)
+/***
+ * BTFW SNOOP
+ */
+static unsigned int fwsnoop_notify_packets = 1;
+module_param(fwsnoop_notify_packets, int, S_IRUGO | S_IWUSR);
+MODULE_PARM_DESC(fwsnoop_notify_packets,
+		"Set the auto notification counter");
+
+static struct sk_buff_head fwlogdump_q;
+static struct mutex fwlogdump_q_lock;
+static bool fwlog_snoop_init = false;
+static bool fwlog_snoop_enable = false;
+static bool fwlog_snoop_filter_updated = false;
+
+/*
+ * |  0  |  1 |  2 |  3 |  4 |  5 |  6 |  7 |  8 |  9 ....
+ * | dump header                                 | dump data
+ * | H4  | ACL_DATA Header   | L2CAP Header      | payload
+ * | TYPE| CONN ID | LENGTH  | LENGTH  |   CID   | payload
+ * | ACLD| 0x2EEF  | length1 | length2 | Null id | dump data
+ */
+static const unsigned char fwlogdump_h[9] = { HCI_ACLDATA_PKT, 0xEF, 0x2E };
+
+static inline void _put_u16(unsigned char *p, unsigned short d)
+{
+	/* Little endian to serialize*/
+	*p++ = d & 0xFF;
+	*p = (d>>8) & 0xFF;
+}
+
+static inline struct sk_buff *fwlogdump_new_skb(size_t size)
+{
+	struct sk_buff *skb = alloc_hci_h4_pkt_skb(size);
+
+	if (skb) {
+		skb_put_data(skb, fwlogdump_h, sizeof(fwlogdump_h));
+
+		/* CID is NULL ID */
+		_put_u16(skb->data+7, 0);
+	}
+	return skb;
+}
+
+static void inline fwlogdump_update_header(struct sk_buff *skb)
+{
+	if (skb && skb->len > sizeof(fwlogdump_h)) {
+		/* Update the length of payloader in ACL header */
+		_put_u16(skb->data+3, skb->len-5);
+
+		/* Update the length of payloader in L2CAP header */
+		_put_u16(skb->data+5, skb->len-9);
+	}
+}
+
+static bool _slsi_bt_fwlogdump_dump(unsigned char *data, size_t datalen)
+{
+	const size_t dump_data_length = 1021-4;
+	const size_t max_data_len = sizeof(fwlogdump_h) + dump_data_length;
+	const size_t auto_notify_len = fwsnoop_notify_packets;
+	struct sk_buff *skb = skb_peek_tail(&fwlogdump_q);
+	int ret = false;
+
+	if (skb && (max_data_len-(skb->len+1) < datalen)) {
+		/* queue is enough to send to host */
+		if (skb_queue_len(&fwlogdump_q) >= auto_notify_len)
+			ret = true;
+		skb = NULL;
+	}
+	skb = skb ? skb_dequeue_tail(&fwlogdump_q) :
+		    fwlogdump_new_skb(max_data_len);
+	if (skb) {
+		skb_put_u8(skb, datalen&0xFF);
+		skb_put_data(skb, data, datalen);
+		fwlogdump_update_header(skb);
+
+		skb_queue_tail(&fwlogdump_q, skb);
+	}
+	else
+		BT_WARNING("allocation for dump log is failed\n");
+
+	return ret;
+}
+
+void slsi_bt_fwlog_dump(unsigned char *data, size_t datalen)
+{
+	struct hci_trans *htr = (struct hci_trans *)property_data;
+	bool notify = false;
+
+	if (htr && fwlog_snoop_enable) {
+		mutex_lock(&fwlogdump_q_lock);
+		notify = _slsi_bt_fwlogdump_dump(data, datalen);
+		mutex_unlock(&fwlogdump_q_lock);
+
+		if (notify)
+			htr->recv_skb(htr, NULL);
+	}
+}
+
+static void _slsi_bt_fwlogdump_queue_tail(struct sk_buff_head *q, int min)
+{
+	struct sk_buff *skb = NULL;
+
+	while (skb_queue_len(&fwlogdump_q) > min) {
+		skb = skb_dequeue(&fwlogdump_q);
+		if (!skb)
+			break;
+		skb_queue_tail(q, skb);
+	}
+}
+
+void slsi_bt_fwlog_snoop_queue_tail(const void *queue, bool complete_only)
+{
+	struct sk_buff_head *q = (struct sk_buff_head *)queue;
+
+	if (queue && fwlog_snoop_enable) {
+		mutex_lock(&fwlogdump_q_lock);
+		if (complete_only) /* Do not push incomplete paket */
+			_slsi_bt_fwlogdump_queue_tail(q, 1);
+		else if (!skb_queue_empty(&fwlogdump_q))
+			skb_queue_splice_tail_init(&fwlogdump_q, q);
+		mutex_unlock(&fwlogdump_q_lock);
+	}
+}
+
+void slsi_bt_fwlog_snoop_enable(unsigned int filter[4])
+{
+	fwlog_snoop_enable = true;
+
+	if (!memcmp(&fw_filter, &fw_filter_default, sizeof(fw_filter))) {
+		/* Caution the order of 4 bytes filter is reserved */
+		fw_filter.en1_h = filter[0];
+		fw_filter.en1_l = filter[1];
+		fw_filter.en0_h = filter[2];
+		fw_filter.en0_l = filter[3];
+		update_fw_logfilter();
+
+		fwlog_snoop_filter_updated = true;
+		BT_DBG("fwsnoop enabled\n");
+	} else {
+		fwlog_snoop_filter_updated = false;
+		BT_DBG("fwsnoop enabled but filter is not updated\n");
+	}
+}
+
+void slsi_bt_fwlog_snoop_disable(void)
+{
+	if (fwlog_snoop_enable) {
+		fwlog_snoop_enable = false;
+		BT_DBG("fwsnoop disabled\n");
+	}
+
+	if (fwlog_snoop_filter_updated)
+		btlog_reset(NULL, NULL);
+}
+#endif /* CONFIG_SLSI_BT_FWLOG_SNOOP */
 
 /**
  * MXLOG_LOG_EVENT_IND
@@ -64,7 +244,7 @@ void slsi_bt_mxlog_log_event(const unsigned char len, const unsigned char *val)
 		return;
 	}
 
-#if defined(CONFIG_SCSC_INDEPENDENT_SUBSYSTEM)
+#if IS_ENABLED(CONFIG_SCSC_INDEPENDENT_SUBSYSTEM)
 	mtrans = scsc_mx_get_mxlog_transport_wpan(mx);
 #else
 	mtrans = scsc_mx_get_mxlog_transport(mx);
@@ -73,11 +253,11 @@ void slsi_bt_mxlog_log_event(const unsigned char len, const unsigned char *val)
 		unsigned int header, tmp;
 		unsigned char phase, level;
 
-		mutex_lock(&mtrans->lock);
+		//mutex_lock(&mtrans->lock);
 		if (mtrans->header_handler_fn == NULL ||
 		    mtrans->channel_handler_fn == NULL) {
 			BT_WARNING("mxlog transport is not opened.\n");
-			mutex_unlock(&mtrans->lock);
+			//mutex_unlock(&mtrans->lock);
 			return;
 		}
 
@@ -88,11 +268,12 @@ void slsi_bt_mxlog_log_event(const unsigned char len, const unsigned char *val)
 					   (size_t)len - 1,
 					   level,
 					   mtrans->channel_handler_data);
-		mutex_unlock(&mtrans->lock);
+		//mutex_unlock(&mtrans->lock);
 	} else
 		BT_WARNING("failed to get mxlog transport.\n");
 }
 
+#ifdef SLSI_BT_LOG_TRACE_DATA_HEX
 void slsi_bt_log_data_hex(const char *func, unsigned int tag,
 		const unsigned char *data, size_t len)
 {
@@ -102,7 +283,7 @@ void slsi_bt_log_data_hex(const char *func, unsigned int tag,
 	const int head = 10,
 		  tail = 10;
 
-	if(!((dev_host_tr_data_log_filter & tag) & 0xF0))
+	if(!((dev_host_tr_data_log_filter & tag) & BTTR_TAG_NAME_FILTER))
 		return;
 
 	switch (tag) {
@@ -114,6 +295,8 @@ void slsi_bt_log_data_hex(const char *func, unsigned int tag,
 	case BTTR_TAG_BCSP_RX: tags = "BCSP"; break;
 	case BTTR_TAG_SLIP_TX:
 	case BTTR_TAG_SLIP_RX: tags = "SLIP"; break;
+	case BTTR_TAG_FASTPATH_TX:
+	case BTTR_TAG_FASTPATH_RX: tags = "Fastpath"; break;
 	default:
 		tags = "Unknown";
 		break;
@@ -148,6 +331,7 @@ void slsi_bt_log_data_hex(const char *func, unsigned int tag,
 		TR_DATA(isrx, "%20s %s-%s(%3zu): %s...\n", func, tags,
 				isrx ? "RX" : "TX", len, buf);
 }
+#endif
 
 /* btlog string
  *
@@ -205,11 +389,11 @@ static int btlog_enables_set(const char *val, const struct kernel_param *kp)
 
 	// update confirmed filter
 	memcpy(fw_filter.uint64, filter, sizeof(filter));
-#ifdef CONFIG_SLSI_BT_USE_UART_INTERFACE
-	slsi_bt_property_set_logmask((struct hci_trans *)property_data,
-				     fw_filter.uint32, 4);
-#else
-	slsi_bt_controller_update_fw_log_filter(fw_filter.uint64);
+	update_fw_logfilter();
+
+#if IS_ENABLED(CONFIG_SLSI_BT_FWLOG_SNOOP)
+	// don't reset automatically
+	fwlog_snoop_filter_updated = false;
 #endif
 	return ret;
 }
@@ -227,6 +411,17 @@ static struct kernel_param_ops slsi_btlog_enables_ops = {
 	.get = btlog_enables_get,
 };
 
+static int btlog_reset(const char *val, const struct kernel_param *kp)
+{
+	fw_filter = fw_filter_default;
+	return 0;
+}
+
+static struct kernel_param_ops slsi_btlog_reset_ops = {
+	.set = btlog_reset,
+	.get = NULL,
+};
+
 static int mxlog_filter_set(const char *val, const struct kernel_param *kp)
 {
 	int ret;
@@ -235,12 +430,7 @@ static int mxlog_filter_set(const char *val, const struct kernel_param *kp)
 	ret = kstrtou32(val, 0, &value);
 	if (!ret) {
 		fw_filter.uint32[0] = value;
-#ifdef CONFIG_SLSI_BT_USE_UART_INTERFACE
-		slsi_bt_property_set_logmask((struct hci_trans *)property_data,
-					     fw_filter.uint32, 4);
-#else
-		slsi_bt_controller_update_fw_log_filter(fw_filter.uint64);
-#endif
+		update_fw_logfilter();
 	}
 
 	return ret;
@@ -256,7 +446,7 @@ static struct kernel_param_ops slsi_mxlog_filter_ops = {
 	.get = mxlog_filter_get,
 };
 
-#ifdef CONFIG_SCSC_LOG_COLLECTION
+#if IS_ENABLED(CONFIG_SCSC_LOG_COLLECTION)
 static struct bt_hcf {
 	unsigned char *data;
 	size_t size;
@@ -318,8 +508,22 @@ struct firm_log_filter slsi_bt_log_filter_get(void)
 void slsi_bt_log_set_transport(void *data)
 {
 	property_data = data;
-	if (data) {
-		dev_host_tr_data_log_filter = BTTR_LOG_FILTER_DEFAULT;
+	if (data)
 		slsi_bt_controller_update_fw_log_filter(fw_filter.uint64);
+
+#if IS_ENABLED(CONFIG_SLSI_BT_FWLOG_SNOOP)
+	if (data) {
+		BT_DBG("fwlogdump init\n");
+		skb_queue_head_init(&fwlogdump_q);
+		mutex_init(&fwlogdump_q_lock);
+		fwlog_snoop_init = true;
+	} else if (fwlog_snoop_init) {
+		BT_DBG("fwlogdump deinit\n");
+		fwlog_snoop_init = false;
+		mutex_lock(&fwlogdump_q_lock);
+		skb_queue_purge(&fwlogdump_q);
+		mutex_unlock(&fwlogdump_q_lock);
+		mutex_destroy(&fwlogdump_q_lock);
 	}
+#endif
 }

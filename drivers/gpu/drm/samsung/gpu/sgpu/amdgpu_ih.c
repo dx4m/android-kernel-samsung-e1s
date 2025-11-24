@@ -224,7 +224,7 @@ restart_ih:
 
 	/* make sure wptr hasn't changed while processing */
 	wptr = amdgpu_ih_get_wptr(adev, ih);
-	if (wptr != ih->rptr)
+	if (count && wptr != ih->rptr)
 		goto restart_ih;
 
 	/* End of HW access in IRQ */

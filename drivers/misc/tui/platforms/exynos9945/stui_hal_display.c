@@ -26,7 +26,11 @@
 #include <linux/pm.h>
 #include <linux/pm_runtime.h>
 
+#if defined(CONFIG_EXYNOS_DPU_USE_DUAL_DRV)
+#include "../../../../drivers/gpu/drm/samsung/dpu_dual/exynos_drm_tui.h"
+#else
 #include "../../../../drivers/gpu/drm/samsung/dpu/exynos_drm_tui.h"
+#endif
 
 #define ION_EXYNOS_FLAG_PROTECTED       (1 << 16)
 
@@ -102,7 +106,7 @@ int stui_alloc_video_space(struct tui_hw_buffer *buffer)
 	dma_addr_t phys_addr = 0;
 	size_t framebuf_size;
 	size_t workbuf_size;
-	struct resolution_info lcd_info;
+	struct resolution_info lcd_info = {};
 
 	exynos_tui_get_resolution(&lcd_info);
 
@@ -136,8 +140,6 @@ int stui_alloc_video_space(struct tui_hw_buffer *buffer)
 		goto err_attachment;
 	}
 
-	pr_info(TUIHW_LOG_TAG "xres=%d, yres=%d, mode=%d \n", lcd_info.xres, lcd_info.yres, lcd_info.mode);
-
 	phys_addr = sg_phys(g_sgt->sgl);
 	phys_addr = STUI_ALIGN_UP(phys_addr, STUI_ALIGN_4kB_SZ);
 
@@ -148,6 +150,12 @@ int stui_alloc_video_space(struct tui_hw_buffer *buffer)
 	buffer->fb_size = framebuf_size;
 	buffer->wb_size = workbuf_size;
 	buffer->disp_if = lcd_info.mode;
+#ifdef CONFIG_EXYNOS_DPU_USE_DUAL_DRV
+	buffer->disp_if &= DISP_IF_MASK;
+	buffer->disp_if |= DISP_FLAG_PACK(lcd_info.disp_flag);
+	pr_info(TUIHW_LOG_TAG "xres=%d, yres=%d, mode=%d, disp_flag=%08x\n",
+		lcd_info.xres, lcd_info.yres, lcd_info.mode, lcd_info.disp_flag);
+#endif //CONFIG_EXYNOS_DPU_USE_DUAL_DRV
 	g_stui_buf_info.pa[0] = buffer->fb_physical;
 	g_stui_buf_info.pa[1] = buffer->wb_physical;
 	g_stui_buf_info.pa[2] = 0;
@@ -174,6 +182,12 @@ int stui_get_resolution(struct tui_hw_buffer *buffer)
 	buffer->width = lcd_info.xres;
 	buffer->height = lcd_info.yres;
 	buffer->disp_if = lcd_info.mode;
+#ifdef CONFIG_EXYNOS_DPU_USE_DUAL_DRV
+	buffer->disp_if &= DISP_IF_MASK;
+	buffer->disp_if |= DISP_FLAG_PACK(lcd_info.disp_flag);
+	pr_info(TUIHW_LOG_TAG "xres=%d, yres=%d, mode=%d, disp_flag=%08x\n",
+		lcd_info.xres, lcd_info.yres, lcd_info.mode, lcd_info.disp_flag);
+#endif //CONFIG_EXYNOS_DPU_USE_DUAL_DRV
 	return 0;
 }
 

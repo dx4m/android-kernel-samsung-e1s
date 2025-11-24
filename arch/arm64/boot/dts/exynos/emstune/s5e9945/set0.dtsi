@@ -68,6 +68,10 @@
 			htask-boost = < 150 150 150 150 >;
 		};
 
+		tex {
+			foreground = <101>;
+		};
+
 		ntu {
 			top-app			= <12>;
 		};

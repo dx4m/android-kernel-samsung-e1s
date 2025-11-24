@@ -20,7 +20,7 @@
 #include <linux/samsung/pmic/rtc-s2mp.h>
 #include <linux/samsung/pmic/s2mps27.h>
 #include <linux/samsung/pmic/s2mps27-regulator.h>
-#if IS_ENABLED(CONFIG_RTC_BOOT_ALARM)
+#if IS_ENABLED(CONFIG_RTC_BOOT_ALARM) || IS_ENABLED(CONFIG_RTC_AUTO_PWRON)
 #include <linux/reboot.h>
 #include <linux/fs.h>
 #include <soc/samsung/exynos-pmu-if.h>
@@ -31,6 +31,10 @@
 #endif /* CONFIG_SEC_PM */
 #if IS_ENABLED(CONFIG_SEC_DEBUG)
 #include <linux/sec_debug.h>
+#endif
+#if IS_ENABLED(CONFIG_RTC_AUTO_PWRON)
+#include <linux/ioctl.h>
+#include <linux/sec_pon_alarm.h>
 #endif
 
 struct s2m_rtc_info {
@@ -43,7 +47,7 @@ struct s2m_rtc_info {
 	struct delayed_work	irq_work;
 	int			irq;
 	int			smpl_irq;
-#if IS_ENABLED(CONFIG_RTC_BOOT_ALARM)
+#if IS_ENABLED(CONFIG_RTC_BOOT_ALARM) || IS_ENABLED(CONFIG_RTC_AUTO_PWRON)
 	int			boot_alarm_irq;
 	bool			boot_alarm_enabled;
 	struct delayed_work	restart_work;
@@ -72,7 +76,7 @@ enum S2M_RTC_OP {
 	S2M_RTC_WRITE_TIME,
 	S2M_RTC_WRITE_ALARM,
 };
-#if IS_ENABLED(CONFIG_RTC_BOOT_ALARM)
+#if IS_ENABLED(CONFIG_RTC_BOOT_ALARM) || IS_ENABLED(CONFIG_RTC_AUTO_PWRON)
 #define POWER_SYSIP_INFORM3       0x080C // TODO: check it out
 static unsigned int is_charging_mode;
 #endif
@@ -462,7 +466,7 @@ static irqreturn_t s2m_rtc_alarm_irq(int irq, void *data)
 
 	return IRQ_HANDLED;
 }
-#if IS_ENABLED(CONFIG_RTC_BOOT_ALARM)
+#if IS_ENABLED(CONFIG_RTC_BOOT_ALARM) || IS_ENABLED(CONFIG_RTC_AUTO_PWRON)
 static int s2m_rtc_stop_boot_alarm0(struct s2m_rtc_info *info)
 {
 	uint8_t data[7];
@@ -734,7 +738,9 @@ static irqreturn_t s2m_rtc_boot_alarm_irq(int irq, void *data)
 	rtc_update_irq(info->rtc_dev, 1, RTC_IRQF | RTC_AF);
 	__pm_wakeup_event(rtc_ws, 500);
 
-	dev_info(info->dev, "[PMIC] %s: is_charging_mode(%d)\n", __func__, is_charging_mode);
+#if IS_ENABLED(CONFIG_RTC_AUTO_PWRON)
+		is_charging_mode = pon_alarm_get_lpcharge();
+#endif
 	if (info->boot_alarm_enabled) {
 		if (is_charging_mode)
 			queue_delayed_work(info->restart_wqueue, &info->restart_work, 1);
@@ -839,7 +845,36 @@ static const struct attribute_group s2mps27_rtc_sysfs_files = {
 };
 #endif
 
+#if IS_ENABLED(CONFIG_RTC_AUTO_PWRON)
+static int s2m_rtc_ioctl(struct device *dev, unsigned int cmd, unsigned long arg)
+{
+	int retval = 0;
+	struct alarm_timespec data;
+	struct rtc_wkalrm alm;
+
+	memset(&alm, 0, sizeof(struct rtc_wkalrm));
+	pr_info("%s: cmd=%08x\n", __func__, cmd);
+
+	switch (ANDROID_ALARM_BASE_CMD(cmd)) {
+	case ANDROID_ALARM_SET_ALARM_BOOT:
+		if (copy_from_user(data.alarm, (void __user *)arg, 14)) {
+			retval = -EFAULT;
+			pr_err("%s: set ret=%d\n", __func__, retval);
+			return retval;
+		}
+		pon_alarm_parse_data(data.alarm, &alm);
+		retval = s2m_rtc_set_boot_alarm(dev, &alm);
+		break;
+	}
+
+	return retval;
+}
+#endif
+
 static const struct rtc_class_ops s2m_rtc_ops = {
+#if IS_ENABLED(CONFIG_RTC_AUTO_PWRON)
+		.ioctl = s2m_rtc_ioctl,
+#endif
 	.read_time = s2m_rtc_read_time,
 	.set_time = s2m_rtc_set_time,
 	.read_alarm = s2m_rtc_read_alarm,
@@ -1018,7 +1053,7 @@ static int s2m_rtc_init_reg(struct s2m_rtc_info *info,
 	uint8_t data, update_val, ctrl_val, capsel_val;
 	int ret;
 
-#if IS_ENABLED(CONFIG_RTC_BOOT_ALARM)
+#if IS_ENABLED(CONFIG_RTC_BOOT_ALARM) || IS_ENABLED(CONFIG_RTC_AUTO_PWRON)
 	uint8_t data_alrm1[7];
 	struct rtc_time alrm, now;
 	unsigned long now_int, alrm_int;
@@ -1043,7 +1078,7 @@ static int s2m_rtc_init_reg(struct s2m_rtc_info *info,
 		return ret;
 	}
 
-#if IS_ENABLED(CONFIG_RTC_BOOT_ALARM)
+#if IS_ENABLED(CONFIG_RTC_BOOT_ALARM) || IS_ENABLED(CONFIG_RTC_AUTO_PWRON)
 	info->boot_alarm_enabled = (update_val & RTC_WAKE_MASK) ? 1 : 0;
 	if (info->boot_alarm_enabled) {
 		s2m_rtc_read_time(info->dev, &now);
@@ -1155,7 +1190,7 @@ static const struct attribute_group pmic_rtc_attr_group = {
 #endif /* CONFIG_SEC_PM */
 
 
-#if IS_ENABLED(CONFIG_RTC_BOOT_ALARM)
+#if IS_ENABLED(CONFIG_RTC_BOOT_ALARM) || IS_ENABLED(CONFIG_RTC_AUTO_PWRON)
 static int s2m_rtc_init_boot_alarm(struct platform_device *pdev,
 				   struct s2m_rtc_info *info, int irq_base)
 {
@@ -1190,14 +1225,14 @@ static int s2m_rtc_init_boot_alarm(struct platform_device *pdev,
 			info->boot_alarm_irq, ret);
 		goto err;
 	}
-
+#if IS_ENABLED(CONFIG_RTC_BOOT_ALARM)
 	ret = rtc_add_group(info->rtc_dev, &s2mps27_rtc_sysfs_files);
 	if (ret < 0) {
 		devm_free_irq(&pdev->dev, info->boot_alarm_irq, info);
 		dev_err(&pdev->dev, "Failed to creat sysfs: %d\n", ret);
 		goto err;
 	}
-
+#endif
 	return 0;
 err:
 	return -1;
@@ -1322,7 +1357,7 @@ static int s2m_rtc_probe(struct platform_device *pdev)
 		goto err_rtc_init;
 	}
 
-#if IS_ENABLED(CONFIG_RTC_BOOT_ALARM)
+#if IS_ENABLED(CONFIG_RTC_BOOT_ALARM) || IS_ENABLED(CONFIG_RTC_AUTO_PWRON)
 	ret = s2m_rtc_init_boot_alarm(pdev, info, pdata->irq_base);
 	if (ret < 0) {
 		dev_err(&pdev->dev, "%s: s2m_rtc_init_boot_alarm failed: %d\n", __func__, ret);
@@ -1385,7 +1420,7 @@ static void s2m_rtc_shutdown(struct platform_device *pdev)
 
 	if (info->wtsr_en || info->smpl_en)
 		s2m_rtc_disable_wtsr_smpl(info, pdata);
-#if IS_ENABLED(CONFIG_RTC_BOOT_ALARM)
+#if IS_ENABLED(CONFIG_RTC_BOOT_ALARM) || IS_ENABLED(CONFIG_RTC_AUTO_PWRON)
 	s2m_rtc_stop_boot_alarm0(info);
 #endif
 
@@ -1451,7 +1486,9 @@ static struct platform_driver s2m_rtc_driver = {
 };
 
 module_platform_driver(s2m_rtc_driver);
-
+#if IS_ENABLED(CONFIG_RTC_AUTO_PWRON)
+MODULE_SOFTDEP("pre: sec_pon_alarm");
+#endif
 /* Module information */
 MODULE_DESCRIPTION("Samsung RTC driver");
 MODULE_AUTHOR("Samsung Electronics");

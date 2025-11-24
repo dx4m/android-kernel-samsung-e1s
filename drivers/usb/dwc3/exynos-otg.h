@@ -72,7 +72,9 @@ struct dwc3_otg {
 	int                     irq;
 	void __iomem            *regs;
 	struct wakeup_source	*wakelock;
+#if IS_ENABLED(CONFIG_USB_EXYNOS_RETRY_CONFIGURATION)
 	struct wakeup_source	*reconn_wakelock;
+#endif
 
 	unsigned		ready:1;
 
@@ -164,5 +166,8 @@ extern void __iomem *phycon_base_addr;
 extern int exynos_usbdrd_pipe3_enable(struct phy *phy);
 extern int exynos_usbdrd_pipe3_disable(struct phy *phy);
 extern void usb_power_notify_control(int owner, int on);
+
+//cpu freq for performance
+void dwc3_otg_cpufreq_work(struct work_struct *data);
 
 #endif /* __LINUX_USB_DWC3_OTG_H */

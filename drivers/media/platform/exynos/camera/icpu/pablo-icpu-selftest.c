@@ -12,11 +12,13 @@
 #include <linux/moduleparam.h>
 #include <linux/string.h>
 #include <linux/vmalloc.h>
+#include <linux/debugfs.h>
 
 #include "pablo-icpu-itf.h"
 #include "pablo-icpu-core.h"
 #include "mbox/pablo-icpu-mbox.h"
 #include "mem/pablo-icpu-mem.h"
+#include "pablo-mem.h"
 
 #if IS_ENABLED(CONFIG_ARCH_VELOCE_HYCON)
 #define TIMEOUT_ICPU			10000
@@ -25,6 +27,9 @@
 #endif
 
 static struct pablo_icpu_itf_api *itf;
+#if IS_ENABLED(CONFIG_PABLO_KUNIT_TEST)
+static struct pablo_icpu_itf_api *test_itf;
+#endif
 
 static struct icpu_logger _log = {
 	.level = LOGLEVEL_INFO,
@@ -170,12 +175,22 @@ static struct test_status {
 	.scenario = MANUAL,
 };
 
+static struct icpu_profile {
+	struct message msg;
+	struct debugfs_blob_wrapper blob;
+	int run; /* 0: idle, 1: running */
+	struct completion stop_done;
+	struct dentry *root_dir;
+	struct dentry *outfile;
+} __profile = { 0, };
+
 enum control_id {
 	CTRL_TARGET = 0,	/* board, virtual */
 	CTRL_SCENARIO,		/* Manual, preset0,1,2... */
 	CTRL_BOOT,		/* on, off */
 	CTRL_MSG,		/* a for send all msg or num of msg */
 	CTRL_PRELOAD,		/* Preload FW binary and verify */
+	CTRL_PROFILE,
 	CTRL_INVALID,
 };
 
@@ -185,7 +200,18 @@ static const char *__control_id_str[] = {
 	"boot",
 	"msg",
 	"preload",
+	"profile",
 };
+
+struct pablo_icpu_itf_api *pablo_icpu_itf_api_get_wrap(void)
+{
+#if IS_ENABLED(CONFIG_PABLO_KUNIT_TEST)
+	if (test_itf)
+		return test_itf;
+#endif
+
+	return pablo_icpu_itf_api_get();
+}
 
 static enum control_id __get_control_id(char *str)
 {
@@ -253,7 +279,7 @@ static int __boot_ctrl_func(char **pstr)
 	int ret;
 
 	if (!strncmp(*pstr, "on", strlen(*pstr))) {
-		itf = pablo_icpu_itf_api_get();
+		itf = pablo_icpu_itf_api_get_wrap();
 		if (!itf) {
 			ICPU_ERR("fail to get itf api");
 			return -ENODEV;
@@ -356,12 +382,199 @@ static int __preload_ctrl_func(char **pstr)
 	return 0;
 }
 
+static int __profile_alloc_blob_buf(void)
+{
+	struct pablo_icpu_buf_info buf_info;
+
+	if (!__profile.msg.buf)
+		return -ENOMEM;
+
+	buf_info = pablo_icpu_mem_get_buf_info(__profile.msg.buf);
+
+	if (__profile.blob.data && __profile.blob.size != buf_info.size) {
+		pablo_free(__profile.blob.data);
+		__profile.blob.data = NULL;
+		__profile.blob.size = 0;
+	}
+
+	if (__profile.blob.data == NULL) {
+		__profile.blob.data = pablo_malloc(buf_info.size, GFP_KERNEL);
+		if (!__profile.blob.data) {
+			ICPU_ERR("blob->data alloc failed, size(%zu)", buf_info.size);
+			return -ENOMEM;
+		}
+		__profile.blob.size = buf_info.size;
+	}
+
+	return 0;
+}
+
+static void __profile_free_buf(void)
+{
+	struct pablo_icpu_buf_info buf_info;
+	struct message null_msg = { 0, };
+
+	if (!__profile.msg.buf)
+		return;
+
+	buf_info = pablo_icpu_mem_get_buf_info(__profile.msg.buf);
+
+	ICPU_INFO("buf(0x%llx), size(%zu)", buf_info.dva, buf_info.size);
+	pablo_icpu_mem_free(__profile.msg.buf);
+	__profile.msg = null_msg;
+}
+
+static void stop_profile_rsp_cb(void *sender, void *cookie, u32 *data)
+{
+	struct pablo_icpu_buf_info buf_info;
+
+	ICPU_INFO("response callback, data[0]: %d, data[1]: %d\n", data[0], data[1]);
+
+	buf_info = pablo_icpu_mem_get_buf_info(__profile.msg.buf);
+	memcpy(__profile.blob.data, (void *)buf_info.kva, __profile.blob.size);
+
+	complete(&__profile.stop_done);
+}
+
+static int __get_msg_data(char *pstr, struct message *msg);
+static int __profile_ctrl_func(char **pstr)
+{
+	int ret = 0, argc;
+	char **argv;
+	struct message m = { 0, };
+
+	argv = argv_split(GFP_KERNEL, *pstr, &argc);
+	if (!argv) {
+		ICPU_ERR("No argument!");
+		return -EINVAL;
+	}
+
+	if (!strcmp(argv[0], "reset")) {
+		if (__profile.run) {
+			ICPU_INFO("Reset profile");
+			__profile_free_buf();
+			__profile.run = 0;
+		}
+		goto exit;
+	}
+
+	if (argc != 2) {
+		ICPU_ERR("need msg");
+		ret = -EINVAL;
+		goto exit;
+	}
+
+	itf = pablo_icpu_itf_api_get_wrap();
+	if (!itf) {
+		ICPU_ERR("fail to get itf api");
+		ret = -ENODEV;
+		goto exit;
+	}
+
+	if (!__profile.root_dir) {
+		struct dentry *tmp_dentry = debugfs_lookup("icpu", NULL);
+
+		if (IS_ERR_OR_NULL(tmp_dentry)) {
+			tmp_dentry = debugfs_create_dir("icpu", NULL);
+			if (IS_ERR_OR_NULL(tmp_dentry)) {
+				ICPU_ERR("ICPU debugfs create fail\n");
+				ret = -EINVAL;
+				goto exit;
+			}
+		}
+		__profile.root_dir = tmp_dentry;
+	}
+
+	if (!__profile.outfile) {
+		__profile.outfile = debugfs_create_blob("profile_out", 0400,
+				__profile.root_dir, &__profile.blob);
+		if (IS_ERR_OR_NULL(__profile.outfile)) {
+			ICPU_ERR("profile blob create fail\n");
+			__profile.outfile = NULL;
+			ret = -EINVAL;
+			goto exit;
+		}
+	}
+
+	if (!strcmp(argv[0], "start")) {
+		if (__profile.run) {
+			ICPU_ERR("profile is under running. Must stop before re-run");
+			ret = -EINVAL;
+			goto exit;
+		}
+
+		__profile_free_buf();
+		ret = __get_msg_data(argv[1], &m);
+		if (ret) {
+			ICPU_ERR("fail to get_msg_data, ret(%d)", ret);
+			goto exit;
+		}
+
+		__profile.msg = m;
+		ret = __profile_alloc_blob_buf();
+		if (ret) {
+			ICPU_ERR("fail to blob_buf, ret(%d)", ret);
+			__profile_free_buf();
+			goto exit;
+		}
+
+		ret = itf->send_message(NULL, NULL, rsp_cb, 0,
+				m.num_data, m.data);
+		if (ret) {
+			ICPU_ERR("fail to send_message, ret(%d)", ret);
+			__profile_free_buf();
+			goto exit;
+		}
+
+		__profile.run = 1;
+	} else if (!strcmp(argv[0], "stop")) {
+		if (!__profile.run) {
+			ICPU_ERR("profile is not running.");
+			ret = -EINVAL;
+			goto exit;
+		}
+
+		ret = __get_msg_data(argv[1], &m);
+		if (ret) {
+			ICPU_ERR("fail to get_msg_data, ret(%d)", ret);
+			goto exit;
+		}
+
+		init_completion(&__profile.stop_done);
+
+		ret = itf->send_message(NULL, NULL, stop_profile_rsp_cb, 0,
+				m.num_data, m.data);
+		if (ret) {
+			ICPU_ERR("fail to send_message, ret(%d)", ret);
+			/* TODO: we cannot free buffer due to ICPU might use buffer */
+			goto exit;
+		}
+
+		if (wait_for_completion_timeout(&__profile.stop_done, msecs_to_jiffies(1000)) == 0) {
+			ICPU_ERR("stop profile msg response timeout!!");
+			ret = -ETIMEDOUT;
+			goto exit;
+		}
+
+		__profile_free_buf();
+		__profile.run = 0;
+	} else {
+		ICPU_ERR("invalid arg, %s", argv[0]);
+		ret = -EINVAL;
+	}
+
+exit:
+	argv_free(argv);
+	return ret;
+}
+
 static ctrl_func __ctrl_ops[CTRL_INVALID] = {
 	__target_ctrl_func,
 	__scenario_ctrl_func,
 	__boot_ctrl_func,
 	__msg_ctrl_func,
 	__preload_ctrl_func,
+	__profile_ctrl_func,
 };
 
 static int __set_control(const char *val, const struct kernel_param *kp)
@@ -383,7 +596,7 @@ static int __set_control(const char *val, const struct kernel_param *kp)
 		return -1;
 	}
 
-	pbuf = vzalloc(val_len + 1);
+	pbuf = pablo_zalloc(val_len + 1, GFP_KERNEL);
 	if (!pbuf) {
 		ICPU_ERR("sorry, internal error. please retry\n");
 		return -1;
@@ -400,14 +613,14 @@ static int __set_control(const char *val, const struct kernel_param *kp)
 		ctrl_id = __get_control_id(str);
 		if (ctrl_id == CTRL_INVALID) {
 			ICPU_ERR("unknown control (%s)\n", str);
-			vfree(pbuf);
+			pablo_free(pbuf);
 			return -1;
 		}
 
 		ret = __ctrl_ops[ctrl_id](&pstr);
 		if (ret) {
 			ICPU_ERR("fail to control ret(%d)\n", ret);
-			vfree(pbuf);
+			pablo_free(pbuf);
 			return ret;
 		}
 
@@ -415,7 +628,7 @@ static int __set_control(const char *val, const struct kernel_param *kp)
 		str = NULL;
 	} while (str);
 
-	vfree(pbuf);
+	pablo_free(pbuf);
 
 	ICPU_INFO("OK\n");
 
@@ -450,7 +663,7 @@ static int __clear_messages(struct msg_box *box)
 	for (i = 0; i < MESSAGE_MAX_COUNT; i++) {
 		if (box->msg[i].buf) {
 			buf_info = pablo_icpu_mem_get_buf_info(box->msg[i].buf);
-			ICPU_INFO("free dma_buf, size(%zu), kva(%lx), dva(%llx)",
+			ICPU_INFO("free dma_buf, size(%zu), kva(%lx), dva(0x%llx)",
 					buf_info.size, buf_info.kva, buf_info.dva);
 
 			pablo_icpu_mem_free(box->msg[i].buf);
@@ -465,7 +678,7 @@ static int __clear_messages(struct msg_box *box)
 	return 0;
 }
 
-static int __check_buffer_param(char *str, long *dva_msb, long *dva_lsb, void **dma_buf)
+static int __check_buffer_param(char *str, u32 *dva_h, void **dma_buf)
 {
 	int ret;
 	const char *open_tk = "[";
@@ -477,6 +690,7 @@ static int __check_buffer_param(char *str, long *dva_msb, long *dva_lsb, void **
 	int buffer_type;
 	char *temp_str;
 	struct pablo_icpu_buf_info buf_info;
+	long dva_msb;
 
 	ICPU_DEBUG("check buffer param, str(%s)\n", str);
 
@@ -513,16 +727,71 @@ static int __check_buffer_param(char *str, long *dva_msb, long *dva_lsb, void **
 		*dma_buf = buf;
 		buf_info = pablo_icpu_mem_get_buf_info(buf);
 
-		*dva_msb = buf_info.dva >> 4;
-		*dva_lsb = buf_info.dva & 0xF;
+		dva_msb = buf_info.dva >> 4;
 		memcpy((void *)buf_info.kva, (void *)data, strlen(data));
 
 		if (!IS_ENABLED(ICPU_IO_COHERENCY))
 			pablo_icpu_mem_sync_for_device(buf);
 		ret = size;
-		ICPU_INFO("dma_buf size(%ld), kva(%lx), dva(%llx), data(0x%lx, 0x%lx)",
-				size, buf_info.kva, buf_info.dva, *dva_msb, *dva_lsb);
+		ICPU_INFO("dma_buf size(%ld), kva(%lx), dva(0x%llx), data(0x%lx)",
+				size, buf_info.kva, buf_info.dva, dva_msb);
+
+		*dva_h = dva_msb;
 	}
+
+	return ret;
+}
+
+static int __get_msg_data(char *pstr, struct message *msg)
+{
+	int ret = 0;
+	const char *open_tk = "[";
+	const char *close_tk = "]";
+	const char *comma_tk = ",";
+	int i;
+	long num_data;
+	char *str;
+
+	str = strsep(&pstr, open_tk);
+
+	ret = kstrtol(str, 0, &num_data);
+	if (ret) {
+		ICPU_ERR("check input, ret(%d)\n", ret);
+		return ret;
+	}
+
+	if (num_data > 16) {
+		ICPU_ERR("Max num of data is 16 but, %ld\n", num_data);
+		return -1;
+	}
+
+	for (i = 0; i < num_data; i++) {
+		if (i < num_data - 1)
+			str = strsep(&pstr, comma_tk);
+		else /* last data */
+			str = strsep(&pstr, close_tk);
+
+		if (!str) {
+			ICPU_ERR("invalid param, check input\n");
+			return -1;
+		}
+
+		ret = __check_buffer_param(str, &msg->data[i], &msg->buf);
+		if (ret > 0) {
+			continue;
+		} else if (ret == 0) {
+			long tmp;
+
+			ret = kstrtol(str, 0, &tmp);
+			msg->data[i] = tmp;
+		}
+		if (ret < 0) {
+			ICPU_ERR("data is invalid, check input. ret(%d)\n", ret);
+			return ret;
+		}
+	}
+
+	msg->num_data = num_data;
 
 	return ret;
 }
@@ -530,18 +799,12 @@ static int __check_buffer_param(char *str, long *dva_msb, long *dva_lsb, void **
 static int __set_msg(const char *val, const struct kernel_param *kp)
 {
 	int ret;
-	const char *open_tk = "[";
-	const char *close_tk = "]";
-	const char *comma_tk = ",";
-	char *str;
 	char *pbuf;
 	char *pstr;
-	long num_data;
-	int i;
-	long data[16];
 	struct msg_box *box = __get_msg_box_by_scenario(__icpu.scenario);
-	void *dma_buf =  NULL;
 	size_t val_len;
+	struct message m = { 0, };
+	int i;
 
 	if (!val)
 		return -EINVAL;
@@ -562,7 +825,7 @@ static int __set_msg(const char *val, const struct kernel_param *kp)
 		return -1;
 	}
 
-	pbuf = vzalloc(val_len + 1);
+	pbuf = pablo_zalloc(val_len + 1, GFP_KERNEL);
 	if (!pbuf) {
 		ICPU_ERR("sorry, internal error. please retry\n");
 		return -1;
@@ -573,55 +836,17 @@ static int __set_msg(const char *val, const struct kernel_param *kp)
 
 	pstr = pbuf;
 
-	str = strsep(&pstr, open_tk);
+	ret = __get_msg_data(pstr, &m);
+	pablo_free(pbuf);
 
-	ret = kstrtol(str, 0, &num_data);
-	if (ret) {
-		ICPU_ERR("check input, ret(%d)\n", ret);
-		vfree(pbuf);
+	if (ret)
 		return ret;
-	}
-
-	if (num_data > 16) {
-		ICPU_ERR("Max num of data is 16 but, %ld\n", num_data);
-		vfree(pbuf);
-		return -1;
-	}
-
-	for (i = 0; i < num_data; i++) {
-		if (i < num_data - 1)
-			str = strsep(&pstr, comma_tk);
-		else /* last data */
-			str = strsep(&pstr, close_tk);
-
-		if (!str) {
-			ICPU_ERR("invalid param, check input\n");
-			vfree(pbuf);
-			return -1;
-		}
-
-		ret = __check_buffer_param(str, &data[i], &data[i+1], &dma_buf);
-		if (ret > 0) {
-			/* In case buffer type param, it need two register for represent dva */
-			i++;
-			num_data++;
-		} else if (ret == 0) {
-			ret = kstrtol(str, 0, &data[i]);
-		}
-		if (ret < 0) {
-			ICPU_ERR("data is invalid, check input. ret(%d)\n", ret);
-			vfree(pbuf);
-			return ret;
-		}
-	}
-
-	vfree(pbuf);
 
 	box->msg[box->num_msg].valid = 1;
-	box->msg[box->num_msg].num_data = num_data;
-	box->msg[box->num_msg].buf = dma_buf;
-	for (i = 0; i < num_data; i++)
-		box->msg[box->num_msg].data[i] = data[i];
+	box->msg[box->num_msg].num_data = m.num_data;
+	box->msg[box->num_msg].buf = m.buf;
+	for (i = 0; i < m.num_data; i++)
+		box->msg[box->num_msg].data[i] = m.data[i];
 	box->num_msg++;
 
 	ICPU_INFO("num of message in the box: %d\n", box->num_msg);
@@ -647,15 +872,15 @@ static int __query_msg(char *buffer, const struct kernel_param *kp)
 	len += sprintf(buffer + len, "\tNum of msg: %d\n", box->num_msg);
 	for (i = 0; i < box->num_msg; i++) {
 		len += sprintf(buffer + len, "\tmsg[%d]\n", i);
-		len += sprintf(buffer + len, "\t\t.valid: %d\n", box->msg[0].valid);
-		len += sprintf(buffer + len, "\t\t.num of data: %d\n", box->msg[0].num_data);
+		len += sprintf(buffer + len, "\t\t.valid: %d\n", box->msg[i].valid);
+		len += sprintf(buffer + len, "\t\t.num of data: %d\n", box->msg[i].num_data);
 
 		/* NOTE: buffer is only 4K, so we cannot print all messages.
 		 *       We print only first 16 messages.
 		 */
 		if (i >= 16)
 			continue;
-		for (j = 0; j < box->msg[0].num_data; j++) {
+		for (j = 0; j < box->msg[i].num_data; j++) {
 			len += sprintf(buffer + len, "\t\t.data[%d]: 0x%x(dec. %d)\n", j,
 					box->msg[i].data[j], box->msg[i].data[j]);
 		}
@@ -691,6 +916,12 @@ void pablo_icpu_selftest_rsp_cb(void *sender, void *cookie, u32 *data)
 	rsp_cb(sender, cookie, data);
 }
 KUNIT_EXPORT_SYMBOL(pablo_icpu_selftest_rsp_cb);
+
+void pablo_icpu_selftest_register_test_itf(struct pablo_icpu_itf_api *itf)
+{
+	test_itf = itf;
+}
+KUNIT_EXPORT_SYMBOL(pablo_icpu_selftest_register_test_itf);
 
 #endif
 

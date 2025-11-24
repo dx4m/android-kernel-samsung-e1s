@@ -452,7 +452,7 @@ static ssize_t gpu_mm_min_clock_store(struct kobject *kobj,
 
 	return count;
 }
-static struct kobj_attribute attr_gpu_mm_min_clock = __ATTR_RW(gpu_mm_min_clock);
+static struct kobj_attribute attr_gpu_mm_min_clock = __ATTR_RW_MODE(gpu_mm_min_clock, 0640);
 
 /* disable llc ways */
 static ssize_t gpu_disable_llc_way_show(struct kobject *kobj,
@@ -481,7 +481,7 @@ static ssize_t gpu_disable_llc_way_store(struct kobject *kobj,
 
 	return count;
 }
-static struct kobj_attribute attr_gpu_disable_llc_way = __ATTR_RW(gpu_disable_llc_way);
+static struct kobj_attribute attr_gpu_disable_llc_way = __ATTR_RW_MODE(gpu_disable_llc_way, 0640);
 
 static ssize_t gpu_min_clock_show(struct kobject *kobj,
 				  struct kobj_attribute *attr, char *buf)
@@ -515,7 +515,7 @@ static ssize_t gpu_min_clock_store(struct kobject *kobj,
 
 	return count;
 }
-static struct kobj_attribute attr_gpu_min_clock = __ATTR_RW(gpu_min_clock);
+static struct kobj_attribute attr_gpu_min_clock = __ATTR_RW_MODE(gpu_min_clock, 0640);
 
 static ssize_t gpu_max_clock_show(struct kobject *kobj,
 				  struct kobj_attribute *attr, char *buf)
@@ -548,7 +548,7 @@ static ssize_t gpu_max_clock_store(struct kobject *kobj,
 
 	return count;
 }
-static struct kobj_attribute attr_gpu_max_clock = __ATTR_RW(gpu_max_clock);
+static struct kobj_attribute attr_gpu_max_clock = __ATTR_RW_MODE(gpu_max_clock, 0640);
 
 static ssize_t gpu_siop_max_clock_show(struct kobject *kobj,
 				  struct kobj_attribute *attr, char *buf)
@@ -581,7 +581,7 @@ static ssize_t gpu_siop_max_clock_store(struct kobject *kobj,
 
 	return count;
 }
-static struct kobj_attribute attr_gpu_siop_max_clock = __ATTR_RW(gpu_siop_max_clock);
+static struct kobj_attribute attr_gpu_siop_max_clock = __ATTR_RW_MODE(gpu_siop_max_clock, 0640);
 
 static ssize_t gpu_busy_show(struct kobject *kobj,
 			     struct kobj_attribute *attr, char *buf)
@@ -601,7 +601,7 @@ static ssize_t gpu_busy_show(struct kobject *kobj,
 	return scnprintf(buf, PAGE_SIZE, "%llu\n", utilization);
 
 }
-static struct kobj_attribute attr_gpu_busy = __ATTR_RO(gpu_busy);
+static struct kobj_attribute attr_gpu_busy = __ATTR_RO_MODE(gpu_busy, 0440);
 
 static ssize_t gpu_clock_show(struct kobject *kobj,
 			      struct kobj_attribute *attr, char *buf)
@@ -623,7 +623,7 @@ static ssize_t gpu_clock_show(struct kobject *kobj,
 
 	return count;
 }
-static struct kobj_attribute attr_gpu_clock = __ATTR_RO(gpu_clock);
+static struct kobj_attribute attr_gpu_clock = __ATTR_RO_MODE(gpu_clock, 0440);
 
 
 static ssize_t gpu_freq_table_show(struct kobject *kobj,
@@ -643,7 +643,7 @@ static ssize_t gpu_freq_table_show(struct kobject *kobj,
 
 	return count;
 }
-static struct kobj_attribute attr_gpu_freq_table = __ATTR_RO(gpu_freq_table);
+static struct kobj_attribute attr_gpu_freq_table = __ATTR_RO_MODE(gpu_freq_table, 0440);
 
 
 static ssize_t gpu_governor_show(struct kobject *kobj,
@@ -690,7 +690,7 @@ static ssize_t gpu_governor_store(struct kobject *kobj,
 	}
 	return ret;
 }
-static struct kobj_attribute attr_gpu_governor = __ATTR_RW(gpu_governor);
+static struct kobj_attribute attr_gpu_governor = __ATTR_RW_MODE(gpu_governor, 0640);
 
 static ssize_t gpu_available_governor_show(struct kobject *kobj,
 					   struct kobj_attribute *attr,
@@ -704,7 +704,7 @@ static ssize_t gpu_available_governor_show(struct kobject *kobj,
 	return sgpu_governor_all_info_show(df, buf);
 }
 static struct kobj_attribute attr_gpu_available_governor =
-					__ATTR_RO(gpu_available_governor);
+					__ATTR_RO_MODE(gpu_available_governor, 0440);
 
 #if IS_ENABLED(CONFIG_GPU_THERMAL)
 static ssize_t gpu_tmu_show(struct kobject *kobj,
@@ -734,7 +734,7 @@ static ssize_t gpu_tmu_show(struct kobject *kobj,
 
 	return count;
 }
-static struct kobj_attribute attr_gpu_tmu = __ATTR_RO(gpu_tmu);
+static struct kobj_attribute attr_gpu_tmu = __ATTR_RO_MODE(gpu_tmu, 0440);
 #endif
 
 static ssize_t gpu_model_show(struct kobject *kobj,
@@ -756,7 +756,7 @@ static ssize_t gpu_model_show(struct kobject *kobj,
 
 	return count;
 }
-static struct kobj_attribute attr_gpu_model = __ATTR_RO(gpu_model);
+static struct kobj_attribute attr_gpu_model = __ATTR_RO_MODE(gpu_model, 0440);
 
 static ssize_t mem_info_show(struct kobject *kobj,
 			     struct kobj_attribute *attr, char *buf)
@@ -802,7 +802,7 @@ static ssize_t mem_info_show(struct kobject *kobj,
 			   total_num_pages * PAGE_SIZE);
 	return count;
 }
-static struct kobj_attribute attr_mem_info = __ATTR_RO(mem_info);
+static struct kobj_attribute attr_mem_info = __ATTR_RO_MODE(mem_info, 0440);
 
 #if IS_ENABLED(CONFIG_DRM_SGPU_VENDOR_HOOKS)
 static atomic_long_t sgpu_total_pages = ATOMIC_INIT(0);
@@ -931,7 +931,7 @@ static ssize_t ctx_mem_info_show(struct kobject *kobj,
 
 	return count;
 }
-static struct kobj_attribute attr_ctx_mem_info = __ATTR_RO(ctx_mem_info);
+static struct kobj_attribute attr_ctx_mem_info = __ATTR_RO_MODE(ctx_mem_info, 0440);
 
 static ssize_t gpu_cl_boost_disable_show(struct kobject *kobj,
 					 struct kobj_attribute *attr, char *buf)
@@ -963,7 +963,7 @@ static ssize_t gpu_cl_boost_disable_store(struct kobject *kobj,
 
 	return count;
 }
-static struct kobj_attribute attr_gpu_cl_boost_disable = __ATTR_RW(gpu_cl_boost_disable);
+static struct kobj_attribute attr_gpu_cl_boost_disable = __ATTR_RW_MODE(gpu_cl_boost_disable, 0640);
 
 static ssize_t gpu_ifpo_control_show(struct kobject *kobj,
 				 struct kobj_attribute *attr, char *buf)
@@ -995,7 +995,7 @@ static ssize_t gpu_ifpo_control_store(struct kobject *kobj,
 	return count;
 }
 
-static struct kobj_attribute attr_gpu_ifpo_control = __ATTR_RW(gpu_ifpo_control);
+static struct kobj_attribute attr_gpu_ifpo_control = __ATTR_RW_MODE(gpu_ifpo_control, 0640);
 
 static ssize_t gpu_ifpo_runtime_control_show(struct kobject *kobj,
 				 struct kobj_attribute *attr, char *buf)
@@ -1027,7 +1027,8 @@ static ssize_t gpu_ifpo_runtime_control_store(struct kobject *kobj,
 	return count;
 }
 
-static struct kobj_attribute attr_gpu_ifpo_runtime_control = __ATTR_RW(gpu_ifpo_runtime_control);
+static struct kobj_attribute attr_gpu_ifpo_runtime_control =
+				__ATTR_RW_MODE(gpu_ifpo_runtime_control, 0640);
 
 #if IS_ENABLED(CONFIG_SEC_GPUINFO)
 /* HQM GPUINFO Interface */
@@ -1176,7 +1177,7 @@ static ssize_t sgpu_pm_monitor_show(struct kobject *kobj,
 
 	return count;
 }
-struct kobj_attribute attr_gpu_pm_monitor = __ATTR_RW(sgpu_pm_monitor);
+struct kobj_attribute attr_gpu_pm_monitor = __ATTR_RW_MODE(sgpu_pm_monitor, 0640);
 
 /* SKI (Samsung Kernel Interface) */
 static struct kobject *ski_kobj;

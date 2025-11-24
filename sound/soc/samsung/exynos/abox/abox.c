@@ -472,7 +472,7 @@ static int abox_ipc_queue_get(struct abox_data *data, struct abox_ipc *ipc)
 	return ret;
 }
 
-static bool abox_can_calliope_ipc(struct device *dev,
+bool abox_can_calliope_ipc(struct device *dev,
 		struct abox_data *data)
 {
 	bool ret = true;
@@ -3642,6 +3642,11 @@ static int abox_enable(struct device *dev)
 	/*Check the probe status of the abox module includes sub drivers */
 	if (!data->probed) {
 		abox_warn(dev, "abox has not been probed yet\n");
+		goto error;
+	}
+
+	if (!data->cmpnt || !data->cmpnt->card->snd_card) {
+		abox_warn(dev, "sound card has not been created yet\n");
 		goto error;
 	}
 

@@ -1,0 +1,8 @@
+source "$(KCONFIG_EXT_PREFIX)drivers/wlan/kernel_modules/ipc_logging/Kconfig"
+#source "$(KCONFIG_EXT_PREFIX)drivers/wlan/kernel_modules/mhi/host/Kconfig"
+#source "$(KCONFIG_EXT_PREFIX)drivers/wlan/kernel_modules/mhi/ep/Kconfig"
+#source "$(KCONFIG_EXT_PREFIX)drivers/wlan/kernel_modules/mhi/devices/Kconfig"
+#source "$(KCONFIG_EXT_PREFIX)drivers/wlan/kernel_modules/mhi/controllers/Kconfig"
+#source "$(KCONFIG_EXT_PREFIX)drivers/wlan/kernel_modules/qmi_helpers/Kconfig"
+#source "$(KCONFIG_EXT_PREFIX)drivers/wlan/kernel_modules/qrtr/Kconfig"
+

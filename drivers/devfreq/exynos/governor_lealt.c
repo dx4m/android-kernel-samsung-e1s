@@ -181,40 +181,33 @@ static ssize_t show_##name(struct device *dev,				\
 	return cnt;		\
 }
 
-#define store_attr(name, _min, _max) \
+#define store_attr(name, _min, _max)					\
 static ssize_t store_##name(struct device *dev,				\
 			struct device_attribute *attr, const char *buf,	\
 			size_t count)					\
 {									\
-	struct devfreq *df = to_devfreq(dev);				\
-	struct lealt_node *node;				\
-	int ret;							\
-	char temp_buf[512];	\
-	char *temp_buf_ptr = temp_buf;	\
-	strcpy(temp_buf, buf);	\
-	mutex_lock(&list_lock);	\
-	list_for_each_entry(node, &lealt_list, list) {	\
-		unsigned int val;						\
-		char *cur_ptr;	\
-		if (node->hw->dev != df->dev.parent && \
-		    node->hw->of_node != df->dev.parent->of_node)	\
-			continue;\
-		cur_ptr = strsep(&temp_buf_ptr, ",");	\
-		if (!cur_ptr) {						\
-			mutex_unlock(&list_lock);			\
-			return -EINVAL;					\
-		}							\
-		ret = kstrtouint(cur_ptr, 10, &val);			\
-		if (ret) {						\
-			mutex_unlock(&list_lock);			\
-			return ret;					\
-		}							\
+	struct lealt_node *node;					\
+	int i = 0, ret = -ENODEV;					\
+	u32 index, val;							\
+									\
+	if (!sscanf(buf, "%u %u", &index, &val))			\
+		return -EINVAL;						\
+									\
+	mutex_lock(&list_lock);						\
+	list_for_each_entry(node, &lealt_list, list) {			\
+									\
+		if (i++ != index)					\
+			continue;					\
+									\
 		val = max(val, _min);					\
 		val = min(val, _max);					\
 		node->name = val;					\
-	}							\
-	mutex_unlock(&list_lock);	\
-	return count;							\
+		ret = count;						\
+		break;							\
+	}								\
+									\
+	mutex_unlock(&list_lock);					\
+	return ret;							\
 }
 
 #define show_stability_attr(name) \
@@ -242,35 +235,28 @@ static ssize_t store_##name(struct device *dev,				\
 			size_t count)					\
 {									\
 	struct cpufreq_stability *stability;				\
-	int ret;							\
-	char temp_buf[512];	\
-	char *temp_buf_ptr = temp_buf;	\
-	unsigned long flags; \
-	strcpy(temp_buf, buf);	\
+	int i = 0, ret = -ENODEV;					\
+	u32 index, val;							\
+	unsigned long flags;						\
+									\
+	if (!sscanf(buf, "%u %u", &index, &val))			\
+		return -EINVAL;						\
+									\
 	spin_lock_irqsave(&cpufreq_stability_list_lock, flags);		\
 	list_for_each_entry(stability, &cpufreq_stability_list, node) {	\
-		unsigned int val;						\
-		char *cur_ptr;	\
-		cur_ptr = strsep(&temp_buf_ptr, ",");	\
-		if (!cur_ptr) {						\
-			spin_unlock_irqrestore(				\
-					&cpufreq_stability_list_lock,	\
-					flags);				\
-			return -EINVAL;					\
-		}							\
-		ret = kstrtouint(cur_ptr, 10, &val);			\
-		if (ret) {						\
-			spin_unlock_irqrestore(				\
-					&cpufreq_stability_list_lock,	\
-					flags);				\
-			return ret;					\
-		}							\
+									\
+		if (i++ != index)					\
+			continue;					\
+									\
 		val = max(val, _min);					\
 		val = min(val, _max);					\
 		stability->name = val;					\
-	}							\
+		ret = count;						\
+		break;						\
+	}								\
+									\
 	spin_unlock_irqrestore(&cpufreq_stability_list_lock, flags);	\
-	return count;							\
+	return ret;							\
 }
 
 #define show_gov_data_attr(name) \
@@ -340,15 +326,22 @@ static ssize_t freq_map_store(struct device *dev,
 	struct lealt_node *node;
 	int ret, core_mhz, target_load;
 	char temp_buf[100];
+	char name[100];
 
-	ret = sscanf(buf, "%s %d %d", temp_buf, &core_mhz, &target_load);
+	if (count < sizeof(temp_buf))
+		strncpy(temp_buf, buf, count);
+	else
+		strncpy(temp_buf, buf, sizeof(temp_buf));
+	temp_buf[sizeof(temp_buf) - 1] = '\0';
+
+	ret = sscanf(temp_buf, "%s %d %d", name, &core_mhz, &target_load);
 	if (ret != 3)
 		return -EINVAL;
 
 	mutex_lock(&list_lock);
 	list_for_each_entry(node, &lealt_list, list) {
 		struct core_dev_map *map = node->hw->freq_map;
-		if (strcmp(dev_name(node->hw->dev), temp_buf))
+		if (strcmp(dev_name(node->hw->dev), name))
 			continue;
 		while (map->core_mhz) {
 			if (core_mhz == map->core_mhz) {

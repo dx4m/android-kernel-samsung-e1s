@@ -1443,10 +1443,11 @@
 		   <GIC_SPI INTREQ__PCIE_GEN4_2L_0_msi_recieved_from_EP_NUM_5 IRQ_TYPE_LEVEL_HIGH>,
 		   <GIC_SPI INTREQ__PCIE_GEN4_2L_0_msi_recieved_from_EP_NUM_6 IRQ_TYPE_LEVEL_HIGH>,
 		   <GIC_SPI INTREQ__PCIE_GEN4_2L_0_msi_recieved_from_EP_NUM_7 IRQ_TYPE_LEVEL_HIGH>;
+//	dma-coherent;
 	status = "okay";
-	use-sysmmu = "false";
+	use-sysmmu = "true";
 	ip-ver = <0x994500>;
-	use-ia = "false";
+	use-ia = "true";
 	ep-device-type = <EP_TYPE_SAMSUNG_WIFI>;
 	pcie,ep-power-gpio = <&gpc2 0 0x1 /* PMIC TO PMU */>;
 	max-link-speed = <LINK_SPEED_GEN3>;

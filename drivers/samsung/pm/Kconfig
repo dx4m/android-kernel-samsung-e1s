@@ -38,3 +38,17 @@ config SEC_PM_SMPL_WARN
 	  This option enables Samsung Mobile SMPL_WARN interrupt control support.
 	  Adjust the maximum frequency for each CPU clusters when the SMPL_WARN
 	  interrupt occurs.
+
+config SEC_WAKEUP_CPU_ALLOCATOR
+	tristate "SEC Wakeup cpu support"
+	depends on SEC_PM
+	default n
+	help
+	  This driver supports SEC Wakeup cpu support
+config RTC_AUTO_PWRON
+	tristate "RTC Auto Power on PMICs"
+	default n
+	depends on SEC_PM
+	help
+	  If you say yes here you will get support for the
+	  Support for the auto power on alarm on the PMIC.

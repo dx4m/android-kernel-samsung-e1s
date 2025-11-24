@@ -18,14 +18,11 @@
 #include <linux/videodev2.h>
 #include <videodev2_exynos_camera.h>
 
-#ifndef CONFIG_LEDS_AW36518_FLASH
-#include "is-flash.h"
-#endif
-
 #include "is-device-sensor.h"
 #include "is-device-sensor-peri.h"
 #include "is-core.h"
 #include "is-sysfs.h"
+#include "is-flash.h"
 
 #if IS_ENABLED(CONFIG_LEDS_AW36518_FLASH)
 #include <linux/leds-aw36518.h>
@@ -47,13 +44,9 @@ static int flash_aw36518_init(struct v4l2_subdev *subdev, u32 val)
 	flash->flash_data.intensity = 100; /* TODO: Need to figure out min/max range */
 	flash->flash_data.firing_time_us = 1 * 1000 * 1000; /* Max firing time is 1sec */
 	flash->flash_data.flash_fired = false;
-	gpio_request_one(flash->flash_gpio, GPIOF_OUT_INIT_LOW, "CAM_FLASH_OUTPUT");
-	gpio_free(flash->flash_gpio);
-#if IS_ENABLED(CONFIG_LEDS_AW36518_FLASH)
+
 	ret = aw36518_fled_mode_ctrl(AW36518_FLED_MODE_OFF, 0);
-#else
-	ret = control_flash_gpio(flash->flash_gpio, 0);
-#endif
+
 	return ret;
 }
 
@@ -61,16 +54,20 @@ static int sensor_aw36518_set_torch_pre_config(struct is_flash *flash, u32 inten
 {
 	int ret = 0;
 	enum aa_ae_flashmode aeflashMode = flash->flash_data.aeflashMode;
+	u32 firingPower = flash->flash_data.firingPower;
 
-	dbg_flash("[%s] use_pre_config_work(%d), aeflashMode(%d), intensity(%d)\n",
-		__func__, flash->use_pre_config_work, aeflashMode, intensity);
+	dbg_flash("[%s] use_pre_config_work(%d), aeflashMode(%d), intensity(%d), firingPower(%d)\n",
+		__func__, flash->use_pre_config_work, aeflashMode, intensity, firingPower);
 
 	switch (aeflashMode) {
 	case AA_FLASHMODE_ON_ALWAYS: /*TORCH mode*/
-		aw36518_set_torch_current(AW36518_TORCH_RECORDING);
+		if (firingPower == 5)
+			aw36518_set_torch_current(AW36518_TORCH_RECORDING, flash->flash_data.adaptive_movie_currrent);
+		else
+			aw36518_set_torch_current(AW36518_TORCH_RECORDING, 0);
 		break;
 	case AA_FLASHMODE_ON:
-		aw36518_set_torch_current(AW36518_TORCH_PREFLASH);
+		aw36518_set_torch_current(AW36518_TORCH_PREFLASH, 0);
 		break;
 	case AA_FLASHMODE_CAPTURE: /*Main flash mode*/
 		break;
@@ -115,7 +112,6 @@ int flash_aw36518_s_ctrl(struct v4l2_subdev *subdev, struct v4l2_control *ctrl)
 		break;
 	case V4L2_CID_FLASH_SET_FIRE:
 		mode = flash->flash_data.mode;
-#if IS_ENABLED(CONFIG_LEDS_AW36518_FLASH)
 		if (mode == CAM2_FLASH_MODE_OFF) {
 			ret = aw36518_fled_mode_ctrl(AW36518_FLED_MODE_OFF, 0);
 			if (ret)
@@ -137,21 +133,6 @@ int flash_aw36518_s_ctrl(struct v4l2_subdev *subdev, struct v4l2_control *ctrl)
 			ret = control_flash_gpio(flash->flash_gpio, 0);
 			ret = -EINVAL;
 		}
-#else
-		if (mode == CAM2_FLASH_MODE_OFF) {
-			ret = control_flash_gpio(flash->flash_gpio, 0);
-			if (ret)
-				err("capture flash off fail");
-		} else if (mode == CAM2_FLASH_MODE_SINGLE) {
-			ret = control_flash_gpio(flash->flash_gpio, 0);
-			if (ret)
-				err("capture flash on fail");
-		} else {
-			err("Invalid flash mode");
-			ret = -EINVAL;
-			goto p_err;
-		}
-#endif
 		break;
 	case V4L2_CID_FLASH_SET_TORCH_PRE_CONFIG:
 		dbg_flash("[%s] V4L2_CID_FLASH_SET_TORCH_PRE_CONFIG : ctrl->value(%d)\n", __func__, ctrl->value);
@@ -254,7 +235,7 @@ static int flash_aw36518_probe(struct device *dev, struct i2c_client *client)
 		}
 	}
 
-	flash = kzalloc(sizeof(struct is_flash) * sensor_id_len, GFP_KERNEL);
+	flash = pablo_zalloc(sizeof(struct is_flash) * sensor_id_len, GFP_KERNEL);
 	if (!flash) {
 		err("flash is NULL");
 		ret = -ENOMEM;
@@ -262,11 +243,11 @@ static int flash_aw36518_probe(struct device *dev, struct i2c_client *client)
 	}
 
 	subdev_flash =
-		kzalloc(sizeof(struct v4l2_subdev) * sensor_id_len, GFP_KERNEL);
+		pablo_zalloc(sizeof(struct v4l2_subdev) * sensor_id_len, GFP_KERNEL);
 	if (!subdev_flash) {
 		err("subdev_flash is NULL");
 		ret = -ENOMEM;
-		kfree(flash);
+		pablo_free(flash);
 		goto exit;
 	}
 
@@ -279,16 +260,20 @@ static int flash_aw36518_probe(struct device *dev, struct i2c_client *client)
 		flash[i].flash_gpio = of_get_named_gpio(dnode, "flash-gpio", 0);
 		if (!gpio_is_valid(flash[i].flash_gpio)) {
 			dev_err(dev, "failed to get FLASH_GPIO\n");
-			kfree(subdev_flash);
-			kfree(flash);
+			pablo_free(subdev_flash);
+			pablo_free(flash);
 			ret = -EINVAL;
 			goto exit;
 		} else {
-			gpio_request_one(flash[i].flash_gpio,
-					 GPIOF_OUT_INIT_LOW,
-					 "CAM_FLASH_OUTPUT");
-			gpio_free(flash[i].flash_gpio);
+			if (gpio_request_one(flash[i].flash_gpio, GPIOF_OUT_INIT_LOW, "CAM_FLASH_OUTPUT") < 0)
+				err("Failed to request flash_gpio");
+			else
+				gpio_free(flash[i].flash_gpio);
 		}
+
+		if (of_property_read_u32(dnode, "adaptive_movie_currrent",
+			&flash[i].flash_data.adaptive_movie_currrent))
+			flash[i].flash_data.adaptive_movie_currrent = 0;
 
 		flash[i].use_pre_config_work = of_property_read_bool(dnode, "use_pre_config_work");
 
@@ -339,8 +324,8 @@ static int flash_aw36518_remove(struct platform_device *pdev)
 	aw36518_fled_mode_ctrl(AW36518_FLED_MODE_OFF, 0);
 	platform_set_drvdata(pdev, NULL);
 
-	kfree(subdev);
-	kfree(flash);
+	pablo_free(subdev);
+	pablo_free(flash);
 
 	return 0;
 }

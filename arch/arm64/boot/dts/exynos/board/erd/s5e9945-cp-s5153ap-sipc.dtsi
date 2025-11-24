@@ -646,7 +646,15 @@
 						region,index = <SHMEM_CP_STATE>;
 						region,rmem = <1>;
 						region,offset = <0x0DEF8000>;
-						region,size = <0x00008000>;
+						region,size = <0x00004000>;
+						region,cached = <0>;
+					};
+					wifi {
+						region,name = "WIFI";
+						region,index = <SHMEM_WIFI>;
+						region,rmem = <1>;
+						region,offset = <0x0DEFC000>;
+						region,size = <0x00004000>;
 						region,cached = <0>;
 					};
 					btl {
@@ -699,6 +707,8 @@
 				qos = <15>;
 				port-name = "CPIF";
 				#iommu-cells = <0>;
+
+				memory-region = <&sysmmu_rmem>;
 
 				default_stream =
 					<STREAM_CFG(PTLB_ID(0x6), STLB_ID(0x6), FETCH_SIZE(SIZE1), PTLB_DIS, STLB_DIS)>;

@@ -2031,20 +2031,20 @@ static ssize_t show_bcm_dbg_data_pd(struct file *fp, struct kobject *kobj,
 	if (off > 0)
 		return 0;
 
-	count += snprintf(buf, PAGE_SIZE, "=== IPC node info ===\n");
+	count += scnprintf(buf, size - count, "=== IPC node info ===\n");
 
-	count += snprintf(buf + count, PAGE_SIZE, "IPC node name: %s\n",
+	count += scnprintf(buf + count, size - count, "IPC node name: %s\n",
 					data->ipc_node->name);
 
-	count += snprintf(buf + count, PAGE_SIZE,
+	count += scnprintf(buf + count, size - count,
 				"\n=== Local Power Domain info ===\n");
-	count += snprintf(buf + count, PAGE_SIZE,
+	count += scnprintf(buf + count, size - count,
 				"pd_size: %u, pd_sync_init: %s\n",
 				data->pd_size,
 				pd_sync_init ? "true" : "false");
 
 	for (i = 0; i < data->pd_size; i++)
-		count += snprintf(buf + count, PAGE_SIZE,
+		count += scnprintf(buf + count, size - count,
 				"pd_name: %12s, pd_index: %2u, pd_on: %s, cal_pdid: 0x%08x\n",
 				data->pd_info[i]->pd_name, data->pd_info[i]->pd_index,
 				data->pd_info[i]->on ? "true" : "false",
@@ -2066,21 +2066,21 @@ static ssize_t show_bcm_dbg_data_df_event(struct file *fp, struct kobject *kobj,
 	if (off > 0)
 		return 0;
 
-	count += snprintf(buf + count, PAGE_SIZE,
+	count += scnprintf(buf + count, size - count,
 				"\n=== Pre-defined Event info ===\n");
 	for (i = 0; i < data->define_event_max; i++) {
-		count += snprintf(buf + count, PAGE_SIZE,
+		count += scnprintf(buf + count, size - count,
 				"Pre-defined Event index: %2u\n",
 				data->define_event[i].index);
 		for (j = 0; j < data->bcm_cnt_nr; j++)
-			count += snprintf(buf + count, PAGE_SIZE,
+			count += scnprintf(buf + count, size - count,
 				" Event[%d]: 0x%02x\n", j, data->define_event[i].event[j]);
 	}
 
-	count += snprintf(buf + count, PAGE_SIZE,
+	count += scnprintf(buf + count, size - count,
 				"Default Pre-defined Event index: %2u\n",
 				data->default_define_event);
-	count += snprintf(buf + count, PAGE_SIZE,
+	count += scnprintf(buf + count, size - count,
 				"Pre-defined Event Max: %2u\n",
 				data->define_event_max);
 
@@ -2100,45 +2100,45 @@ static ssize_t show_bcm_dbg_data_df_filter(struct file *fp, struct kobject *kobj
 	if (off > 0)
 		return 0;
 
-	count += snprintf(buf + count, PAGE_SIZE, "\n=== Filter ID info ===\n");
+	count += scnprintf(buf + count, size - count, "\n=== Filter ID info ===\n");
 	for (i = 0; i < data->define_event_max; i++) {
-		count += snprintf(buf + count, PAGE_SIZE,
+		count += scnprintf(buf + count, size - count,
 				"Pre-defined Event index: %2u\n",
 				data->define_event[i].index);
-		count += snprintf(buf + count, PAGE_SIZE, " Filter ID mask: 0x%08x\n",
+		count += scnprintf(buf + count, size - count, " Filter ID mask: 0x%08x\n",
 				data->define_filter_id[i].sm_id_mask);
-		count += snprintf(buf + count, PAGE_SIZE, " Filter ID value: 0x%08x\n",
+		count += scnprintf(buf + count, size - count, " Filter ID value: 0x%08x\n",
 				data->define_filter_id[i].sm_id_value);
-		count += snprintf(buf + count, PAGE_SIZE, " Filter ID active\n");
+		count += scnprintf(buf + count, size - count, " Filter ID active\n");
 
 		for (j = 0; j < data->bcm_cnt_nr; j++)
-			count += snprintf(buf + count, PAGE_SIZE,
+			count += scnprintf(buf + count, size - count,
 					"  Event[%d]: %u\n", j,
 					data->define_filter_id[i].sm_id_active[j]);
 	}
 
-	count += snprintf(buf + count, PAGE_SIZE, "\n=== Filter Others info ===\n");
+	count += scnprintf(buf + count, size - count, "\n=== Filter Others info ===\n");
 	for (i = 0; i < data->define_event_max; i++) {
-		count += snprintf(buf + count, PAGE_SIZE,
+		count += scnprintf(buf + count, size - count,
 				"Pre-defined Event index: %2u\n",
 				data->define_event[i].index);
 
 		for (j = 0; j < BCM_EVT_FLT_OTHR_MAX; j++) {
-			count += snprintf(buf + count, PAGE_SIZE,
+			count += scnprintf(buf + count, size - count,
 					" Filter Others type[%d]: 0x%02x\n",
 					j, data->define_filter_others[i].sm_other_type[j]);
-			count += snprintf(buf + count, PAGE_SIZE,
+			count += scnprintf(buf + count, size - count,
 					" Filter Others mask[%d]: 0x%02x\n",
 					j, data->define_filter_others[i].sm_other_mask[j]);
-			count += snprintf(buf + count, PAGE_SIZE,
+			count += scnprintf(buf + count, size - count,
 					" Filter Others value[%d]: 0x%02x\n",
 					j, data->define_filter_others[i].sm_other_value[j]);
 		}
 
-		count += snprintf(buf + count, PAGE_SIZE, " Filter Others active\n");
+		count += scnprintf(buf + count, size - count, " Filter Others active\n");
 
 		for (j = 0; j < data->bcm_cnt_nr; j++)
-			count += snprintf(buf + count, PAGE_SIZE,
+			count += scnprintf(buf + count, size - count,
 					"  Event[%d]: %u\n", j,
 					data->define_filter_others[i].sm_other_active[j]);
 	}
@@ -2159,20 +2159,20 @@ static ssize_t show_bcm_dbg_data_df_sample(struct file *fp, struct kobject *kobj
 	if (off > 0)
 		return 0;
 
-	count += snprintf(buf + count, PAGE_SIZE, "\n=== Sample ID info ===\n");
+	count += scnprintf(buf + count, size - count, "\n=== Sample ID info ===\n");
 	for (i = 0; i < data->define_event_max; i++) {
-		count += snprintf(buf + count, PAGE_SIZE,
+		count += scnprintf(buf + count, size - count,
 				"Pre-defined Event index: %2u\n",
 				data->define_event[i].index);
 
-		count += snprintf(buf + count, PAGE_SIZE, " Sample ID: peak_mask: 0x%08x\n",
+		count += scnprintf(buf + count, size - count, " Sample ID: peak_mask: 0x%08x\n",
 					data->define_sample_id[i].peak_mask);
-		count += snprintf(buf + count, PAGE_SIZE, " Sample ID: peak_id: 0x%08x\n",
+		count += scnprintf(buf + count, size - count, " Sample ID: peak_id: 0x%08x\n",
 					data->define_sample_id[i].peak_id);
-		count += snprintf(buf + count, PAGE_SIZE, " Sample ID active\n");
+		count += scnprintf(buf + count, size - count, " Sample ID active\n");
 
 		for (j = 0; j < data->bcm_cnt_nr; j++)
-			count += snprintf(buf + count, PAGE_SIZE,
+			count += scnprintf(buf + count, size - count,
 					"  Event[%d]: %u\n", j,
 					data->define_sample_id[i].peak_enable[j]);
 	}
@@ -2196,19 +2196,19 @@ static ssize_t show_bcm_dbg_data_df_attr(struct file *fp, struct kobject *kobj,
 	}
 
 	if (off == 0) {
-		count += snprintf(buf + count, PAGE_SIZE, "\n=== Ctrl Attr info ===\n");
-		count += snprintf(buf + count, PAGE_SIZE, "Initial BCM run: %s\n",
+		count += scnprintf(buf + count, size - count, "\n=== Ctrl Attr info ===\n");
+		count += scnprintf(buf + count, size - count, "Initial BCM run: %s\n",
 				data->initial_bcm_run ? "true" : "false");
-		count += snprintf(buf + count, PAGE_SIZE,
+		count += scnprintf(buf + count, size - count,
 				"Initial monitor period: %u msec\n",
 				data->initial_period);
-		count += snprintf(buf + count, PAGE_SIZE, "Initial BCM mode: %u\n",
+		count += scnprintf(buf + count, size - count, "Initial BCM mode: %u\n",
 				data->initial_bcm_mode);
-		count += snprintf(buf + count, PAGE_SIZE, "Initial Run IPs\n");
+		count += scnprintf(buf + count, size - count, "Initial Run IPs\n");
 	}
 
 	do {
-		count += snprintf(buf + count, PAGE_SIZE,
+		count += scnprintf(buf + count, size - count,
 				" BCM IP[%d]: %s\n", ip_cnt,
 				data->initial_run_ip[ip_cnt] ? "true" : "false");
 		ip_cnt++;
@@ -2248,13 +2248,13 @@ static ssize_t show_get_event(struct file *fp, struct kobject *kobj,
 			return ret;
 		}
 
-		count += snprintf(buf + count, PAGE_SIZE,
+		count += scnprintf(buf + count, size - count,
 					"bcm[%2d]: def(%2u),",
 					ip_cnt, bcm_event.index);
 		for (ev_cnt = 0; ev_cnt < data->bcm_cnt_nr; ev_cnt++)
-			count += snprintf(buf + count, PAGE_SIZE,
+			count += scnprintf(buf + count, size - count,
 					" (0x%02x),", bcm_event.event[ev_cnt]);
-		count += snprintf(buf + count, PAGE_SIZE, "\n");
+		count += scnprintf(buf + count, size - count, "\n");
 		ip_cnt++;
 	} while ((ip_cnt < data->bcm_ip_nr) && (ip_cnt % data->bcm_ip_print_nr));
 
@@ -2274,24 +2274,24 @@ static ssize_t show_event_ctrl_help(struct file *fp, struct kobject *kobj,
 		return 0;
 
 	/* help store_event_ctrl */
-	count += snprintf(buf + count, PAGE_SIZE, "\n= event_ctrl set help =\n");
-	count += snprintf(buf + count, PAGE_SIZE, "Usage:\n");
-	count += snprintf(buf + count, PAGE_SIZE,
+	count += scnprintf(buf + count, size - count, "\n= event_ctrl set help =\n");
+	count += scnprintf(buf + count, size - count, "Usage:\n");
+	count += scnprintf(buf + count, size - count,
 			"echo [ip_range] [ip_index] [define_index]	\
 			[ev0] [ev1] [ev2] [ev3] [ev4] [ev5] [ev6] [ev7] >	\
 			event_ctrl\n");
-	count += snprintf(buf + count, PAGE_SIZE,
+	count += scnprintf(buf + count, size - count,
 			" ip_range: BCM_EACH(%d), BCM_ALL(%d)\n",
 				BCM_EACH, BCM_ALL);
-	count += snprintf(buf + count, PAGE_SIZE,
+	count += scnprintf(buf + count, size - count,
 			" ip_index: number of bcm ip (0 ~ %u)\n"
 			"           (if ip_range is all, set to 0)\n",
 				data->bcm_ip_nr - 1);
-	count += snprintf(buf + count, PAGE_SIZE,
+	count += scnprintf(buf + count, size - count,
 			" define_index: index of pre-defined event (0 ~ %u)\n"
 			"               0 means no pre-defined event\n",
 				data->define_event_max - 1);
-	count += snprintf(buf + count, PAGE_SIZE,
+	count += scnprintf(buf + count, size - count,
 			" evX: event value of counter (if define_index is not 0,	\
 			set to 0\n"
 			"      event value should be hexa value\n");
@@ -2426,7 +2426,7 @@ static ssize_t show_get_filter_id(struct file *fp, struct kobject *kobj,
 			return ret;
 		}
 
-		count += snprintf(buf + count, PAGE_SIZE,
+		count += scnprintf(buf + count, size - count,
 				"bcm[%2d]: mask(0x%08x), value(0x%08x)\n",
 				ip_cnt, filter_id.sm_id_mask, filter_id.sm_id_value);
 		ip_cnt++;
@@ -2466,12 +2466,12 @@ static ssize_t show_get_filter_id_active(struct file *fp, struct kobject *kobj,
 			return ret;
 		}
 
-		count += snprintf(buf + count, PAGE_SIZE, "bcm[%2d]:", ip_cnt);
+		count += scnprintf(buf + count, size - count, "bcm[%2d]:", ip_cnt);
 		for (ev_cnt = 0; ev_cnt < data->bcm_cnt_nr; ev_cnt++)
-			count += snprintf(buf + count, PAGE_SIZE,
+			count += scnprintf(buf + count, size - count,
 					" ev%d %u,", ev_cnt,
 					filter_id.sm_id_active[ev_cnt]);
-		count += snprintf(buf + count, PAGE_SIZE, "\n");
+		count += scnprintf(buf + count, size - count, "\n");
 		ip_cnt++;
 	} while ((ip_cnt < data->bcm_ip_nr) && (ip_cnt % data->bcm_ip_print_nr));
 
@@ -2491,31 +2491,31 @@ static ssize_t show_filter_id_ctrl_help(struct file *fp, struct kobject *kobj,
 		return 0;
 
 	/* help store_filter_id_ctrl */
-	count += snprintf(buf + count, PAGE_SIZE, "\n= filter_id_ctrl set help =\n");
-	count += snprintf(buf + count, PAGE_SIZE, "Usage:\n");
-	count += snprintf(buf + count, PAGE_SIZE,
+	count += scnprintf(buf + count, size - count, "\n= filter_id_ctrl set help =\n");
+	count += scnprintf(buf + count, size - count, "Usage:\n");
+	count += scnprintf(buf + count, size - count,
 			"echo [ip_range] [ip_index] [define_index] [mask] [value]	\
 			[ev0] [ev1] [ev2] [ev3] [ev4] [ev5] [ev6] [ev7] >	\
 			filter_id_ctrl\n");
-	count += snprintf(buf + count, PAGE_SIZE,
+	count += scnprintf(buf + count, size - count,
 			" ip_range: BCM_EACH(%d), BCM_ALL(%d)\n",
 				BCM_EACH, BCM_ALL);
-	count += snprintf(buf + count, PAGE_SIZE,
+	count += scnprintf(buf + count, size - count,
 			" ip_index: number of bcm ip (0 ~ %u)\n"
 			"           (if ip_range is all, set to 0)\n",
 				data->bcm_ip_nr - 1);
-	count += snprintf(buf + count, PAGE_SIZE,
+	count += scnprintf(buf + count, size - count,
 			" define_index: index of pre-defined event (0 ~ %u)\n"
 			"               0 means no pre-defined event\n",
 				data->define_event_max - 1);
-	count += snprintf(buf + count, PAGE_SIZE,
+	count += scnprintf(buf + count, size - count,
 			" mask: masking for filter id (if define_index is not 0,	\
 			set to 0)\n"
 			"       mask value should be hexa value\n");
-	count += snprintf(buf + count, PAGE_SIZE,
+	count += scnprintf(buf + count, size - count,
 			" value: value of filter id (if define_index is not 0, set to 0)\n"
 			"        value should be hexa value\n");
-	count += snprintf(buf + count, PAGE_SIZE,
+	count += scnprintf(buf + count, size - count,
 			" evX: event counter alloc for filter id	\
 			(if define_index is not 0, set to 0)\n"
 			"      value should be 0 or 1\n");
@@ -2652,14 +2652,14 @@ static ssize_t show_get_filter_others(struct file *fp, struct kobject *kobj,
 			return ret;
 		}
 
-		count += snprintf(buf + count, PAGE_SIZE, "bcm[%2d]:", ip_cnt);
+		count += scnprintf(buf + count, size - count, "bcm[%2d]:", ip_cnt);
 		for (othr_cnt = 0; othr_cnt < BCM_EVT_FLT_OTHR_MAX; othr_cnt++)
-			count += snprintf(buf + count, PAGE_SIZE,
+			count += scnprintf(buf + count, size - count,
 					" type%d(0x%02x), mask%d(0x%02x), value%d(0x%02x),",
 					othr_cnt, filter_others.sm_other_type[othr_cnt],
 					othr_cnt, filter_others.sm_other_mask[othr_cnt],
 					othr_cnt, filter_others.sm_other_value[othr_cnt]);
-		count += snprintf(buf + count, PAGE_SIZE, "\n");
+		count += scnprintf(buf + count, size - count, "\n");
 		ip_cnt++;
 	} while ((ip_cnt < data->bcm_ip_nr) && (ip_cnt % data->bcm_ip_print_nr));
 
@@ -2697,12 +2697,12 @@ static ssize_t show_get_filter_others_active(struct file *fp, struct kobject *ko
 			return ret;
 		}
 
-		count += snprintf(buf + count, PAGE_SIZE, "bcm[%2d]:", ip_cnt);
+		count += scnprintf(buf + count, size - count, "bcm[%2d]:", ip_cnt);
 		for (ev_cnt = 0; ev_cnt < data->bcm_cnt_nr; ev_cnt++)
-			count += snprintf(buf + count, PAGE_SIZE,
+			count += scnprintf(buf + count, size - count,
 					" ev%d %u,", ev_cnt,
 					filter_others.sm_other_active[ev_cnt]);
-		count += snprintf(buf + count, PAGE_SIZE, "\n");
+		count += scnprintf(buf + count, size - count, "\n");
 		ip_cnt++;
 	} while ((ip_cnt < data->bcm_ip_nr) && (ip_cnt % data->bcm_ip_print_nr));
 
@@ -2723,42 +2723,42 @@ static ssize_t show_filter_others_ctrl_help(struct file *fp, struct kobject *kob
 		return 0;
 
 	/* help store_filter_others_ctrl */
-	count += snprintf(buf + count, PAGE_SIZE, "\n= filter_others_ctrl set help =\n");
-	count += snprintf(buf + count, PAGE_SIZE, "Usage:\n");
-	count += snprintf(buf + count, PAGE_SIZE,
+	count += scnprintf(buf + count, size - count, "\n= filter_others_ctrl set help =\n");
+	count += scnprintf(buf + count, size - count, "Usage:\n");
+	count += scnprintf(buf + count, size - count,
 			"echo [ip_range] [ip_index] [define_index]	\
 			[type0] [mask0] [value0] [type1] [mask1] [value1]	\
 			[ev0] [ev1] [ev2] [ev3] [ev4] [ev5] [ev6] [ev7] >	\
 			filter_others_ctrl\n");
-	count += snprintf(buf + count, PAGE_SIZE,
+	count += scnprintf(buf + count, size - count,
 			" ip_range: BCM_EACH(%d), BCM_ALL(%d)\n",
 				BCM_EACH, BCM_ALL);
-	count += snprintf(buf + count, PAGE_SIZE,
+	count += scnprintf(buf + count, size - count,
 			" ip_index: number of bcm ip (0 ~ %u)\n"
 			"           (if ip_range is all, set to 0)\n",
 				data->bcm_ip_nr - 1);
-	count += snprintf(buf + count, PAGE_SIZE,
+	count += scnprintf(buf + count, size - count,
 			" define_index: index of pre-defined event (0 ~ %u)\n"
 			"               0 means no pre-defined event\n",
 				data->define_event_max - 1);
 	for (othr_cnt = 0; othr_cnt < BCM_EVT_FLT_OTHR_MAX; othr_cnt++) {
-		count += snprintf(buf + count, PAGE_SIZE,
+		count += scnprintf(buf + count, size - count,
 				" type%d: type%d for filter others	\
 				(if define_index is not 0, set to 0)\n"
 				"         type%d value should be hexa value\n",
 				othr_cnt, othr_cnt, othr_cnt);
-		count += snprintf(buf + count, PAGE_SIZE,
+		count += scnprintf(buf + count, size - count,
 				" mask%d: mask%d for filter others	\
 				(if define_index is not 0, set to 0)\n"
 				"         mask%d value should be hexa value\n",
 				othr_cnt, othr_cnt, othr_cnt);
-		count += snprintf(buf + count, PAGE_SIZE,
+		count += scnprintf(buf + count, size - count,
 				" value%d: value%d of filter others	\
 				(if define_index is not 0, set to 0)\n"
 				"          value%d should be hexa value\n",
 				othr_cnt, othr_cnt, othr_cnt);
 	}
-	count += snprintf(buf + count, PAGE_SIZE,
+	count += scnprintf(buf + count, size - count,
 			" evX: event counter alloc for filter others	\
 			(if define_index is not 0, set to 0)\n"
 			"      value should be 0 or 1\n");
@@ -2913,7 +2913,7 @@ static ssize_t show_get_sample_id(struct file *fp, struct kobject *kobj,
 			return ret;
 		}
 
-		count += snprintf(buf + count, PAGE_SIZE,
+		count += scnprintf(buf + count, size - count,
 				"bcm[%2d]: mask(0x%08x), id(0x%08x)\n",
 				ip_cnt, sample_id.peak_mask, sample_id.peak_id);
 		ip_cnt++;
@@ -2953,12 +2953,12 @@ static ssize_t show_get_sample_id_active(struct file *fp, struct kobject *kobj,
 			return ret;
 		}
 
-		count += snprintf(buf + count, PAGE_SIZE, "bcm[%2d]:", ip_cnt);
+		count += scnprintf(buf + count, size - count, "bcm[%2d]:", ip_cnt);
 		for (ev_cnt = 0; ev_cnt < data->bcm_cnt_nr; ev_cnt++)
-			count += snprintf(buf + count, PAGE_SIZE,
+			count += scnprintf(buf + count, size - count,
 					" ev%d %u,", ev_cnt,
 					sample_id.peak_enable[ev_cnt]);
-		count += snprintf(buf + count, PAGE_SIZE, "\n");
+		count += scnprintf(buf + count, size - count, "\n");
 		ip_cnt++;
 	} while ((ip_cnt < data->bcm_ip_nr) && (ip_cnt % data->bcm_ip_print_nr));
 
@@ -2978,32 +2978,32 @@ static ssize_t show_sample_id_ctrl_help(struct file *fp, struct kobject *kobj,
 		return 0;
 
 	/* help store_sample_id_ctrl */
-	count += snprintf(buf + count, PAGE_SIZE, "\n= sample_id_ctrl set help =\n");
-	count += snprintf(buf + count, PAGE_SIZE, "Usage:\n");
-	count += snprintf(buf + count, PAGE_SIZE,
+	count += scnprintf(buf + count, size - count, "\n= sample_id_ctrl set help =\n");
+	count += scnprintf(buf + count, size - count, "Usage:\n");
+	count += scnprintf(buf + count, size - count,
 			"echo [ip_range] [ip_index] [define_index] [mask] [id]	\
 			[ev0] [ev1] [ev2] [ev3] [ev4] [ev5] [ev6] [ev7] >	\
 			sample_id_ctrl\n");
-	count += snprintf(buf + count, PAGE_SIZE,
+	count += scnprintf(buf + count, size - count,
 			" ip_range: BCM_EACH(%d), BCM_ALL(%d)\n",
 				BCM_EACH, BCM_ALL);
-	count += snprintf(buf + count, PAGE_SIZE,
+	count += scnprintf(buf + count, size - count,
 			" ip_index: number of bcm ip (0 ~ %u)\n"
 			"           (if ip_range is all, set to 0)\n",
 				data->bcm_ip_nr - 1);
-	count += snprintf(buf + count, PAGE_SIZE,
+	count += scnprintf(buf + count, size - count,
 			" define_index: index of pre-defined event (0 ~ %u)\n"
 			"               0 means no pre-defined event\n",
 				data->define_event_max - 1);
-	count += snprintf(buf + count, PAGE_SIZE,
+	count += scnprintf(buf + count, size - count,
 			" mask: masking for sample id	\
 			(if define_index is not 0, set to 0)\n"
 			"       mask value should be hexa value\n");
-	count += snprintf(buf + count, PAGE_SIZE,
+	count += scnprintf(buf + count, size - count,
 			" id: id of sample id	\
 			(if define_index is not 0, set to 0)\n"
 			"     id should be hexa value\n");
-	count += snprintf(buf + count, PAGE_SIZE,
+	count += scnprintf(buf + count, size - count,
 			" evX: event counter enable for sample id	\
 			(if define_index is not 0, set to 0)\n"
 			"      value should be 0 or 1\n");
@@ -3130,12 +3130,12 @@ static ssize_t show_get_run(struct file *fp, struct kobject *kobj,
 
 	ret = exynos_bcm_dbg_run_ctrl(&ipc_base_info, &bcm_run, data);
 	if (ret) {
-		count += snprintf(buf + count, PAGE_SIZE,
+		count += scnprintf(buf + count, size - count,
 					"failed get run state\n");
 		return count;
 	}
 
-	count += snprintf(buf + count, PAGE_SIZE,
+	count += scnprintf(buf + count, size - count,
 				"run state: raw state(%s), sw state(%s)\n",
 				bcm_run ? "run" : "stop",
 				data->bcm_run_state ? "run" : "stop");
@@ -3152,10 +3152,10 @@ static ssize_t show_run_ctrl_help(struct file *fp, struct kobject *kobj,
 		return 0;
 
 	/* help store_run_ctrl */
-	count += snprintf(buf + count, PAGE_SIZE, "\n= run_ctrl set help =\n");
-	count += snprintf(buf + count, PAGE_SIZE, "Usage:\n");
-	count += snprintf(buf + count, PAGE_SIZE, "echo [run_state] > run_ctrl\n");
-	count += snprintf(buf + count, PAGE_SIZE,
+	count += scnprintf(buf + count, size - count, "\n= run_ctrl set help =\n");
+	count += scnprintf(buf + count, size - count, "Usage:\n");
+	count += scnprintf(buf + count, size - count, "echo [run_state] > run_ctrl\n");
+	count += scnprintf(buf + count, size - count,
 			" run_state: BCM_RUN(%d), BCM_STOP(%d)\n",
 				BCM_RUN, BCM_STOP);
 
@@ -3217,12 +3217,12 @@ static ssize_t show_get_period(struct file *fp, struct kobject *kobj,
 
 	ret = exynos_bcm_dbg_period_ctrl(&ipc_base_info, &period, data);
 	if (ret) {
-		count += snprintf(buf + count, PAGE_SIZE,
+		count += scnprintf(buf + count, size - count,
 					"failed get period\n");
 		return count;
 	}
 
-	count += snprintf(buf + count, PAGE_SIZE,
+	count += scnprintf(buf + count, size - count,
 				"monitor period: %u msec\n", period);
 
 	return count;
@@ -3237,10 +3237,10 @@ static ssize_t show_period_ctrl_help(struct file *fp, struct kobject *kobj,
 		return 0;
 
 	/* help store_period_ctrl */
-	count += snprintf(buf + count, PAGE_SIZE, "\n= period_ctrl set help =\n");
-	count += snprintf(buf + count, PAGE_SIZE, "Usage:\n");
-	count += snprintf(buf + count, PAGE_SIZE, "echo [period] > period_ctrl\n");
-	count += snprintf(buf + count, PAGE_SIZE,
+	count += scnprintf(buf + count, size - count, "\n= period_ctrl set help =\n");
+	count += scnprintf(buf + count, size - count, "Usage:\n");
+	count += scnprintf(buf + count, size - count, "echo [period] > period_ctrl\n");
+	count += scnprintf(buf + count, size - count,
 			" period: monitor period (unit: msec),	\
 			min(%d msec) ~ max(%d msec)\n",
 			BCM_TIMER_PERIOD_MIN, BCM_TIMER_PERIOD_MAX);
@@ -3298,12 +3298,12 @@ static ssize_t show_get_mode(struct file *fp, struct kobject *kobj,
 
 	ret = exynos_bcm_dbg_mode_ctrl(&ipc_base_info, &bcm_mode, data);
 	if (ret) {
-		count += snprintf(buf + count, PAGE_SIZE,
+		count += scnprintf(buf + count, size - count,
 					"failed get mode\n");
 		return count;
 	}
 
-	count += snprintf(buf + count, PAGE_SIZE,
+	count += scnprintf(buf + count, size - count,
 			"mode: %d (%d:Interval, %d:Once, %d:User_ctrl)\n",
 			bcm_mode,
 			BCM_MODE_INTERVAL, BCM_MODE_ONCE, BCM_MODE_USERCTRL);
@@ -3320,10 +3320,10 @@ static ssize_t show_mode_ctrl_help(struct file *fp, struct kobject *kobj,
 		return 0;
 
 	/* help store_mode_ctrl */
-	count += snprintf(buf + count, PAGE_SIZE, "\n= mode_ctrl set help =\n");
-	count += snprintf(buf + count, PAGE_SIZE, "Usage:\n");
-	count += snprintf(buf + count, PAGE_SIZE, "echo [mode] > mode_ctrl\n");
-	count += snprintf(buf + count, PAGE_SIZE,
+	count += scnprintf(buf + count, size - count, "\n= mode_ctrl set help =\n");
+	count += scnprintf(buf + count, size - count, "Usage:\n");
+	count += scnprintf(buf + count, size - count, "echo [mode] > mode_ctrl\n");
+	count += scnprintf(buf + count, size - count,
 			" mode: Interval(%d), Once(%d), User_ctrl(%d)\n",
 			BCM_MODE_INTERVAL, BCM_MODE_ONCE, BCM_MODE_USERCTRL);
 
@@ -3385,12 +3385,12 @@ static ssize_t show_get_glbauto(struct file *fp, struct kobject *kobj,
 
 	ret = exynos_bcm_dbg_glb_auto_ctrl(&ipc_base_info, &glb_en, data);
 	if (ret) {
-		count += snprintf(buf + count, PAGE_SIZE,
+		count += scnprintf(buf + count, size - count,
 					"failed get glb_en\n");
 		return count;
 	}
 
-	count += snprintf(buf + count, PAGE_SIZE, ": %d\n", glb_en);
+	count += scnprintf(buf + count, size - count, ": %d\n", glb_en);
 
 	return count;
 }
@@ -3404,9 +3404,9 @@ static ssize_t show_glbauto_ctrl_help(struct file *fp, struct kobject *kobj,
 		return 0;
 
 	/* help store_glbauto_ctrl */
-	count += snprintf(buf + count, PAGE_SIZE, "\n= glbauto_ctrl set help =\n");
-	count += snprintf(buf + count, PAGE_SIZE, "Usage:\n");
-	count += snprintf(buf + count, PAGE_SIZE, "echo [en] > glbauto_ctrl\n");
+	count += scnprintf(buf + count, size - count, "\n= glbauto_ctrl set help =\n");
+	count += scnprintf(buf + count, size - count, "Usage:\n");
+	count += scnprintf(buf + count, size - count, "echo [en] > glbauto_ctrl\n");
 
 	return count;
 }
@@ -3466,12 +3466,12 @@ static ssize_t show_get_str(struct file *fp, struct kobject *kobj,
 
 	ret = exynos_bcm_dbg_str_ctrl(&ipc_base_info, &suspend, data);
 	if (ret) {
-		count += snprintf(buf + count, PAGE_SIZE,
+		count += scnprintf(buf + count, size - count,
 					"failed get str state\n");
 		return count;
 	}
 
-	count += snprintf(buf + count, PAGE_SIZE,
+	count += scnprintf(buf + count, size - count,
 			"str state: %s\n", suspend ? "suspend" : "resume");
 
 	return count;
@@ -3486,10 +3486,10 @@ static ssize_t show_str_ctrl_help(struct file *fp, struct kobject *kobj,
 		return 0;
 
 	/* help store_str_ctrl */
-	count += snprintf(buf + count, PAGE_SIZE, "\n= str_ctrl set help =\n");
-	count += snprintf(buf + count, PAGE_SIZE, "Usage:\n");
-	count += snprintf(buf + count, PAGE_SIZE, "echo [str_state] > str_ctrl\n");
-	count += snprintf(buf + count, PAGE_SIZE,
+	count += scnprintf(buf + count, size - count, "\n= str_ctrl set help =\n");
+	count += scnprintf(buf + count, size - count, "Usage:\n");
+	count += scnprintf(buf + count, size - count, "echo [str_state] > str_ctrl\n");
+	count += scnprintf(buf + count, size - count,
 			" str_state: suspend(1), resume(0)\n");
 
 	return count;
@@ -3557,7 +3557,7 @@ static ssize_t show_get_ip(struct file *fp, struct kobject *kobj,
 			return ret;
 		}
 
-		count += snprintf(buf + count, PAGE_SIZE, "bcm[%2d]: enabled (%s)\n",
+		count += scnprintf(buf + count, size - count, "bcm[%2d]: enabled (%s)\n",
 					ip_cnt, ip_enable ? "true" : "false");
 		ip_cnt++;
 	} while ((ip_cnt < data->bcm_ip_nr) && (ip_cnt % data->bcm_ip_print_nr));
@@ -3578,14 +3578,14 @@ static ssize_t show_ip_ctrl_help(struct file *fp, struct kobject *kobj,
 		return 0;
 
 	/* help store_ip_ctrl */
-	count += snprintf(buf + count, PAGE_SIZE, "\n= ip_ctrl set help =\n");
-	count += snprintf(buf + count, PAGE_SIZE, "Usage:\n");
-	count += snprintf(buf + count, PAGE_SIZE,
+	count += scnprintf(buf + count, size - count, "\n= ip_ctrl set help =\n");
+	count += scnprintf(buf + count, size - count, "Usage:\n");
+	count += scnprintf(buf + count, size - count,
 			"echo [ip_index] [enable] > ip_ctrl\n");
-	count += snprintf(buf + count, PAGE_SIZE,
+	count += scnprintf(buf + count, size - count,
 			" ip_index: number of bcm ip (0 ~ %u)\n",
 				data->bcm_ip_nr - 1);
-	count += snprintf(buf + count, PAGE_SIZE,
+	count += scnprintf(buf + count, size - count,
 			" enable: ip enable state (1:enable, 0:disable)\n");
 
 	return count;
@@ -3678,12 +3678,12 @@ static ssize_t show_dump_addr_info(struct file *fp, struct kobject *kobj,
 	if (off > 0)
 		return 0;
 
-	count += snprintf(buf + count, PAGE_SIZE, "\n= BCM dump address info =\n");
-	count += snprintf(buf + count, PAGE_SIZE,
+	count += scnprintf(buf + count, size - count, "\n= BCM dump address info =\n");
+	count += scnprintf(buf + count, size - count,
 			"physical address = 0x%08x\n", data->dump_addr.p_addr);
-	count += snprintf(buf + count, PAGE_SIZE,
+	count += scnprintf(buf + count, size - count,
 			"virtual address = 0x%p\n", data->dump_addr.v_addr);
-	count += snprintf(buf + count, PAGE_SIZE,
+	count += scnprintf(buf + count, size - count,
 			"dump region size = 0x%08x\n", data->dump_addr.p_size);
 
 	return count;
@@ -3701,8 +3701,8 @@ static ssize_t show_enable_dump_klog(struct file *fp, struct kobject *kobj,
 	if (off > 0)
 		return 0;
 
-	count += snprintf(buf + count, PAGE_SIZE, "\n= BCM dump to kernel log =\n");
-	count += snprintf(buf + count, PAGE_SIZE, "%s\n",
+	count += scnprintf(buf + count, size - count, "\n= BCM dump to kernel log =\n");
+	count += scnprintf(buf + count, size - count, "%s\n",
 				data->dump_klog ? "enabled" : "disabled");
 
 	return count;
@@ -3746,9 +3746,9 @@ static ssize_t show_enable_stop_owner(struct file *fp, struct kobject *kobj,
 	if (off > 0)
 		return 0;
 
-	count += snprintf(buf + count, PAGE_SIZE, "\n= BCM Available stop owner =\n");
+	count += scnprintf(buf + count, size - count, "\n= BCM Available stop owner =\n");
 	for (i = 0; i < STOP_OWNER_MAX; i++)
-		count += snprintf(buf + count, PAGE_SIZE, " stop owner[%d]: %s\n",
+		count += scnprintf(buf + count, size - count, " stop owner[%d]: %s\n",
 				i, data->available_stop_owner[i] ? "true" : "false");
 
 	return count;
@@ -3796,7 +3796,7 @@ static ssize_t show_bcm_calc(struct device *dev,
 
 	mutex_lock(&bcm_calc->lock);
 	if (!bcm_calc->enable) {
-		count += snprintf(buf + count, PAGE_SIZE, "ppmu_work not working!!\n");
+		count += scnprintf(buf + count, PAGE_SIZE - count, "ppmu_work not working!!\n");
 		mutex_unlock(&bcm_calc->lock);
 		return count;
 	}
@@ -3806,10 +3806,10 @@ static ssize_t show_bcm_calc(struct device *dev,
 	// accmulate latest info
 	exynos_bcm_find_dump_data(data);
 
-	count += snprintf(buf + count, PAGE_SIZE, "ip_name, time, ccnt, pmcnt0, pmcnt1, pmcnt2, pmcnt3, pmcnt4, pmcnt5, pmcnt6, pmcnt7\n");
+	count += scnprintf(buf + count, PAGE_SIZE - count, "ip_name, time, ccnt, pmcnt0, pmcnt1, pmcnt2, pmcnt3, pmcnt4, pmcnt5, pmcnt6, pmcnt7\n");
 
 	for (i = 0; i < bcm_calc->num_ip; i++)
-		count += snprintf(buf + count, PAGE_SIZE, "%s, %llu, %llu, %llu, %llu, %llu, %llu, %llu, %llu, %llu, %llu\n",
+		count += scnprintf(buf + count, PAGE_SIZE - count, "%s, %llu, %llu, %llu, %llu, %llu, %llu, %llu, %llu, %llu, %llu\n",
 				bcm_calc->ip_name[i], bcm_calc->acc_data[i].dump_time, bcm_calc->acc_data[i].ccnt,
 				bcm_calc->acc_data[i].pmcnt[0], bcm_calc->acc_data[i].pmcnt[1],
 				bcm_calc->acc_data[i].pmcnt[2], bcm_calc->acc_data[i].pmcnt[3],
@@ -3849,17 +3849,17 @@ static ssize_t show_bcm_bw(struct device *dev,
 	int i;
 
 	if (!bcm_bw) {
-		count += snprintf(buf + count, PAGE_SIZE, "retry after setting bcm_bw data\n");
+		count += scnprintf(buf + count, PAGE_SIZE - count, "retry after setting bcm_bw data\n");
 		return count;
 	}
 
 	exynos_bcm_get_req_data(data);
 
-	count += snprintf(buf + count, PAGE_SIZE, "seq_no , ip_idx, time, ccnt, read BW, write BW\n");
+	count += scnprintf(buf + count, PAGE_SIZE - count, "seq_no , ip_idx, time, ccnt, read BW, write BW\n");
 
 	mutex_lock(&bcm_bw_lock);
 	for (i = 0; i < bcm_bw->num_ip; i++)
-		count += snprintf(buf + count, PAGE_SIZE, "%llu, %u, %llu, %llu, %llu, %llu\n",
+		count += scnprintf(buf + count, PAGE_SIZE - count, "%llu, %u, %llu, %llu, %llu, %llu\n",
 				bcm_bw->bw_data[i].seq_no,
 				bcm_bw->ip_idx[i],
 				bcm_bw->bw_data[i].dump_time, bcm_bw->bw_data[i].ccnt,
@@ -3882,6 +3882,9 @@ static ssize_t store_bcm_bw(struct device *dev,
 			&ip_idx[0], &ip_idx[1], &ip_idx[2], &ip_idx[3],
 			&ip_idx[4], &ip_idx[5], &ip_idx[6], &ip_idx[7],
 			&ip_idx[8], &ip_idx[9]);
+
+	if (ret != 13)
+		return -EINVAL;
 
 	if (num_ip > 10) {
 		pr_info("num_ip should not be bigger than 10 (yours: %d)\n",
@@ -3906,8 +3909,26 @@ static ssize_t store_bcm_bw(struct device *dev,
 		}
 
 		bcm_bw = kzalloc(sizeof(struct exynos_bcm_bw), GFP_KERNEL);
+		if (bcm_bw == NULL) {
+			BCM_ERR("%s: faild allocated bcm_bw\n", __func__);
+			goto out;
+		}
+
 		bcm_bw->ip_idx = kcalloc(num_ip, sizeof(unsigned int), GFP_KERNEL);
+		if (bcm_bw->ip_idx == NULL) {
+			BCM_ERR("%s: faild allocated ip_idx\n", __func__);
+			kfree(bcm_bw);
+			goto out;
+		}
+
 		bcm_bw->bw_data = kcalloc(num_ip, sizeof(struct exynos_bcm_bw_data), GFP_KERNEL);
+		if (bcm_bw->bw_data == NULL) {
+			BCM_ERR("%s: faild allocated bw_data\n", __func__);
+			kfree(bcm_bw->ip_idx);
+			kfree(bcm_bw);
+			goto out;
+		}
+
 		bcm_bw->measure_time = measure_time;
 		bcm_bw->num_ip = num_ip;
 
@@ -3923,6 +3944,7 @@ static ssize_t store_bcm_bw(struct device *dev,
 		if (bcm_bw)
 			kfree(bcm_bw);
 	}
+out:
 	mutex_unlock(&bcm_bw_lock);
 
 	return count;
@@ -3941,7 +3963,7 @@ static ssize_t show_bcm_dbg_show_mif_auto(struct file *fp, struct kobject *kobj,
 		return 0;
 
 	if (!bcm_show_bw->mem_bw) {
-		count += snprintf(buf + count, PAGE_SIZE, "There is not bw data\n");
+		count += scnprintf(buf + count, size - count, "There is not bw data\n");
 		return count;
 	}
 
@@ -3958,7 +3980,7 @@ static ssize_t show_bcm_dbg_show_mif_auto(struct file *fp, struct kobject *kobj,
 		else
 			temp = bcm_show_bw->mem_bw[i];
 
-		count += snprintf(buf + count, PAGE_SIZE, "[%3d] mem_bw: %llu MB/sec\n",
+		count += scnprintf(buf + count, size - count, "[%3d] mem_bw: %llu MB/sec\n",
 				  i, temp  * (1<<10) / bcm_show_bw->dump_time[i]);
 	}
 
@@ -3968,7 +3990,7 @@ static ssize_t show_bcm_dbg_show_mif_auto(struct file *fp, struct kobject *kobj,
 	/* just for preventing divide by zero */
 	dump_time_total = dump_time_total == 0 ? 1 : dump_time_total;
 
-	count += snprintf(buf + count, PAGE_SIZE,
+	count += scnprintf(buf + count, size - count,
 				"Total Profile time is %llu msec, Total MIF BW: %llu MB/sec\n",
 				dump_time_total,
 				bcm_show_bw->mem_bw[num_sample_local - 1] * (1<<10) / dump_time_total);
@@ -4067,8 +4089,8 @@ static ssize_t show_bcm_dbg_load_bin(struct file *fp, struct kobject *kobj,
 	if (off > 0)
 		return 0;
 
-	count += snprintf(buf + count, PAGE_SIZE, "\n= BCM Load Bin =\n");
-	count += snprintf(buf + count, PAGE_SIZE, " bcm load bin: %s\n",
+	count += scnprintf(buf + count, size - count, "\n= BCM Load Bin =\n");
+	count += scnprintf(buf + count, size - count, " bcm load bin: %s\n",
 				data->bcm_load_bin ? "true" : "false");
 
 	return count;

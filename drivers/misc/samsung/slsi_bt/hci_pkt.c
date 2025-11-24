@@ -36,7 +36,7 @@ static struct hci_pkt_type hci_event_type = {
 };
 
 static struct hci_pkt_type hci_acl_type = {
-	.type = HCI_ACL_DATA_PKT,
+	.type = HCI_ACLDATA_PKT,
 	.name = "HCI ACL Data Packet",
 	.hdr_size = 4,
 	.len_offset = 2,
@@ -45,7 +45,7 @@ static struct hci_pkt_type hci_acl_type = {
 };
 
 static struct hci_pkt_type hci_iso_type = {
-	.type = HCI_ISO_DATA_PKT,
+	.type = HCI_ISODATA_PKT,
 	.name = "HCI ISO Data Packet",
 	.hdr_size = 4,
 	.len_offset = 2,
@@ -59,9 +59,9 @@ static struct hci_pkt_type *get_hci_pkt_type(int type)
 		return &hci_command_type;
 	else if (type == HCI_EVENT_PKT)
 		return &hci_event_type;
-	else if (type == HCI_ACL_DATA_PKT)
+	else if (type == HCI_ACLDATA_PKT)
 		return &hci_acl_type;
-	else if (type == HCI_ISO_DATA_PKT)
+	else if (type == HCI_ISODATA_PKT)
 		return &hci_iso_type;
 	return NULL;
 }
@@ -148,4 +148,11 @@ int hci_pkt_status(char type, char *data, size_t len)
 	TR_DBG("HCI packet type(%s), packet length:%zu\n",
 		htype->name, pkt_size);
 	return HCI_PKT_STATUS_COMPLETE;
+}
+
+unsigned short hci_pkt_get_command(char* data, size_t len)
+{
+	if (len >= hci_command_type.hdr_size)
+		return data[0] | (data[1] << 8); /* little endian */
+	return 0xFFFF;
 }

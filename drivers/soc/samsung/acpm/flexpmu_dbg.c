@@ -20,6 +20,7 @@
 #include <linux/device.h>
 #include <linux/slab.h>
 #include <soc/samsung/acpm_ipc_ctrl.h>
+#include <soc/samsung/mif_requester.h>
 
 #include "acpm.h"
 #include "fw_header/flexpmu_dbg.h"
@@ -30,7 +31,6 @@ struct flexpmu_mif *flxp_mif;
 struct flexpmu_ext_clk_buf *flxp_eclkbuf;
 struct mif_req_info *mif_req_info;
 static u32 nfc_clkreq_idx;
-static int mif_master_num;
 
 u32 *apsoc_down_cnt;
 u32 *apsoc_ewkup_cnt;
@@ -88,9 +88,7 @@ void __iomem *flexpmu_dbg_base;
 static struct dentry *flexpmu_dbg_root;
 struct device_node *flexpmu_dbg_np;
 
-const char **mif_requester_names;
-
-struct flexpmu_apm_req_info {
+struct req_info {
 	unsigned int active_req_tick;
 	unsigned int last_rel_tick;
 	unsigned int total_count;
@@ -98,7 +96,14 @@ struct flexpmu_apm_req_info {
 	unsigned long long int active_since_us;
 	unsigned long long int last_rel_us;
 	unsigned long long int total_time_us;
+	unsigned long long int prev_total_time_us;
 };
+
+struct flexpmu_mif_req_info {
+	struct mif_requester requester;
+	struct req_info *info;
+};
+static struct flexpmu_mif_req_info flexpmu_mif_req;
 
 struct rtc_info {
 	void __iomem *base;
@@ -213,11 +218,12 @@ EXPORT_SYMBOL_GPL(acpm_get_mif_request);
 
 void acpm_print_mif_request(void)
 {
+	struct mif_requester requester = flexpmu_mif_req.requester;
 	int i = 0;
 
-	for (i = 0; i < mif_master_num - 1; i++) {
+	for (i = 0; i < requester.mif_master_num - 1; i++) {
 		if (flxp_mif->requests & (1 << mif_req_info[i].up))
-			pr_info("%s: MIF blocker is %s\n", EXYNOS_FLEXPMU_DBG_PREFIX, mif_requester_names[i]);
+			pr_info("%s: MIF blocker is %s\n", EXYNOS_FLEXPMU_DBG_PREFIX, requester.mif_requester_names[i]);
 	}
 }
 EXPORT_SYMBOL_GPL(acpm_print_mif_request);
@@ -369,9 +375,8 @@ static ssize_t flexpmu_dbg_requester_profiler_read(int fid, char *buf)
 {
 	size_t ret = 0;
 	unsigned long long int curr_tick = 0;
-	struct device_node *root = of_find_node_by_name(flexpmu_dbg_np, "mif_requesters");
-	int nr_masters = of_property_count_strings(root, "requester-name");
-	struct flexpmu_apm_req_info mif_req;
+	struct req_info mif_req;
+	struct mif_requester requester = flexpmu_mif_req.requester;
 	int i = 0;
 
 	if (!rtc.base) {
@@ -387,7 +392,7 @@ static ssize_t flexpmu_dbg_requester_profiler_read(int fid, char *buf)
 			"%8s   %32s %32s %32s %32s\n", "Master", "active_since(us ago)",
 			"last_rel_time(us ago)", "total_req_time(us)", "req_count");
 
-	for (i = 0; i < nr_masters; i++) {
+	for (i = 0; i < requester.mif_master_num; i++) {
 		mif_req.active_req_tick = requester_mif[i].req_time;
 		mif_req.last_rel_tick = requester_mif[i].rel_time;
 		mif_req.total_count = requester_mif[i].total_cnt;
@@ -413,7 +418,7 @@ static ssize_t flexpmu_dbg_requester_profiler_read(int fid, char *buf)
 		if (BUF_SIZE - (BUF_MAX_LINE * 3) > ret) {
 			ret += snprintf(buf + ret, BUF_SIZE - ret,
 					"%8s : %32lld %32lld %32lld %32d\n",
-					mif_requester_names[i],
+					requester.mif_requester_names[i],
 					mif_req.active_since_us,
 					mif_req.last_rel_us,
 					mif_req.total_time_us,
@@ -521,6 +526,7 @@ static void parse_rtc(struct device_node *np)
 static void parse_mif_requesters(struct device_node *np)
 {
 	struct device_node *root;
+	struct mif_requester *requester = &flexpmu_mif_req.requester;
 	int ret;
 	int size = 0;
 
@@ -531,25 +537,47 @@ static void parse_mif_requesters(struct device_node *np)
 				__func__, size);
 		return;
 	}
-	mif_master_num = size;
+	requester->mif_master_num = size;
 
-	mif_requester_names = kzalloc(sizeof(const char *)* size, GFP_KERNEL);
-	if (!mif_requester_names)
+	requester->mif_requester_names = kzalloc(sizeof(const char *) * size, GFP_KERNEL);
+	if (!requester->mif_requester_names) {
+		pr_err("%s: failed to memory allocate mif_requester_names\n",
+				__func__);
 		return;
+	}
 
 	ret = of_property_read_string_array(root, "requester-name",
-			mif_requester_names, size);
+			requester->mif_requester_names, size);
 	if (ret < 0) {
 		pr_err("%s: failed to read mif_requester name(%d)\n",
 				__func__, ret);
-		kfree(mif_requester_names);
+		kfree(requester->mif_requester_names);
+		return;
+	}
+
+	requester->mif_requester_durations = kzalloc(sizeof(unsigned int) * size, GFP_KERNEL);
+	if (!requester->mif_requester_durations) {
+		pr_err("%s: failed to memory allocate mif_requester_durations\n",
+				__func__);
+		kfree(requester->mif_requester_names);
+		return;
+	}
+
+	flexpmu_mif_req.info = kzalloc(sizeof(struct req_info) * size, GFP_KERNEL);
+	if (!flexpmu_mif_req.info) {
+		pr_err("%s: failed to memory allocate req_info\n",
+				__func__);
+		kfree(requester->mif_requester_names);
+		kfree(requester->mif_requester_durations);
 		return;
 	}
 }
 
-void exynos_flexpmu_dbg_mif_req(void)
+void exynos_flexpmu_dbg_mif_req(bool start)
 {
-	struct flexpmu_apm_req_info mif_req;
+	struct req_info *mif_req = flexpmu_mif_req.info;
+	struct mif_requester requester = flexpmu_mif_req.requester;
+	unsigned int *durations;
 	unsigned int curr_tick = 0;
 	int i = 0;
 
@@ -562,39 +590,91 @@ void exynos_flexpmu_dbg_mif_req(void)
 		EXYNOS_FLEXPMU_DBG_PREFIX, "Master", "active_since(us ago)",
 		"last_rel_time(us ago)", "total_req_time(us)", "req_count");
 
-	for (i = 0; i < (mif_master_num - 1); i++) {	/* except MIF_AP */
-		mif_req.active_req_tick = requester_mif[i].req_time;
-		mif_req.last_rel_tick = requester_mif[i].rel_time;
-		mif_req.total_count = requester_mif[i].total_cnt;
-		mif_req.total_time_tick = requester_mif[i].total_time;
-		if (mif_req.last_rel_tick > 0) {
-			mif_req.last_rel_us =
-			(curr_tick - mif_req.last_rel_tick) * rtc.tick2us;
-		} else if (mif_req.last_rel_tick == 0) {
-			mif_req.last_rel_us = 0;
+	if (!flexpmu_mif_req.requester.mif_requester_durations)
+		return;
+
+	durations = flexpmu_mif_req.requester.mif_requester_durations;
+
+	for (i = 0; i < requester.mif_master_num; i++) {
+		mif_req[i].active_req_tick = requester_mif[i].req_time;
+		mif_req[i].last_rel_tick = requester_mif[i].rel_time;
+		mif_req[i].total_count = requester_mif[i].total_cnt;
+		mif_req[i].total_time_tick = requester_mif[i].total_time;
+		if (mif_req[i].last_rel_tick > 0) {
+			mif_req[i].last_rel_us =
+			(curr_tick - mif_req[i].last_rel_tick) * rtc.tick2us;
+		} else if (mif_req[i].last_rel_tick == 0) {
+			mif_req[i].last_rel_us = 0;
 		}
 
-		mif_req.total_time_us =
-			mif_req.total_time_tick * rtc.tick2us;
+		mif_req[i].total_time_us =
+			mif_req[i].total_time_tick * rtc.tick2us;
 
-		if (mif_req.active_req_tick == 0) {
-			mif_req.active_since_us = 0;
+		if (mif_req[i].active_req_tick == 0) {
+			mif_req[i].active_since_us = 0;
 		} else {
-			mif_req.active_since_us =
-			(curr_tick - mif_req.active_req_tick) * rtc.tick2us;
-			mif_req.total_time_us += mif_req.active_since_us;
+			mif_req[i].active_since_us =
+			(curr_tick - mif_req[i].active_req_tick) * rtc.tick2us;
+			mif_req[i].total_time_us += mif_req[i].active_since_us;
 		}
+
+		if (start) {
+			mif_req[i].prev_total_time_us = mif_req[i].total_time_us;
+		}
+		else {
+			if (mif_req[i].total_time_us > mif_req[i].prev_total_time_us) {
+				durations[i] += (mif_req[i].total_time_us - mif_req[i].prev_total_time_us) / 1000;
+			}
+		}
+
+		if (i >= (requester.mif_master_num - 1)) /* except AP */
+			continue;
 
 		pr_info("%s %8s : %24lld %24lld %24lld %24d\n",
 			EXYNOS_FLEXPMU_DBG_PREFIX,
-			mif_requester_names[i],
-			mif_req.active_since_us,
-			mif_req.last_rel_us,
-			mif_req.total_time_us,
-			mif_req.total_count);
+			requester.mif_requester_names[i],
+			mif_req[i].active_since_us,
+			mif_req[i].last_rel_us,
+			mif_req[i].total_time_us,
+			mif_req[i].total_count);
 	}
 }
 EXPORT_SYMBOL_GPL(exynos_flexpmu_dbg_mif_req);
+
+int get_mif_requester_info(struct mif_requester **mif_requester)
+{
+	if (!flexpmu_mif_req.requester.mif_requester_durations) {
+		pr_info("%s: mif_requester_durations is null\n", EXYNOS_FLEXPMU_DBG_PREFIX);
+		return -EINVAL;
+	}
+
+	if (!flexpmu_mif_req.requester.mif_requester_names) {
+		pr_info("%s: mif_requester_names is null\n", EXYNOS_FLEXPMU_DBG_PREFIX);
+		return -EINVAL;
+	}
+
+	*mif_requester = &flexpmu_mif_req.requester;
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(get_mif_requester_info);
+
+int reset_mif_requester_duration(void)
+{
+	struct mif_requester *requester = &flexpmu_mif_req.requester;
+	int i;
+
+	if (!requester->mif_requester_durations) {
+		pr_info("%s: mif_requester_durations is null\n", EXYNOS_FLEXPMU_DBG_PREFIX);
+		return -EINVAL;
+	}
+
+	for (i = 0; i < requester->mif_master_num; i++)
+		requester->mif_requester_durations[i] = 0;
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(reset_mif_requester_duration);
 
 static int flexpmu_dbg_probe(struct platform_device *pdev)
 {

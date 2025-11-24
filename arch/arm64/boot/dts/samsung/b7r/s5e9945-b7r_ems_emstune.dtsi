@@ -1,0 +1,115 @@
+/*
+ * SAMSUNG S5E9945 SoC ems, emstune device tree source
+ *
+ * Copyright (c) 2025 Samsung Electronics Co., Ltd.
+ *             http://www.samsung.com
+ *
+ * EXYNOS based board files can include this file and provide
+ * values for board specfic bindings.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ */
+
+&boot_set {
+	cpufreq_gov {
+	};
+};
+
+&set0 {
+	cpufreq_gov {
+		/* LIT MED-L MED-H BIG */
+		htask-boost = < 50 100 50 50 >;
+		step-latency-enable = < 1 >;
+		step-margin-enable = < 1 >;
+	};
+};
+
+&set0_2 {
+	cpufreq_gov {
+		/* LIT MED-L MED-H BIG */
+		htask-boost = < 150 150 150 150 >;
+		step-latency-enable = < 0 >;
+		step-margin-enable = < 0 >;
+	};
+};
+
+&set1 {
+	cpufreq_gov {
+		/* LIT MED-L MED-H BIG */
+		htask-boost = < 0 0 0 0>;	/* disable heavy task boost */
+		step-latency-enable = < 1 >;
+		step-margin-enable = < 1 >;
+	};
+};
+
+&set1_2 {
+	cpufreq_gov {
+		/* LIT MED-L MED-H BIG */
+		htask-boost = < 0 0 0 0>;	/* disable heavy task boost */
+		step-latency-enable = < 0 >;
+		step-margin-enable = < 0 >;
+	};
+};
+
+&set2 {
+	cpufreq_gov {
+		/* LIT MED-L MED-H BIG */
+		htask-boost = < 150 150 150 150 >;
+		step-latency-enable = < 1 >;
+		step-margin-enable = < 1 >;
+	};
+};
+
+&set2_2 {
+	cpufreq_gov {
+		/* LIT MED-L MED-H BIG */
+		htask-boost = < 150 150 150 150 >;
+		step-latency-enable = < 0 >;
+		step-margin-enable = < 0 >;
+	};
+};
+
+&set3 {
+	cpufreq_gov {
+		/* LIT MED-L MED-H BIG */
+		htask-boost = < 150 150 150 150 >;
+		step-latency-enable = < 1 >;
+		step-margin-enable = < 1 >;
+	};
+};
+
+&set3_2 {
+	cpufreq_gov {
+		/* LIT MED-L MED-H BIG */
+		htask-boost = < 150 150 150 150 >;
+		step-latency-enable = < 0 >;
+		step-margin-enable = < 0 >;
+	};
+};
+
+&set4 {
+	cpufreq_gov {
+		/* LIT MED-L MED-H BIG */
+		htask-boost = < 0 0 0 0 >;
+		step-latency-enable = < 1 >;
+		step-margin-enable = < 1 >;
+	};
+};
+
+&set4_1 {
+	frt {
+		foreground = <1>;
+	};
+};
+
+&set4_2 {
+	cpufreq_gov {
+		/* LIT MED-L MED-H BIG */
+		htask-boost = < 0 0 0 0 >;
+		step-latency-enable = < 0 >;
+		step-margin-enable = < 0 >;
+	};
+};
+

@@ -933,6 +933,19 @@ static struct samsung_pmx_func *samsung_pinctrl_create_functions(
 	return functions;
 }
 
+static void samsung_pinctrl_parse_keep_filter(struct samsung_pin_bank *bank)
+{
+	u32 val;
+
+	if (!bank->fwnode)
+		return;
+
+	if (!fwnode_property_read_u32(bank->fwnode, "samsung,keep-digital-filter", &val)) {
+		bank->eint_keep_filter = val;
+		pr_debug("[pinctrl] %s: keep-digital-filter=0x%x\n", bank->name, val);
+	}
+}
+
 /*
  * Parse the information about all the available pin groups and pin functions
  * from device node of the pin-controller. A pin group is formed with all
@@ -1038,6 +1051,8 @@ static int samsung_pinctrl_register(struct platform_device *pdev,
 		pin_bank->grange.npins = pin_bank->nr_pins;
 		pin_bank->grange.gc = &pin_bank->gpio_chip;
 		pinctrl_add_gpio_range(drvdata->pctl_dev, &pin_bank->grange);
+
+		samsung_pinctrl_parse_keep_filter(pin_bank);
 	}
 
 	return 0;
@@ -1321,7 +1336,7 @@ static int samsung_pinctrl_probe(struct platform_device *pdev)
 
 	ret = platform_get_irq_optional(pdev, 0);
 	if (ret < 0 && ret != -ENXIO)
-		return ret;
+		goto err_put_banks;
 	if (ret > 0)
 		drvdata->irq = ret;
 

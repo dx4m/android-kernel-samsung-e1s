@@ -1411,6 +1411,9 @@ static int proc_resetep(struct usb_dev_state *ps, void __user *arg)
 	ret = checkintf(ps, ret);
 	if (ret)
 		return ret;
+#ifdef CONFIG_USB_DEBUG_DETAILED_LOG
+	dev_info(&ps->dev->dev, "%s epnum %d\n", __func__, ep);
+#endif
 	check_reset_of_active_ep(ps->dev, ep, "RESETEP");
 	usb_reset_endpoint(ps->dev, ep);
 	return 0;
@@ -1515,7 +1518,7 @@ static int proc_resetdevice(struct usb_dev_state *ps)
 	 * currently claimed.
 	 */
 #ifdef CONFIG_USB_DEBUG_DETAILED_LOG
-	dev_info(&ps->dev->dev, "%s\n", __func__);
+	dev_info(&ps->dev->dev, "Entry of %s\n", __func__);
 #endif
 	if (ps->privileges_dropped && actconfig) {
 		for (i = 0; i < actconfig->desc.bNumInterfaces; ++i) {

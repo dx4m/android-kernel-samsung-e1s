@@ -58,6 +58,7 @@
 
 		tex {
 			top-app = <119>;
+			foreground = <101>;
 		};
 
 		should_spread {

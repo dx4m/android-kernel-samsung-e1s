@@ -12,6 +12,7 @@
 #include <cal_config.h>
 #include <dp_cal.h>
 #include <exynos_drm_dp.h>
+#include <linux/dma/samsung-pdma.h>
 
 void dp_hex_dump(void __iomem *base_addr, int size)
 {
@@ -130,6 +131,91 @@ void dp_print_hsi0_clk(void)
 }
 
 
+#if IS_ENABLED(CONFIG_DP_PHY_TUNING_PROJECT_R13)
+static u32 phy_eq_hbr0_1[4][4][5] = {
+	/* {eq main, eq pre, eq post, eq vswing lvl, rboost en} */
+	{	/* Swing Level_0 */
+		{ 22, 0, 0, 7, 1 },	/* Pre-emphasis Level_0 */
+		{ 29, 0, 5, 7, 0 },	/* Pre-emphasis Level_1 */
+		{ 36, 0, 12, 7, 0 },	/* Pre-emphasis Level_2 */
+		{ 42, 0, 20, 7, 1 },	/* Pre-emphasis Level_3 */
+	},
+	{	/* Swing Level_1 */
+		{ 35, 0, 0, 7, 1 },
+		{ 38, 0, 6, 7, 0 },
+		{ 46, 0, 14, 7, 0 },
+		{ -1, -1, -1, -1, -1 },
+	},
+	{	/* Swing Level_2 */
+		{ 48, 0, 4, 7, 3 },
+		{ 47, 0, 15, 7, 3 },
+		{ -1, -1, -1, -1, -1 },
+		{ -1, -1, -1, -1, -1 },
+	},
+	{	/* Swing Level_3 */
+		{ 62, 0, 0, 7, 0 },
+		{ -1, -1, -1, -1, -1 },
+		{ -1, -1, -1, -1, -1 },
+		{ -1, -1, -1, -1, -1 },
+	},
+};
+
+static u32 phy_eq_hbr2_3_evt0[4][4][5] = {
+	/* {eq main, eq post, eq pre, eq vswing lvl, rboost en} */
+	{	/* Swing Level_0 */
+		{ 21, 0, 0, 5, 3 },/* Pre-emphasis Level_0 */
+		{ 25, 0, 4, 5, 3 },/* Pre-emphasis Level_1 */
+		{ 29, 0, 8, 5, 3 },/* Pre-emphasis Level_2 */
+		{ 35, 0, 14, 5, 3 },/* Pre-emphasis Level_3 */
+	},
+	{	/* Swing Level_1 */
+		{ 31, 0, 0, 5, 3 },
+		{ 37, 0, 6, 5, 3 },
+		{ 42, 0, 11, 5, 3 },
+		{ -1, -1, -1, -1, -1 },
+	},
+	{	/* Swing Level_2 */
+		{ 43, 0, 0, 5, 3 },
+		{ 51, 0, 8, 5, 3 },
+		{ -1, -1, -1, -1, -1 },
+		{ -1, -1, -1, -1, -1 },
+	},
+	{	/* Swing Level_3 */
+		{ 62, 0, 0, 5, 3 },
+		{ -1, -1, -1, -1, -1 },
+		{ -1, -1, -1, -1, -1 },
+		{ -1, -1, -1, -1, -1 },
+	},
+};
+
+static u32 phy_eq_hbr2_3[4][4][5] = {
+	/* {eq main, eq post, eq pre, eq vswing lvl, rboost en} */
+	{	/* Swing Level_0 */
+		{ 23, 0, 0, 5, 3 },/* Pre-emphasis Level_0 */
+		{ 27, 0, 4, 5, 3 },/* Pre-emphasis Level_1 */
+		{ 31, 0, 10, 5, 3 },/* Pre-emphasis Level_2 */
+		{ 35, 0, 14, 5, 3 },/* Pre-emphasis Level_3 */
+	},
+	{	/* Swing Level_1 */
+		{ 33, 0, 0, 5, 3 },
+		{ 37, 0, 6, 5, 3 },
+		{ 44, 0, 13, 5, 3 },
+		{ -1, -1, -1, -1, -1 },
+	},
+	{	/* Swing Level_2 */
+		{ 46, 0, 0, 5, 3 },
+		{ 51, 0, 8, 5, 3 },
+		{ -1, -1, -1, -1, -1 },
+		{ -1, -1, -1, -1, -1 },
+	},
+	{	/* Swing Level_3 */
+		{ 62, 0, 0, 5, 3 },
+		{ -1, -1, -1, -1, -1 },
+		{ -1, -1, -1, -1, -1 },
+		{ -1, -1, -1, -1, -1 },
+	},
+};
+#else
 static u32 phy_eq_hbr0_1[4][4][5] = {
 	/* {eq main, eq pre, eq post, eq vswing lvl, rboost en} */
 	{	/* Swing Level_0 */
@@ -213,6 +299,7 @@ static u32 phy_eq_hbr2_3[4][4][5] = {
 		{ -1, -1, -1, -1, -1 },
 	},
 };
+#endif
 
 /* supported_videos[] is to be arranged in the order of pixel clock */
 struct dp_supported_preset supported_videos[] = {
@@ -3239,6 +3326,32 @@ void dp_reg_print_audio_state(void)
 	val5 = dp_read(SST1_AUDIO_CONTROL);
 	cal_log_info(0, "audio state: func_en=0x%x, aud_en=0x%x, master_t_gen=0x%x, dma_req=0x%x, aud_con=0x%X\n",
 			val1, val2, val3, val4, val5);
+}
+
+void dp_reg_check_audio_dma_state(void)
+{
+	u32 state = 0;
+	u32 val = 0;
+	u32 cnt = 0;
+
+	val = (dp_read(SST1_AUDIO_DMA_REQUEST_LATENCY_CONFIG) & AUD_DMA_REQ_STATUS) >> 18;
+
+	if (val) {
+		cal_log_err(0, "%s aud_dma_req_status = %d.\n", __func__, val);
+		do {
+			state = (dp_read(SST1_AUDIO_BUFFER_CONTROL) & MASTER_AUDIO_BUFFER_LEVEL) >> MASTER_AUDIO_BUFFER_LEVEL_BIT_POS;
+			if (state)
+				break;
+			cnt++;
+			cal_log_err(0, "%s state = %d cnt = %d.\n", __func__, state, cnt);
+			udelay(1);
+
+		} while (cnt < 3);
+
+		if (cnt == 3)
+			pl330_dma_debug(0);
+	}
+
 }
 
 void dp_reg_set_dma_req_gen(u32 en)

@@ -810,6 +810,43 @@ void exynos_acpm_tmu_get_tmu_mode(int tz, unsigned int *mode)
 
 	*mode = message.sdata.rsvd;
 }
+
+void exynos_acpm_tmu_set_use_cold(unsigned int mode)
+{
+	union tmu_ipc_message message;
+
+	memset(&message, 0, sizeof(message));
+	message.sdata.type = TMU_IPC_SET_USE_COLD;
+	message.sdata.rsvd = mode;
+
+	exynos_acpm_tmu_ipc_send_data(&message);
+	if (acpm_tmu_log) {
+		pr_info("[acpm_tmu] data 0:0x%08x 1:0x%08x 2:0x%08x 3:0x%08x\n",
+				message.data[0],
+				message.data[1],
+				message.data[2],
+				message.data[3]);
+	}
+}
+
+void exynos_acpm_tmu_get_use_cold(unsigned int *mode)
+{
+	union tmu_ipc_message message;
+
+	memset(&message, 0, sizeof(message));
+	message.sdata.type = TMU_IPC_GET_USE_COLD;
+
+	exynos_acpm_tmu_ipc_send_data(&message);
+	if (acpm_tmu_log) {
+		pr_info("[acpm_tmu] data 0:0x%08x 1:0x%08x 2:0x%08x 3:0x%08x\n",
+				message.data[0],
+				message.data[1],
+				message.data[2],
+				message.data[3]);
+	}
+
+	*mode = message.sdata.rsvd;
+}
 #else
 void exynos_acpm_tmu_change_threshold(int tz, unsigned char temp, unsigned char point)
 {

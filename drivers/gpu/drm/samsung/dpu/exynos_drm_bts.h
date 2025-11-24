@@ -13,8 +13,10 @@
 #ifndef __EXYNOS_DRM_BTS_H__
 #define __EXYNOS_DRM_BTS_H__
 
+#include "linux/kthread.h"
 #include <linux/types.h>
 #include <soc/samsung/exynos_pm_qos.h>
+#include <soc/samsung/bts.h>
 #if IS_ENABLED(CONFIG_ARM_EXYNOS_DEVFREQ) || IS_ENABLED(CONFIG_ARM_EXYNOS_ESCA_DEVFREQ)
 #include <soc/samsung/exynos-devfreq.h>
 #else
@@ -183,6 +185,15 @@ struct dpu_bts {
 
 	struct dpu_bts_win_config win_config[BTS_WIN_MAX];
 	struct dpu_bts_win_config wb_config;
+
+	struct bts_bw bw_applied;
+	u32 bw_limit;
+	bool is_max_perf;
+	struct completion bts_comp;
+	struct task_struct *bts_thread;
+	struct kthread_worker bts_worker;
+	struct kthread_work bts_work;
+	struct mutex bts_lock;
 };
 
 extern struct dpu_bts_ops dpu_bts_control;

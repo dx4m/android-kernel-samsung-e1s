@@ -390,6 +390,11 @@ int llc_region_alloc(unsigned int index, bool on, unsigned int way)
 		return -EINVAL;
 	}
 
+	if (index >= LLC_REGION_MAX) {
+		SCI_ERR("%s:%d: Invalid region index %u\n", __func__, __LINE__, index);
+		return -EINVAL;
+	}
+
 	spin_lock_irqsave(&sci_data->lock, flags);
 	if (on == true) {
 		sci_data->llc_region[index].usage_count++;

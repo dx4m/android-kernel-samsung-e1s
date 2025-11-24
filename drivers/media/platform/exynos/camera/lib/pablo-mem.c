@@ -137,7 +137,7 @@ static void is_free_work(struct work_struct *w)
 	struct llist_node *t, *llnode;
 
 	llist_for_each_safe(llnode, t, llist_del_all(&p->list))
-		vfree((void *)llnode);
+		pablo_free((void *)llnode);
 }
 
 /* is vb2 buffer operations */
@@ -1154,7 +1154,7 @@ static void pablo_dma_buf_free(struct is_priv_buf *pbuf)
 	dbg_mem(1, "%s: size(%zu)\n", __func__, pbuf->size);
 	atomic_sub(pbuf->aligned_size, &mem_stats_sz_active);
 
-	vfree(pbuf);
+	pablo_free(pbuf);
 }
 
 static ulong pablo_dma_buf_kvaddr(struct is_priv_buf *pbuf)
@@ -1320,7 +1320,7 @@ static void *is_ion_init(struct platform_device *pdev)
 	struct is_ion_ctx *ctx;
 	const char *heapname =
 		IS_ENABLED(CONFIG_ION_EXYNOS) ? "vendor_system_heap" : "ion_system_heap";
-	ctx = vzalloc(sizeof(*ctx));
+	ctx = pablo_zalloc(sizeof(*ctx), GFP_KERNEL);
 	if (!ctx)
 		return ERR_PTR(-ENOMEM);
 
@@ -1342,7 +1342,7 @@ static void is_ion_deinit(void *ctx)
 	struct is_ion_ctx *alloc_ctx = ctx;
 
 	mutex_destroy(&alloc_ctx->lock);
-	vfree(alloc_ctx);
+	pablo_free(alloc_ctx);
 }
 
 static struct is_priv_buf *is_ion_alloc(void *ctx,
@@ -1357,7 +1357,7 @@ static struct is_priv_buf *is_ion_alloc(void *ctx,
 	int ret = 0;
 	size_t aligned_size;
 
-	buf = vzalloc(sizeof(*buf));
+	buf = pablo_zalloc(sizeof(*buf), GFP_KERNEL);
 	if (!buf)
 		return ERR_PTR(-ENOMEM);
 
@@ -1420,7 +1420,7 @@ err_map_dmabuf:
 err_attach:
 	CALL_DMABUF_OPS(buf, put, buf->dma_buf);
 err_alloc:
-	vfree(buf);
+	pablo_free(buf);
 
 	pr_err("%s: Error occurred while allocating\n", __func__);
 	return ERR_PTR(ret);
@@ -1476,7 +1476,7 @@ static void *pablo_dmabuf_heap_init(struct platform_device *pdev)
 {
 	struct pablo_dmabuf_heap_ctx *pdhc;
 
-	pdhc = vzalloc(sizeof(*pdhc));
+	pdhc = pablo_zalloc(sizeof(*pdhc), GFP_KERNEL);
 	if (!pdhc)
 		return ERR_PTR(-ENOMEM);
 
@@ -1521,7 +1521,7 @@ static void pablo_dmabuf_heap_cleanup(void *ctx)
 		dma_heap_put(pdhc->dh_camera_uncached);
 #endif
 
-	vfree(pdhc);
+	pablo_free(pdhc);
 }
 
 static struct dma_heap *pablo_dmabuf_heap_find(void *ctx, const char *heapname)
@@ -1553,7 +1553,7 @@ static struct is_priv_buf *pablo_dmabuf_heap_alloc(void *ctx,
 	int ret;
 	size_t aligned_size;
 
-	buf = vzalloc(sizeof(*buf));
+	buf = pablo_zalloc(sizeof(*buf), GFP_KERNEL);
 	if (!buf)
 		return ERR_PTR(-ENOMEM);
 
@@ -1629,7 +1629,7 @@ err_map_dmabuf:
 err_attach:
 	CALL_DMABUF_OPS(buf, put, buf->dma_buf);
 err_alloc:
-	vfree(buf);
+	pablo_free(buf);
 
 	pr_err("%s: Error occurred while allocating\n", __func__);
 	return ERR_PTR(ret);
@@ -1647,10 +1647,10 @@ const struct is_mem_ops pablo_mem_ops_dmabuf_heap = { NULL, };
 /* pablo private buffer operations for 'contig mem' */
 static void pablo_contig_free(struct is_priv_buf *pbuf)
 {
-	kfree(pbuf->kvaddr);
+	pablo_free(pbuf->kvaddr);
 	pbuf->kvaddr = NULL;
 
-	kfree(pbuf);
+	pablo_free(pbuf);
 	pbuf = NULL;
 }
 
@@ -1680,13 +1680,13 @@ static struct is_priv_buf *pablo_contig_alloc(size_t size)
 {
 	struct is_priv_buf *buf;
 
-	buf = kzalloc(sizeof(*buf), GFP_KERNEL);
+	buf = pablo_zalloc(sizeof(*buf), GFP_KERNEL);
 	if (!buf)
 		return ERR_PTR(-ENOMEM);
 
-	buf->kvaddr = kzalloc(size, GFP_KERNEL);
+	buf->kvaddr = pablo_zalloc(size, GFP_KERNEL);
 	if (!buf->kvaddr) {
-		kfree(buf);
+		pablo_free(buf);
 		return ERR_PTR(-ENOMEM);
 	}
 

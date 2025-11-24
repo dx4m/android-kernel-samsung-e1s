@@ -78,6 +78,11 @@
 					};
 				};
 			};
+
+			ois_mcu: ois_mcu@1A310000 {
+				ois_gyro_direction = <0x01 0x00 0x01 0x00 0x00 0x00 0x00>;
+			};
+
 		};
 	};
 }; /* end of root */

@@ -265,6 +265,42 @@ void dqe_reg_set_cgc_dither(u32 *ctx, u32 *lut, int bit_ext)
  * |Bout|   |C G K||Bin|   |O|
  *
  */
+
+static int fixed_multiply(int a, int b)
+{
+	const int fixed_point = 16;
+	const int64_t rounding_factor = (int64_t)BIT(fixed_point - 1);
+
+	return ((int64_t) a * b + rounding_factor) >> fixed_point;
+}
+
+void dqe_reg_multiply_matrix4(int *res, int *lut0, int *lut1)
+{
+	int row, col, inner, idx, idx0, idx1;
+	int *lut;
+
+	if (lut0[0] == 0 || lut1[0] == 0) {
+		lut = (lut1[0] > 0) ? lut1 : lut0;
+		memcpy(res, lut, 17 * sizeof(*lut));
+		return;
+	}
+
+	res[0] = lut0[0];
+	for (row = 0; row < 4; row++) {
+		for (col = 0; col < 4; col++) {
+			idx = row * 4 + col + 1;
+
+			res[idx] = 0;
+			for (inner = 0; inner < 4; inner++) {
+				idx0 = row * 4 + inner + 1;
+				idx1 = inner * 4 + col + 1;
+
+				res[idx] += fixed_multiply(lut0[idx0], lut1[idx1]);
+			}
+		}
+	}
+}
+
 void dqe_reg_set_gamma_matrix(u32 *ctx, int *lut, u32 shift)
 {
 	int i;

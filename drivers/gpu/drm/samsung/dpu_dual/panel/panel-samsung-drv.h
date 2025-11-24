@@ -214,7 +214,7 @@ struct exynos_panel_funcs {
 	 */
 	void (*mode_set)(struct exynos_panel *exynos_panel,
 		const struct exynos_panel_mode *mode, unsigned int modeset_flags);
-	int (*lastclose)(struct exynos_panel *exynos_panel, bool close);
+	bool (*lastclose)(struct exynos_panel *exynos_panel, bool close);
 
 #if IS_ENABLED(CONFIG_DRM_PANEL_MCD_COMMON)
 	/*
@@ -299,6 +299,8 @@ struct exynos_panel {
 	 */
 	struct delayed_work idle_work;
 
+	/* @fcmd_lock: A mutex lock to protect fcmd_buf_vaddr overwrite. */
+	struct mutex fcmd_lock;
 	/* @mode_lock: A mutex lock to protect panel state and mode information. */
 	struct mutex mode_lock;
 	/* @state: A current panel state protected by mode_lock. */

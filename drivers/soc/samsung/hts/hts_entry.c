@@ -95,6 +95,7 @@ static int hts_probe(struct platform_device *pdev)
 	spin_lock_init(&data->lock);
 	spin_lock_init(&data->req_lock);
 	spin_lock_init(&data->app_event_lock);
+	mutex_init(&data->ioctl_lock);
 
 	data->pdev = pdev;
 	platform_set_drvdata(pdev, data);

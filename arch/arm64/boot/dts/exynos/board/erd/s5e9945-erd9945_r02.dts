@@ -90,3 +90,6 @@
 		     <GIC_SPI INTREQ__DUMMY  IRQ_TYPE_LEVEL_HIGH>, <GIC_SPI EXT_INTA3_OUT7 IRQ_TYPE_LEVEL_HIGH>;
 };
 
+&scsc_wifibt {
+        status = "disabled";
+};

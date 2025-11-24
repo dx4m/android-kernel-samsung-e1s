@@ -87,7 +87,9 @@ static int dwc3_otg_statemachine(struct otg_fsm *fsm)
 {
 	struct usb_otg *otg = fsm->otg;
 	struct dwc3_otg	*dotg = container_of(otg, struct dwc3_otg, otg);
+#if IS_ENABLED(CONFIG_USB_EXYNOS_RETRY_CONFIGURATION)
 	struct dwc3_exynos *exynos = dotg->exynos;
+#endif
 	enum usb_otg_state prev_state = otg->state;
 	int ret = 0;
 
@@ -116,7 +118,9 @@ static int dwc3_otg_statemachine(struct otg_fsm *fsm)
 		if (!fsm->id) {
 			otg->state = OTG_STATE_A_IDLE;
 		} else if (fsm->b_sess_vld) {
+#if IS_ENABLED(CONFIG_USB_EXYNOS_RETRY_CONFIGURATION)
 			exynos->retry_cnt = 0;
+#endif
 			ret = otg_start_gadget(fsm, 1);
 			if (!ret)
 				otg->state = OTG_STATE_B_PERIPHERAL;
@@ -126,7 +130,9 @@ static int dwc3_otg_statemachine(struct otg_fsm *fsm)
 		break;
 	case OTG_STATE_B_PERIPHERAL:
 		if (!fsm->id || !fsm->b_sess_vld) {
+#if IS_ENABLED(CONFIG_USB_EXYNOS_RETRY_CONFIGURATION)
 			exynos->retry_cnt = REMOVED_RETRY_CNT;
+#endif
 			ret = otg_start_gadget(fsm, 0);
 			if (!ret)
 				otg->state = OTG_STATE_B_IDLE;
@@ -285,6 +291,19 @@ void dwc3_otg_pm_ctrl(struct dwc3_exynos *dwc_exynos, int onoff)
 	}
 }
 
+void dwc3_otg_cpufreq_work(struct work_struct *data)
+{
+	struct dwc3_exynos *exynos = g_dwc3_exynos;
+	int perf = exynos->is_perf;
+
+	if (perf) {
+		pr_info("%s Request cluster0 freq to 1824000\n", __func__);
+		freq_qos_update_request(&(exynos->qos_req_cpu_cl0), 1824000);
+	} else {
+		pr_info("%s Reset cluster0 max freq\n", __func__);
+		freq_qos_update_request(&(exynos->qos_req_cpu_cl0), 0);
+	}
+}
 static void usb3_phy_control(struct dwc3_otg *dotg, int on)
 {
 	struct dwc3	*dwc = dotg->dwc;
@@ -506,10 +525,20 @@ static int dwc3_otg_start_host(struct otg_fsm *fsm, int on)
 		dwc3_exynos_core_init(dwc, exynos);
 		dwc3_bus_control(exynos, 1);
 
-		dwc3_core_susphy_set(dwc, 1);
-
 		pr_info("%s: usb_role_switch_set_role = DWC3_GCTL_PRTCAP_HOST\n", __func__);
 		usb_role_switch_set_role(dwc->role_sw, DWC3_GCTL_PRTCAP_HOST);
+
+		while (dwc->current_dr_role != DWC3_GCTL_PRTCAP_HOST) {
+			usleep_range(10000, 20000);
+			time += 20;
+			if (time > 500) {
+				pr_info("%s set_mode timeout\n", __func__);
+				break;
+			}
+		}
+		pr_info("%s set_mode time = %d\n", __func__, time);
+
+		dwc3_core_susphy_set(dwc, 1);
 
 		schedule_delayed_work(&g_dwc3_exynos->usb_qos_lock_delayed_work,
 				msecs_to_jiffies(3000));
@@ -594,6 +623,7 @@ u8 dwc3_otg_get_link_state(struct dwc3 *dwc)
 }
 EXPORT_SYMBOL_GPL(dwc3_otg_get_link_state);
 
+#if IS_ENABLED(CONFIG_USB_EXYNOS_RETRY_CONFIGURATION)
 int exynos_usb_recovery_reconn(void);
 
 static void retry_configuration(struct timer_list *t)
@@ -660,6 +690,7 @@ static void retry_configuration(struct timer_list *t)
 
 	pr_info("%s: ---\n", __func__);
 }
+#endif
 
 static int dwc3_check_extra_work(struct dwc3 *dwc)
 {
@@ -792,10 +823,12 @@ static int dwc3_otg_start_gadget(struct otg_fsm *fsm, int on)
 #endif
 		dwc3_otg_pm_ctrl(exynos, 0);
 		dwc3_bus_control(exynos, 0);
+#if IS_ENABLED(CONFIG_USB_EXYNOS_RETRY_CONFIGURATION)
 		pr_info("%s: start check usb configuration timer\n", __func__);
 		timer_setup(&exynos->usb_connect_timer, retry_configuration, 0);
 		mod_timer(&exynos->usb_connect_timer,
 				jiffies + CHG_CONNECTED_DELAY_TIME);
+#endif
 	} else {
 		exynos->vbus_state = false;
 		dwc->ev_buf->flags &= ~BIT(20);
@@ -803,7 +836,9 @@ static int dwc3_otg_start_gadget(struct otg_fsm *fsm, int on)
 #if IS_ENABLED(CONFIG_USB_EXYNOS_TPMON_MODULE)
 		usb_tpmon_close();
 #endif
+#if IS_ENABLED(CONFIG_USB_EXYNOS_RETRY_CONFIGURATION)
 		del_timer_sync(&exynos->usb_connect_timer);
+#endif
 
 		evt_buf_cnt = dwc->ev_buf->count;
 
@@ -1026,6 +1061,7 @@ dwc3_otg_store_id(struct device *dev,
 static DEVICE_ATTR(id, S_IWUSR | S_IRUSR | S_IRGRP,
 	dwc3_otg_show_id, dwc3_otg_store_id);
 
+#if IS_ENABLED(CONFIG_USB_EXYNOS_RETRY_CONFIGURATION)
 static ssize_t
 dwc3_otg_show_retry_disable(struct device *dev,
 		struct device_attribute *attr, char *buf)
@@ -1052,6 +1088,7 @@ dwc3_otg_store_retry_disable(struct device *dev,
 
 static DEVICE_ATTR(retry_disable, S_IWUSR | S_IRUSR | S_IRGRP,
 	dwc3_otg_show_retry_disable, dwc3_otg_store_retry_disable);
+#endif
 
 static ssize_t
 dwc3_otg_show_usb_state(struct device *dev,
@@ -1068,6 +1105,7 @@ dwc3_otg_show_usb_state(struct device *dev,
 static DEVICE_ATTR(usb_state, S_IWUSR | S_IRUSR | S_IRGRP,
 	dwc3_otg_show_usb_state, NULL);
 
+#if IS_ENABLED(CONFIG_USB_EXYNOS_RETRY_CONFIGURATION)
 static ssize_t
 dwc3_otg_show_usb_connection_fail(struct device *dev,
 		struct device_attribute *attr, char *buf)
@@ -1096,6 +1134,7 @@ dwc3_otg_store_usb_connection_fail(struct device *dev,
 
 static DEVICE_ATTR(usb_connection_fail, S_IWUSR | S_IRUSR | S_IRGRP,
 	dwc3_otg_show_usb_connection_fail, dwc3_otg_store_usb_connection_fail);
+#endif
 
 static ssize_t usb_data_enabled_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
@@ -1155,14 +1194,63 @@ static ssize_t usb_data_enabled_store(struct device *dev, struct device_attribut
 }
 static DEVICE_ATTR_RW(usb_data_enabled);
 
+static ssize_t
+u1u2_disabled_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	struct dwc3_exynos  *exynos = dev_get_drvdata(dev);
+	u32 dctl_reg = 0, reg = 0;
+	int len = 0;
+
+	if (pm_runtime_suspended(exynos->dev)) {
+		pr_info("%s: AP Suspend state, return!\n", __func__);
+		return len;
+	}
+
+	dctl_reg = dwc3_exynos_readl(exynos->dwc->regs, DWC3_DCTL);
+	reg |= (DWC3_DCTL_INITU1ENA | DWC3_DCTL_ACCEPTU1ENA |
+			DWC3_DCTL_INITU2ENA | DWC3_DCTL_ACCEPTU2ENA);
+	dctl_reg &= reg;
+
+	if (dctl_reg > 0)
+		len += snprintf(buf + len, PAGE_SIZE, "u1u2 is enabled reg:0x%x\n", dctl_reg);
+	else
+		len += snprintf(buf + len, PAGE_SIZE, "u1u2 is disabled reg:0x%x\n", dctl_reg);
+
+	return len;
+}
+
+static ssize_t
+u1u2_disabled_store(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t n)
+{
+	struct dwc3_exynos  *exynos = dev_get_drvdata(dev);
+	struct dwc3	   *dwc = exynos->dwc;
+	bool onoff = 0;
+
+	if (kstrtobool(buf, &onoff))
+		return -EINVAL;
+
+	dwc->dis_u1_entry_quirk = onoff;
+	dwc->dis_u2_entry_quirk = onoff;
+
+	pr_info("%s u1:%d, u2:%d\n", __func__, dwc->dis_u1_entry_quirk, dwc->dis_u2_entry_quirk);
+
+	return n;
+}
+
+static DEVICE_ATTR_RW(u1u2_disabled);
+
 static struct attribute *dwc3_otg_attributes[] = {
 	&dev_attr_id.attr,
 	&dev_attr_b_sess.attr,
 	&dev_attr_state.attr,
+#if IS_ENABLED(CONFIG_USB_EXYNOS_RETRY_CONFIGURATION)
 	&dev_attr_retry_disable.attr,
-	&dev_attr_usb_state.attr,
 	&dev_attr_usb_connection_fail.attr,
+#endif
+	&dev_attr_usb_state.attr,
 	&dev_attr_usb_data_enabled.attr,
+	&dev_attr_u1u2_disabled.attr,
 	NULL
 };
 
@@ -1197,6 +1285,7 @@ int dwc3_otg_start(struct dwc3 *dwc, struct dwc3_exynos *exynos)
 /* -------------------------------------------------------------------------- */
 
 extern u32 otg_is_connect(void);
+#if IS_ENABLED(CONFIG_USB_EXYNOS_RETRY_CONFIGURATION)
 struct work_struct recovery_reconn_work;
 
 static void dwc3_recovery_reconnection(struct work_struct *w)
@@ -1250,6 +1339,7 @@ int exynos_usb_recovery_reconn(void)
 	return 0;
 }
 EXPORT_SYMBOL_GPL(exynos_usb_recovery_reconn);
+#endif
 
 static int dwc3_otg_pm_notifier(struct notifier_block *nb,
 		unsigned long action, void *nb_data)
@@ -1375,7 +1465,9 @@ int dwc3_exynos_otg_init(struct dwc3 *dwc, struct dwc3_exynos *exynos)
 		return 0;
 
 	g_dwc3_exynos = exynos;
+#if IS_ENABLED(CONFIG_USB_EXYNOS_RETRY_CONFIGURATION)
 	INIT_WORK(&recovery_reconn_work, dwc3_recovery_reconnection);
+#endif
 
 	/* Allocate and init otg instance */
 	dotg = devm_kzalloc(dwc->dev, sizeof(struct dwc3_otg), GFP_KERNEL);
@@ -1440,8 +1532,10 @@ int dwc3_exynos_otg_init(struct dwc3 *dwc, struct dwc3_exynos *exynos)
 	}
 
 	dotg->wakelock = wakeup_source_register(dwc->dev, "dwc3-otg");
+#if IS_ENABLED(CONFIG_USB_EXYNOS_RETRY_CONFIGURATION)
 	dotg->reconn_wakelock = wakeup_source_register(dwc->dev,
 				"dwc3-reconnection");
+#endif
 	mutex_init(&dotg->lock);
 
 	ret = sysfs_create_group(&exynos->dev->kobj, &dwc3_otg_attr_group);
@@ -1507,7 +1601,9 @@ void dwc3_exynos_otg_exit(struct dwc3 *dwc, struct dwc3_exynos *exynos)
 
 	sysfs_remove_group(&dwc->dev->kobj, &dwc3_otg_attr_group);
 	wakeup_source_unregister(dotg->wakelock);
+#if IS_ENABLED(CONFIG_USB_EXYNOS_RETRY_CONFIGURATION)
 	wakeup_source_unregister(dotg->reconn_wakelock);
+#endif
 	free_irq(dotg->irq, dotg);
 	dotg->otg.state = OTG_STATE_UNDEFINED;
 	kfree(dotg);

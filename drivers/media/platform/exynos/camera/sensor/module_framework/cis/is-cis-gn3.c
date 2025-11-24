@@ -183,6 +183,7 @@ int sensor_gn3_cis_init(struct v4l2_subdev *subdev)
 	priv_runtime->crop_shift_offset_x = 0;
 	priv_runtime->crop_shift_offset_y = 0;
 	priv_runtime->crop_shift_enabled = false;
+	priv_runtime->need_inactive_retention = false;
 
 	cis->cis_data->cur_width = cis->sensor_info->max_width;
 	cis->cis_data->cur_height = cis->sensor_info->max_height;
@@ -211,6 +212,9 @@ int sensor_gn3_cis_deinit(struct v4l2_subdev *subdev)
 		sensor_gn3_cis_wait_streamoff(subdev);
 		info("%s: complete to load retention\n", __func__);
 	}
+
+	if (priv_runtime->need_inactive_retention)
+		sensor_cis_set_retention_mode(subdev, SENSOR_RETENTION_INACTIVE);
 
 	/* retention mode CRC wait calculation */
 	usleep_range(10000, 10000);
@@ -307,10 +311,11 @@ int sensor_gn3_cis_log_status(struct v4l2_subdev *subdev)
 {
 	int ret = 0;
 	struct is_cis *cis = sensor_cis_get_cis(subdev);
+	struct sensor_gn3_private_runtime *priv_runtime = (struct sensor_gn3_private_runtime *)cis->priv_runtime;
 
 #if IS_ENABLED(USE_CAMERA_SENSOR_RETENTION)
 	if (sensor_cis_support_retention_mode(subdev) && cis->cis_data->stream_on == false)
-		sensor_cis_set_retention_mode(subdev, SENSOR_RETENTION_INACTIVE);
+		priv_runtime->need_inactive_retention = true;
 #endif
 
 	sensor_cis_log_status(cis, log_gn3, ARRAY_SIZE(log_gn3), (char *)__func__);
@@ -385,7 +390,7 @@ int sensor_gn3_cis_write16_burst(void *vclient, u16 addr, u8 *val, u32 num, bool
 		goto p_err;
 	}
 
-	wbuf = kmalloc((2 + (num * 2)), GFP_KERNEL);
+	wbuf = pablo_malloc((2 + (num * 2)), GFP_KERNEL);
 	if (!wbuf) {
 		err("failed to alloc buffer for burst i2c");
 		ret = -ENODEV;
@@ -418,11 +423,11 @@ int sensor_gn3_cis_write16_burst(void *vclient, u16 addr, u8 *val, u32 num, bool
 		goto p_err_free;
 	}
 
-	kfree(wbuf);
+	pablo_free(wbuf);
 	return 0;
 
 p_err_free:
-	kfree(wbuf);
+	pablo_free(wbuf);
 p_err:
 	return ret;
 }
@@ -2053,7 +2058,7 @@ static int cis_gn3_probe_i2c(struct i2c_client *client,
 	cis->bayer_order = OTF_INPUT_ORDER_BAYER_GB_RG;
 	cis->use_wb_gain = true;
 	cis->reg_addr = &sensor_gn3_reg_addr;
-	cis->priv_runtime = kzalloc(sizeof(struct sensor_gn3_private_runtime), GFP_KERNEL);
+	cis->priv_runtime = pablo_zalloc(sizeof(struct sensor_gn3_private_runtime), GFP_KERNEL);
 	if (!cis->priv_runtime) {
 		kfree(cis->cis_data);
 		kfree(cis->subdev);

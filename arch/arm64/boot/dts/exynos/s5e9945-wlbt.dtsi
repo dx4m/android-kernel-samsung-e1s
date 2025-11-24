@@ -65,8 +65,8 @@
 			>;
 		cpu_table_rps = "00", "00", "40", "40";
 		/* mid_tput / high_tput */
-		threshold_table_napi = <0 50>;
-		threshold_table_rps =  <0 300>;
+		threshold_table_napi = <0 150>;
+		threshold_table_rps =  <0 1000>;
 	};
 
 	wpan: slsi_wpan {

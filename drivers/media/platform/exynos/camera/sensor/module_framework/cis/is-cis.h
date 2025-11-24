@@ -93,6 +93,7 @@ struct sensor_cis_info {
 
 
 struct sensor_cis_mode_info {
+	const char *name;
 	u16 setfile_index;
 	const struct sensor_regs setfile;
 	u16 setfile_fcm_index;

@@ -68,7 +68,7 @@ static void pablo_verify_v4l2_buffer(struct is_video_ctx *ivc, struct v4l2_buffe
 	}
 
 	/* still have a problem, have to verify dma_buf */
-	planes = kvcalloc(vb->num_planes, sizeof(struct vb2_plane), GFP_KERNEL);
+	planes = pablo_calloc(vb->num_planes, sizeof(struct vb2_plane), GFP_KERNEL);
 	if (!planes) {
 		mverr("failed to alloc planes to verify", ivc, video);
 		return;
@@ -98,7 +98,7 @@ static void pablo_verify_v4l2_buffer(struct is_video_ctx *ivc, struct v4l2_buffe
 		dma_buf_put(dbuf);
 	}
 
-	kvfree(planes);
+	pablo_free(planes);
 }
 
 int pablo_video_qbuf(struct is_video_ctx *vctx, struct v4l2_buffer *buf)

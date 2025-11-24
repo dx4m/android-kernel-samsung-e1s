@@ -382,4 +382,5 @@ void factory_execute_monitor(int);
 bool max77775_need_check_stuck(struct max77775_usbc_platform_data *usbc_data);
 void max77775_send_check_stuck_opcode(struct max77775_usbc_platform_data *usbpd_data);
 bool is_empty_usbc_cmd_queue(usbc_cmd_queue_t *usbc_cmd_queue);
+extern void max77775_chg_check_stuck(int chgin_dtls);
 #endif

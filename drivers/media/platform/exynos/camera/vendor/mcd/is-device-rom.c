@@ -56,7 +56,7 @@ static int sensor_rom_probe(struct i2c_client *client,
 		return -ENODEV;
 	}
 
-	rom = kzalloc(sizeof(struct is_device_rom), GFP_KERNEL);
+	rom = pablo_zalloc(sizeof(struct is_device_rom), GFP_KERNEL);
 	if (!rom) {
 		probe_err("is_device_rom is NULL");
 		return -ENOMEM;
@@ -73,24 +73,24 @@ static int sensor_rom_probe(struct i2c_client *client,
 	if (client->dev.of_node) {
 		if(is_vendor_rom_parse_dt(client->dev.of_node, rom_id)) {
 			probe_err("parsing device tree is fail");
-			kfree(rom);
+			pablo_free(rom);
 			return -ENODEV;
 		}
 
-		rom_info->buf = vzalloc(rom_info->rom_size);
+		rom_info->buf = pablo_zalloc(rom_info->rom_size, GFP_KERNEL);
 		if (!rom_info->buf) {
 			probe_err("failed to alloc rom buffer, id[%d] size[%d]", rom_id, rom_info->rom_size);
-			kfree(rom);
+			pablo_free(rom);
 			return -ENOMEM;
 		}
 
 		if (rom_info->use_standard_cal) {
-			rom_info->sec_buf = vzalloc(rom_info->rom_size);
+			rom_info->sec_buf = pablo_zalloc(rom_info->rom_size, GFP_KERNEL);
 			if (!rom_info->sec_buf) {
 				probe_err("failed to alloc sec_buf of rom_id[%d] rom_size[%d]",
 					rom_id, rom_info->rom_size);
-				kfree(rom);
-				vfree(rom_info->buf);
+				pablo_free(rom);
+				pablo_free(rom_info->buf);
 				return -ENOMEM;
 			}
 		}

@@ -51,6 +51,7 @@
 #if IS_ENABLED(CONFIG_DRM_MCD_COMMON)
 #include <mcd_drm_helper.h>
 #include <linux/delay.h>
+#include <regs-decon.h>
 #endif
 
 #define CREATE_TRACE_POINTS
@@ -65,6 +66,10 @@
 static int dpu_log_level = 6;
 module_param(dpu_log_level, int, 0600);
 MODULE_PARM_DESC(dpu_log_level, "log level for dpu [default : 6]");
+
+static int dpu_sfr_dump;
+module_param(dpu_sfr_dump, int, 0600);
+MODULE_PARM_DESC(dpu_sfr_dump, "dpu sfr dump [default : false, reset after sfr dumping]");
 
 #define dpu_info(drm, fmt, ...)	\
 dpu_pr_info(drv_name((drm)), 0, dpu_log_level, fmt, ##__VA_ARGS__)
@@ -88,7 +93,7 @@ dpu_pr_debug(drv_name((drm)), 0, dpu_log_level, fmt, ##__VA_ARGS__)
 			     (void)(crtc), 1))
 
 #if IS_ENABLED(CONFIG_DRM_MCD_COMMON)
-int no_disp[MAX_PANEL_CNT];
+int no_disp[MAX_DECON_CNT];
 EXPORT_SYMBOL(no_disp);
 int no_display = -1;
 module_param(no_display, int, 0444);
@@ -96,9 +101,9 @@ int no_display1 = -1;
 module_param(no_display1, int, 0444);
 unsigned int drm_debug;
 module_param(drm_debug, int, 0444);
-int bypass_display[2];
+int bypass_display[MAX_DECON_CNT];
 EXPORT_SYMBOL(bypass_display);
-int commit_retry[2];
+int commit_retry[MAX_DECON_CNT];
 EXPORT_SYMBOL(commit_retry);
 #endif
 
@@ -371,9 +376,10 @@ static int exynos_atomic_add_affected_objects(struct drm_device *dev,
 {
 	struct drm_crtc *crtc;
 	struct drm_crtc_state *new_crtc_state;
+	struct exynos_drm_crtc_state *new_exynos_crtc_state;
 	struct drm_connector *conn;
 	struct drm_connector_state *new_conn_state;
-	int i;
+	int i, ret = 0;
 
 	for_each_new_crtc_in_state(state, crtc, new_crtc_state, i) {
 		conn = crtc_get_conn(new_crtc_state, DRM_MODE_CONNECTOR_WRITEBACK);
@@ -382,9 +388,20 @@ static int exynos_atomic_add_affected_objects(struct drm_device *dev,
 			if (IS_ERR(new_conn_state))
 				return PTR_ERR(new_conn_state);
 		}
+
+		new_exynos_crtc_state = to_exynos_crtc_state(new_crtc_state);
+		if (!new_exynos_crtc_state->out_fence.ptr)
+			continue;
+
+		ret = drm_atomic_add_affected_connectors(state, crtc);
+		if (ret) {
+			dpu_err(dev, "[%s] failed(%d) to add afftected connectors\n",
+					crtc->name, ret);
+			return ret;
+		}
 	}
 
-	return 0;
+	return ret;
 }
 
 static int exynos_drm_atomic_zpos_cmp(const void *a, const void *b)
@@ -594,6 +611,7 @@ static int exynos_drm_atomic_helper_wait_for_fences(struct drm_device *dev,
 {
 	struct exynos_drm_crtc *exynos_crtc;
 	struct drm_crtc_state *new_crtc_state;
+	struct exynos_drm_crtc_state *new_exynos_crtc_state;
 	struct drm_plane *plane;
 	struct drm_plane_state *new_plane_state;
 	struct dma_fence *fence;
@@ -611,6 +629,11 @@ static int exynos_drm_atomic_helper_wait_for_fences(struct drm_device *dev,
 			continue;
 
 		WARN_ON(!new_plane_state->fb);
+
+		new_crtc_state = new_plane_state->crtc->state;
+		new_exynos_crtc_state = to_exynos_crtc_state(new_crtc_state);
+		if (!new_crtc_state->active || new_exynos_crtc_state->skip_update)
+			continue;
 
 		/*
 		 * If waiting for fences pre-swap (ie: nonblock), userspace can
@@ -776,7 +799,7 @@ static void __release_windows(struct drm_device *dev, unsigned int win_mask)
 	mutex_unlock(&priv->lock);
 }
 
-static void exynos_drm_rollback_windows(struct drm_atomic_state *old_state)
+static void exynos_drm_clear_failed_commit(struct drm_atomic_state *state)
 {
 	struct drm_crtc *crtc;
 	struct drm_crtc_state *old_crtc_state, *new_crtc_state;
@@ -784,7 +807,8 @@ static void exynos_drm_rollback_windows(struct drm_atomic_state *old_state)
 	unsigned int win_mask;
 	int i;
 
-	for_each_oldnew_crtc_in_state(old_state, crtc, old_crtc_state, new_crtc_state, i) {
+	/* Only the newly allocated window resources are freed in the failed commit. */
+	for_each_oldnew_crtc_in_state(state, crtc, old_crtc_state, new_crtc_state, i) {
 		new_exynos_crtc_state = to_exynos_crtc_state(new_crtc_state);
 		old_exynos_crtc_state = to_exynos_crtc_state(old_crtc_state);
 
@@ -794,8 +818,210 @@ static void exynos_drm_rollback_windows(struct drm_atomic_state *old_state)
 		if (!win_mask)
 			continue;
 
-		__release_windows(old_state->dev, win_mask);
+		__release_windows(state->dev, win_mask);
 	}
+
+	/* Clear the out_fence_fd in the failed commit. */
+	for_each_new_crtc_in_state(state, crtc, new_crtc_state, i)
+		exynos_out_fence_clear(new_crtc_state);
+}
+
+static int stall_checks(struct drm_crtc *crtc, bool nonblock)
+{
+	struct drm_crtc_commit *commit, *stall_commit = NULL;
+	bool completed = true;
+	int i;
+	long ret = 0;
+
+	spin_lock(&crtc->commit_lock);
+	i = 0;
+	list_for_each_entry(commit, &crtc->commit_list, commit_entry) {
+		if (i == 0) {
+			completed = try_wait_for_completion(&commit->flip_done);
+			/*
+			 * Userspace is not allowed to get ahead of the previous
+			 * commit with nonblocking ones.
+			 */
+			if (!completed && nonblock) {
+				spin_unlock(&crtc->commit_lock);
+				dpu_err(crtc->dev,
+					       "[CRTC:%d:%s] busy with a previous commit\n",
+					       crtc->base.id, crtc->name);
+
+				return -EBUSY;
+			}
+		} else if (i == 1) {
+			stall_commit = drm_crtc_commit_get(commit);
+			break;
+		}
+
+		i++;
+	}
+	spin_unlock(&crtc->commit_lock);
+
+	if (!stall_commit)
+		return 0;
+
+	/* We don't want to let commits get ahead of cleanup work too much,
+	 * stalling on 2nd previous commit means triple-buffer won't ever stall.
+	 */
+	ret = wait_for_completion_interruptible_timeout(&stall_commit->cleanup_done,
+							10*HZ);
+	if (ret == 0)
+		dpu_err(crtc->dev, "[CRTC:%d:%s] cleanup_done timed out\n",
+			crtc->base.id, crtc->name);
+
+	drm_crtc_commit_put(stall_commit);
+
+	return ret < 0 ? ret : 0;
+}
+
+static void release_crtc_commit(struct completion *completion)
+{
+	struct drm_crtc_commit *commit = container_of(completion,
+						      typeof(*commit),
+						      flip_done);
+
+	drm_crtc_commit_put(commit);
+}
+
+static void init_commit(struct drm_crtc_commit *commit, struct drm_crtc *crtc)
+{
+	init_completion(&commit->flip_done);
+	init_completion(&commit->hw_done);
+	init_completion(&commit->cleanup_done);
+	INIT_LIST_HEAD(&commit->commit_entry);
+	kref_init(&commit->ref);
+	commit->crtc = crtc;
+}
+
+static struct drm_crtc_commit *
+crtc_or_fake_commit(struct drm_atomic_state *state, struct drm_crtc *crtc)
+{
+	if (crtc) {
+		struct drm_crtc_state *new_crtc_state;
+
+		new_crtc_state = drm_atomic_get_new_crtc_state(state, crtc);
+
+		return new_crtc_state->commit;
+	}
+
+	if (!state->fake_commit) {
+		state->fake_commit = kzalloc(sizeof(*state->fake_commit), GFP_KERNEL);
+		if (!state->fake_commit)
+			return NULL;
+
+		init_commit(state->fake_commit, NULL);
+	}
+
+	return state->fake_commit;
+}
+
+static int exynos_atomic_commit_setup(struct drm_atomic_state *state, bool nonblock)
+{
+	struct drm_crtc *crtc;
+	struct drm_crtc_state *old_crtc_state, *new_crtc_state;
+	struct drm_connector *conn;
+	struct drm_connector_state *old_conn_state, *new_conn_state;
+	struct drm_plane *plane;
+	struct drm_plane_state *old_plane_state, *new_plane_state;
+	struct drm_crtc_commit *commit;
+	struct exynos_drm_crtc_state *new_exynos_crtc_state;
+	int i, ret;
+
+	for_each_oldnew_crtc_in_state(state, crtc, old_crtc_state, new_crtc_state, i) {
+		commit = kzalloc(sizeof(*commit), GFP_KERNEL);
+		if (!commit)
+			return -ENOMEM;
+
+		init_commit(commit, crtc);
+
+		new_crtc_state->commit = commit;
+
+		ret = stall_checks(crtc, nonblock);
+		if (ret)
+			return ret;
+
+		new_exynos_crtc_state = to_exynos_crtc_state(new_crtc_state);
+		if (!old_crtc_state->active && !new_crtc_state->active &&
+				!new_exynos_crtc_state->out_fence.ptr) {
+			complete_all(&commit->flip_done);
+			continue;
+		}
+
+		/* Legacy cursor updates are fully unsynced. */
+		if (state->legacy_cursor_update) {
+			complete_all(&commit->flip_done);
+			continue;
+		}
+
+		if (!new_crtc_state->event) {
+			commit->event = kzalloc(sizeof(*commit->event),
+						GFP_KERNEL);
+			if (!commit->event)
+				return -ENOMEM;
+
+			new_crtc_state->event = commit->event;
+		}
+
+		new_crtc_state->event->base.completion = &commit->flip_done;
+		new_crtc_state->event->base.completion_release = release_crtc_commit;
+		drm_crtc_commit_get(commit);
+
+		commit->abort_completion = true;
+
+		state->crtcs[i].commit = commit;
+		drm_crtc_commit_get(commit);
+
+		if (exynos_out_fence_setup(new_crtc_state))
+			return -EINVAL;
+	}
+
+	for_each_oldnew_connector_in_state(state, conn, old_conn_state, new_conn_state, i) {
+		/*
+		 * Userspace is not allowed to get ahead of the previous
+		 * commit with nonblocking ones.
+		 */
+		if (nonblock && old_conn_state->commit &&
+		    !try_wait_for_completion(&old_conn_state->commit->flip_done)) {
+			dpu_err(conn->dev,
+				       "[CONNECTOR:%d:%s] busy with a previous commit\n",
+				       conn->base.id, conn->name);
+
+			return -EBUSY;
+		}
+
+		/* Always track connectors explicitly for e.g. link retraining. */
+		commit = crtc_or_fake_commit(state, new_conn_state->crtc ?: old_conn_state->crtc);
+		if (!commit)
+			return -ENOMEM;
+
+		new_conn_state->commit = drm_crtc_commit_get(commit);
+	}
+
+	for_each_oldnew_plane_in_state(state, plane, old_plane_state, new_plane_state, i) {
+		/*
+		 * Userspace is not allowed to get ahead of the previous
+		 * commit with nonblocking ones.
+		 */
+		if (nonblock && old_plane_state->commit &&
+		    !try_wait_for_completion(&old_plane_state->commit->flip_done)) {
+			dpu_err(plane->dev,
+				       "[PLANE:%d:%s] busy with a previous commit\n",
+				       plane->base.id, plane->name);
+
+			return -EBUSY;
+		}
+
+		/* Always track planes explicitly for async pageflip support. */
+		commit = crtc_or_fake_commit(state, new_plane_state->crtc ?: old_plane_state->crtc);
+		if (!commit)
+			return -ENOMEM;
+
+		new_plane_state->commit = drm_crtc_commit_get(commit);
+	}
+
+	return 0;
 }
 
 static int exynos_atomic_commit(struct drm_device *dev,
@@ -808,7 +1034,7 @@ static int exynos_atomic_commit(struct drm_device *dev,
 #if IS_ENABLED(CONFIG_EXYNOS_DRM_BUFFER_SANITY_CHECK)
 	nonblock = false;
 #endif
-	ret = drm_atomic_helper_setup_commit(state, nonblock);
+	ret = exynos_atomic_commit_setup(state, nonblock);
 	if (ret)
 		goto err;
 
@@ -855,10 +1081,12 @@ static int exynos_atomic_commit(struct drm_device *dev,
 	else
 		exynos_atomic_queue_work(state, nonblock);
 
+	/* the exynos_out_fence_fd can be install only when the commit is successful */
+	exynos_out_fence_install_fds(state, !ret);
 err:
-	/* Only the newly allocated window resources are freed in the failed commit. */
 	if (ret)
-		exynos_drm_rollback_windows(state);
+		exynos_drm_clear_failed_commit(state);
+
 	DPU_ATRACE_END(__func__);
 	return ret;
 }
@@ -1267,7 +1495,8 @@ exynos_atomic_framestart_post_processing(struct drm_atomic_state *old_state)
 	const struct drm_crtc_state *new_crtc_state;
 	const struct drm_connector *conn;
 	const struct drm_connector_state *new_conn_state;
-	const struct exynos_drm_crtc_state *new_exynos_crtc_state;
+	struct exynos_drm_crtc *exynos_crtc;
+	struct exynos_drm_crtc_state *new_exynos_crtc_state;
 	int i;
 
 	for_each_new_connector_in_state(old_state, conn, new_conn_state, i) {
@@ -1279,9 +1508,16 @@ exynos_atomic_framestart_post_processing(struct drm_atomic_state *old_state)
 
 	for_each_new_crtc_in_state(old_state, crtc, new_crtc_state, i) {
 		new_exynos_crtc_state = to_exynos_crtc_state(new_crtc_state);
+		if (unlikely(dpu_sfr_dump & BIT(drm_crtc_index(crtc)))) {
+			if (!new_exynos_crtc_state->skip_update) {
+				exynos_crtc = to_exynos_crtc(crtc);
+				exynos_crtc->ops->dump_register(exynos_crtc);
+				dpu_sfr_dump &= ~BIT(drm_crtc_index(crtc));
+			}
+		}
 		__release_windows(old_state->dev, new_exynos_crtc_state->freed_win_mask);
 
-		exynos_crtc_send_event(to_exynos_crtc(crtc));
+		exynos_crtc_send_event(to_exynos_crtc(crtc), new_exynos_crtc_state);
 	}
 }
 
@@ -1455,10 +1691,27 @@ static void
 exynos_atomic_commit_modeset_disables(struct drm_device *dev,
 				      struct drm_atomic_state *old_state)
 {
+	struct drm_connector *connector;
+	struct drm_connector_state *old_conn_state, *new_conn_state;
+	struct drm_crtc *crtc;
+	int i;
+
 	DPU_ATRACE_BEGIN(__func__);
 	disable_outputs(dev, old_state);
 
 	drm_atomic_helper_update_legacy_modeset_state(dev, old_state);
+	for_each_oldnew_connector_in_state(old_state, connector, old_conn_state, new_conn_state, i) {
+		crtc = new_conn_state->crtc;
+		if ((!crtc && old_conn_state->crtc) ||
+		    (crtc && drm_atomic_crtc_needs_modeset(crtc->state))) {
+			int mode = DRM_MODE_DPMS_OFF;
+
+			if (crtc && drm_atomic_crtc_effectively_active(crtc->state))
+				mode = DRM_MODE_DPMS_ON;
+
+			connector->dpms = mode;
+		}
+	}
 	drm_atomic_helper_calc_timestamping_constants(old_state);
 
 	crtc_set_mode(dev, old_state);
@@ -1484,6 +1737,32 @@ static void exynos_drm_atomic_commit_writebacks(struct drm_device *dev,
 
 		WARN_ON(conn->connector_type != DRM_MODE_CONNECTOR_WRITEBACK);
 		funcs->atomic_commit(conn, old_state);
+	}
+}
+
+static void exynos_drm_bridge_needs_earlyopen(struct drm_device *dev,
+		struct drm_atomic_state *old_state)
+{
+	struct drm_connector *conn;
+	struct drm_connector_state *new_conn_state;
+	int i;
+
+	for_each_new_connector_in_state(old_state, conn, new_conn_state, i) {
+		struct drm_encoder *encoder;
+		struct drm_bridge *bridge;
+
+		if (!new_conn_state->best_encoder)
+			continue;
+
+		encoder = new_conn_state->best_encoder;
+		if (!encoder)
+			continue;
+
+		bridge = drm_bridge_chain_get_first_bridge(encoder);
+		if (!bridge)
+			continue;
+
+		exynos_drm_bridge_earlyopen(bridge);
 	}
 }
 
@@ -1554,6 +1833,12 @@ void exynos_atomic_commit_modeset_enables(struct drm_device *dev,
 	}
 
 	exynos_drm_atomic_commit_writebacks(dev, old_state);
+
+	exynos_drm_bridge_needs_earlyopen(dev, old_state);
+
+	for_each_new_crtc_in_state(old_state, crtc, new_crtc_state, i)
+		exynos_crtc_arm_event(crtc, new_crtc_state);
+
 	DPU_ATRACE_END(__func__);
 }
 
@@ -1737,12 +2022,13 @@ static void exynos_atomic_commit_tail(struct drm_atomic_state *old_state)
 
 	exynos_atomic_update_conn_bts(old_state);
 
+	exynos_atomic_bts_pre_update(dev, old_state);
+
 	exynos_atomic_commit_modeset_enables(dev, old_state);
 
 	/* request to change DPHY PLL frequency */
 	exynos_atomic_set_freq_hop(old_state, true);
 
-	exynos_atomic_bts_pre_update(dev, old_state);
 	DPU_ATRACE_END("modeset");
 
 	DPU_ATRACE_BEGIN("commit_planes");
@@ -1841,10 +2127,14 @@ static void exynos_drm_postclose(struct drm_device *dev, struct drm_file *file)
 	file->driver_priv = NULL;
 }
 
+static void exynos_drm_platform_shutdown(struct platform_device *pdev);
 static void exynos_drm_lastclose(struct drm_device *dev)
 {
+	struct platform_device *pdev = to_platform_device(dev->dev);
+
 	exynos_drm_fbdev_restore_mode(dev);
 	exynos_drm_encoder_lastclose(dev);
+	exynos_drm_platform_shutdown(pdev);
 }
 
 static const struct file_operations exynos_drm_driver_fops = {
@@ -2059,6 +2349,10 @@ static int exynos_drm_bind(struct device *dev)
 	if (ret)
 		return ret;
 
+	ret = exynos_tui_register(drm);
+	if (ret)
+		return ret;
+
 	/* register the DRM device */
 	ret = drm_dev_register(drm, 0);
 	if (ret)
@@ -2113,9 +2407,64 @@ static int exynos_drm_platform_remove(struct platform_device *pdev)
 	return 0;
 }
 
+static void exynos_drm_platform_shutdown(struct platform_device *pdev)
+{
+	struct drm_atomic_state *state;
+	struct drm_crtc_state *crtc_state;
+	struct drm_crtc *crtc;
+	struct drm_modeset_acquire_ctx ctx;
+	struct drm_device *dev;
+	struct exynos_drm_crtc_state *exynos_crtc_state;
+	int ret;
+
+	dev = platform_get_drvdata(pdev);
+	if (!dev) {
+		pr_err("%s: failed to get platform drive data\n", __func__);
+		return;
+	}
+
+	DRM_MODESET_LOCK_ALL_BEGIN(dev, ctx, 0, ret);
+
+	state = drm_atomic_state_alloc(dev);
+	if (!state) {
+		dpu_err(dev, "failed to alloc shutdown state\n");
+		goto out;
+	}
+
+	state->acquire_ctx = &ctx;
+
+	drm_for_each_crtc(crtc, dev) {
+		/* In the case of a DSI encoder, panel shutdown is used. */
+		if (crtc_get_encoder(crtc->state, DRM_MODE_ENCODER_DSI))
+			continue;
+
+		crtc_state = drm_atomic_get_crtc_state(state, crtc);
+		if (IS_ERR(crtc_state)) {
+			dpu_err(dev, "failed to get crtc state\n");
+			goto out;
+		}
+
+		crtc_state->active = false;
+
+		exynos_crtc_state = to_exynos_crtc_state(crtc_state);
+		exynos_crtc_state->dqe_fd = -1;
+	}
+
+	if (drm_atomic_commit(state))
+		dpu_err(dev, "failed to commit shutdown\n");
+
+	dpu_info(dev, "success to commit shutdown\n");
+out:
+	if (state)
+		drm_atomic_state_put(state);
+	DRM_MODESET_LOCK_ALL_END(dev, ctx, ret);
+}
+
+
 static struct platform_driver exynos_drm_platform_driver = {
 	.probe	= exynos_drm_platform_probe,
 	.remove	= exynos_drm_platform_remove,
+	.shutdown = exynos_drm_platform_shutdown,
 	.driver	= {
 		.name	= "exynos-drm",
 	},

@@ -45,7 +45,6 @@ static struct exynos_sci_dbg_data *sci_dbg_data;
 #define HRTIMER_DURATION	10
 static u32 duration = HRTIMER_DURATION;
 static u32 buffer_cnt = 0;
-static u32 num_dump_data = 10;
 
 static u32 DebugSrc10 = 0x1C231C20;
 static u32 DebugSrc32 = 0x1F231F20;
@@ -422,54 +421,6 @@ static ssize_t debug_mode_store(struct device *dev,
 		return -EINVAL;
 
 	exynos_sci_llc_debug_mode = (bool)val;
-
-	return count;
-}
-
-static ssize_t measured_data_show(struct device *dev,
-		struct device_attribute *attr, char *buf)
-{
-	ssize_t count = 0;
-	struct exynos_sci_dbg_dump_data *dump_data = NULL;
-	struct exynos_sci_dbg_dump_data *last_dump_data = NULL;
-	count += snprintf(buf + count, PAGE_SIZE, "seq_no time ccnt pcnt0 pcnt1 pcnt2 pcnt3\n");
-
-	last_dump_data = (struct exynos_sci_dbg_dump_data *)(sci_dbg_data->dump_addr.v_addr +
-			buffer_cnt - sizeof(struct exynos_sci_dbg_dump_data));
-
-	dump_data = last_dump_data - num_dump_data;
-	do {
-		count += snprintf(buf + count, PAGE_SIZE, "%d, %lld, %d, %d, %d, %d, %d\n",
-			dump_data->index, dump_data->time, dump_data->count[4],
-			dump_data->count[0], dump_data->count[1],
-			dump_data->count[2], dump_data->count[3]);
-		dump_data += 1;
-	} while (dump_data != last_dump_data);
-
-	return count;
-}
-
-static ssize_t num_dump_data_show(struct device *dev,
-		struct device_attribute *attr, char *buf)
-{
-	ssize_t count = 0;
-
-	count += snprintf(buf + count, PAGE_SIZE, "num_dump_data: %d\n", num_dump_data);
-
-	return count;
-}
-
-static ssize_t num_dump_data_store(struct device *dev,
-		struct device_attribute *attr,
-		const char *buf, size_t count)
-{
-	int ret, val;
-
-	ret = sscanf(buf, "%d",	&val);
-	if (ret != 1)
-		return -EINVAL;
-
-	num_dump_data = val;
 
 	return count;
 }
@@ -1331,8 +1282,6 @@ static const struct file_operations ppc_dump_fops = {
 };
 
 static DEVICE_ATTR_RW(debug_mode);
-static DEVICE_ATTR_RO(measured_data);
-static DEVICE_ATTR_RW(num_dump_data);
 static DEVICE_ATTR_RW(sci_llc_event_data);
 static DEVICE_ATTR_RW(DebugSrc10);
 static DEVICE_ATTR_RW(DebugSrc32);
@@ -1362,8 +1311,6 @@ static DEVICE_ATTR_RW(duration);
 
 static struct attribute *exynos_sci_dbg_sysfs_entries[] = {
 	&dev_attr_debug_mode.attr,
-	&dev_attr_measured_data.attr,
-	&dev_attr_num_dump_data.attr,
 	&dev_attr_sci_llc_event_data.attr,
 	&dev_attr_DebugSrc10.attr,
 	&dev_attr_DebugSrc32.attr,

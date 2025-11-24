@@ -988,7 +988,7 @@ static int pablo_icpu_adt_open(struct pablo_icpu_adt *icpu_adt,
 
 	if (!atomic_read(&icpu_adt->rsccount)) {
 		/* alloc priv */
-		adt = vzalloc(sizeof(struct icpu_adt_v2));
+		adt = pablo_zalloc(sizeof(struct icpu_adt_v2), GFP_KERNEL);
 		if (!adt) {
 			merr_adt("failed to alloc icpu_adt_v2", instance);
 			return -ENOMEM;
@@ -1013,7 +1013,7 @@ static int pablo_icpu_adt_open(struct pablo_icpu_adt *icpu_adt,
 	}
 
 	if (sensor_itf && bufmgr && !adt->sensor_adt[instance]) {
-		adt->sensor_adt[instance] = vzalloc(sizeof(struct pablo_sensor_adt));
+		adt->sensor_adt[instance] = pablo_zalloc(sizeof(struct pablo_sensor_adt), GFP_KERNEL);
 		if (!adt->sensor_adt[instance]) {
 			merr_adt("failed to alloc pablo_sensor_adt", instance);
 			ret = -ENOMEM;
@@ -1048,14 +1048,14 @@ static int pablo_icpu_adt_open(struct pablo_icpu_adt *icpu_adt,
 err_sensor_adt_register:
 	CALL_SS_ADT_OPS(adt->sensor_adt[instance], close);
 err_sensor_adt_open:
-	vfree(adt->sensor_adt[instance]);
+	pablo_free(adt->sensor_adt[instance]);
 	adt->sensor_adt[instance] = NULL;
 err_sensor_adt_alloc:
 	if (atomic_read(&icpu_adt->rsccount))
 		return ret;
 	__pablo_icpu_adt_close_icpu_itf();
 err_itf:
-	vfree(adt);
+	pablo_free(adt);
 	icpu_adt->priv = NULL;
 	return ret;
 }
@@ -1077,12 +1077,12 @@ static int pablo_icpu_adt_close(struct pablo_icpu_adt *icpu_adt, u32 instance)
 	if (ret)
 		merr_adt("failed to close sensor_adt", instance);
 
-	vfree(adt->sensor_adt[instance]);
+	pablo_free(adt->sensor_adt[instance]);
 	adt->sensor_adt[instance] = NULL;
 
 	if (!atomic_dec_return(&icpu_adt->rsccount)) {
 		__pablo_icpu_adt_close_icpu_itf();
-		vfree(icpu_adt->priv);
+		pablo_free(icpu_adt->priv);
 		icpu_adt->priv = NULL;
 	}
 
@@ -1143,7 +1143,7 @@ int pablo_icpu_adt_probe(void)
 		return -ENODEV;
 	}
 
-	__icpu_adt = kvzalloc(sizeof(struct pablo_icpu_adt), GFP_KERNEL);
+	__icpu_adt = pablo_zalloc(sizeof(struct pablo_icpu_adt), GFP_KERNEL);
 	if (ZERO_OR_NULL_PTR(__icpu_adt)) {
 		err("failed to allocate pablo_icpu_adt\n");
 		return -ENOMEM;
@@ -1161,7 +1161,7 @@ int pablo_icpu_adt_remove(void)
 {
 	probe_info("%s", __func__);
 
-	kvfree(__icpu_adt);
+	pablo_free(__icpu_adt);
 	__icpu_adt = NULL;
 
 	return 0;

@@ -404,15 +404,16 @@ static void decon_mode_update_bts_fps(struct exynos_drm_crtc *exynos_crtc)
 	u32 bts_fps = crtc_get_bts_fps(crtc);
 
 	exynos_crtc->bts->fps = max(bts_fps, new_exynos_crtc_state->boost_bts_fps);
+
 #if IS_ENABLED(CONFIG_DRM_MCD_COMMON)
 	{
 		struct decon_device *decon = exynos_crtc->ctx;
-		static u32 prev_bts_fps;
-		static u32 prev_boost_bts_fps;
+		static u32 prev_bts_fps[MAX_DECON_CNT];
+		static u32 prev_boost_bts_fps[MAX_DECON_CNT];
 
-		if (decon->id == 0) {
-			if (prev_bts_fps != exynos_crtc->bts->fps ||
-					prev_boost_bts_fps != new_exynos_crtc_state->boost_bts_fps) {
+		if (decon->config.out_type & DECON_OUT_DSI) {
+			if (prev_bts_fps[decon->id] != exynos_crtc->bts->fps ||
+				prev_boost_bts_fps[decon->id] != new_exynos_crtc_state->boost_bts_fps) {
 				if (!new_exynos_crtc_state->boost_bts_fps)
 					decon_info(decon, "bts.fps:%d\n", decon->bts.fps);
 				else
@@ -420,8 +421,8 @@ static void decon_mode_update_bts_fps(struct exynos_drm_crtc *exynos_crtc)
 							decon->bts.fps, bts_fps,
 							new_exynos_crtc_state->boost_bts_fps);
 			}
-			prev_bts_fps = exynos_crtc->bts->fps;
-			prev_boost_bts_fps = new_exynos_crtc_state->boost_bts_fps;
+			prev_bts_fps[decon->id] = exynos_crtc->bts->fps;
+			prev_boost_bts_fps[decon->id] = new_exynos_crtc_state->boost_bts_fps;
 		}
 	}
 #endif
@@ -596,7 +597,7 @@ static void decon_check_display_config(struct exynos_drm_crtc *exynos_crtc,
 						__is_recovery_uevent_clear(decon))
 					new_exynos_conn_state->bypass_panel = false;
 #endif
-			} else if (is_tui_trans(crtc_state))
+			} else if (new_exynos_crtc_state->tui_changed)
 				new_exynos_conn_state->bypass_panel = true;
 
 			if ((crtc_state->self_refresh_active !=
@@ -1112,10 +1113,8 @@ static void decon_atomic_flush(struct exynos_drm_crtc *exynos_crtc,
 
 	decon_debug(decon, "+\n");
 
-	if (new_exynos_crtc_state->skip_update) {
-		exynos_crtc_arm_event(exynos_crtc);
+	if (new_exynos_crtc_state->skip_update)
 		return;
-	}
 
 	if (new_exynos_crtc_state->need_colormap) {
 		const int win_id = decon_get_win_id(new_crtc_state, 0);
@@ -1182,6 +1181,11 @@ static void decon_atomic_flush(struct exynos_drm_crtc *exynos_crtc,
 		decon_info(decon, "modeset_only\n");
 	}
 
+	/* wait bts_comp. frame drop will be occur if bts request is pending */
+	if (!wait_for_completion_timeout(&decon->bts.bts_comp,
+					 msecs_to_jiffies(30)))
+		decon_warn(decon, "bts_comp timeout\n");
+
 	/* only for video mode tui */
 	exynos_tui_sec_win_shadow_update_req(decon,
 			old_exynos_crtc_state, new_exynos_crtc_state);
@@ -1208,8 +1212,6 @@ static void decon_atomic_flush(struct exynos_drm_crtc *exynos_crtc,
 
 			dsim_wait_pending_vblank(dsim);
 		}
-
-		exynos_crtc_arm_event(exynos_crtc);
 	}
 
 	exynos_profiler_update_ems_frame_cnt(exynos_crtc);
@@ -1401,16 +1403,16 @@ static bool decon_check_svsync_start(struct exynos_drm_crtc *exynos_crtc)
 {
 	struct decon_device *decon = exynos_crtc->ctx;
 	bool svsync = false;
-	static u32 frame_cnt_a;
-	static bool checked;
+	static u32 frame_cnt_a[MAX_DECON_CNT];
+	static bool checked[MAX_DECON_CNT];
 
 	if (decon_is_svsync_supported(decon)) {
 		if (decon_reg_get_trigger_mask(decon->id)) {
-			checked = true;
-			frame_cnt_a = decon_reg_get_frame_cnt(decon->id);
-		} else if (checked) {
-			checked = false;
-			if (frame_cnt_a < decon_reg_get_frame_cnt(decon->id))
+			checked[decon->id] = true;
+			frame_cnt_a[decon->id] = decon_reg_get_frame_cnt(decon->id);
+		} else if (checked[decon->id]) {
+			checked[decon->id] = false;
+			if (frame_cnt_a[decon->id] < decon_reg_get_frame_cnt(decon->id))
 				svsync = true;
 		}
 	}
@@ -1640,7 +1642,10 @@ available:
 static void
 _decon_set_runtime_pm(struct decon_device *decon, bool en)
 {
-	if (is_tui_trans(decon->crtc->base.state)) {
+	struct exynos_drm_crtc_state *new_exynos_crtc_state;
+
+	new_exynos_crtc_state =	to_exynos_crtc_state(decon->crtc->base.state);
+	if (new_exynos_crtc_state->tui_changed) {
 		decon_info(decon, "tui transition : skip power/te ctrl\n");
 		return;
 	}
@@ -1807,6 +1812,14 @@ static void decon_enter_hibernation(struct exynos_drm_crtc *crtc)
 	decon_debug(decon, "-\n");
 }
 
+static void _decon_clear_recovery_state(struct decon_device *decon)
+{
+#if defined(CONFIG_EXYNOS_UEVENT_RECOVERY_SOLUTION)
+	if (__is_recovery_supported(decon) && __is_recovery_uevent(decon))
+		exynos_recovery_set_state(decon, RECOVERY_UEVENT_CLEAR);
+#endif
+}
+
 static void decon_disable(struct exynos_drm_crtc *crtc)
 {
 	struct decon_device *decon = crtc->ctx;
@@ -1820,6 +1833,7 @@ static void decon_disable(struct exynos_drm_crtc *crtc)
 	} else if (decon->state == DECON_STATE_HIBERNATION) {
 		_decon_notify_pm_wakeup_signal(decon, false);
 		decon->state = DECON_STATE_OFF;
+		_decon_clear_recovery_state(decon);
 		return;
 	}
 
@@ -1831,12 +1845,9 @@ static void decon_disable(struct exynos_drm_crtc *crtc)
 
 	decon->state = DECON_STATE_OFF;
 
-	DPU_EVENT_LOG("DECON_DISABLED", crtc, 0, NULL);
+	_decon_clear_recovery_state(decon);
 
-#if defined(CONFIG_EXYNOS_UEVENT_RECOVERY_SOLUTION)
-	if (__is_recovery_supported(decon) && __is_recovery_uevent(decon))
-		exynos_recovery_set_state(decon, RECOVERY_UEVENT_CLEAR);
-#endif
+	DPU_EVENT_LOG("DECON_DISABLED", crtc, 0, NULL);
 
 	decon_info(decon, "-\n");
 }
@@ -1963,10 +1974,6 @@ static const struct component_ops decon_component_ops = {
 static bool dpu_frame_time_check = false;
 module_param(dpu_frame_time_check, bool, 0600);
 MODULE_PARM_DESC(dpu_frame_time_check, "dpu frame time check for dpu bts [default : false]");
-
-static bool dpu_sfr_dump = false;
-module_param(dpu_sfr_dump, bool, 0600);
-MODULE_PARM_DESC(dpu_sfr_dump, "dpu sfr dump [default : false, reset after sfr dumping]");
 static irqreturn_t decon_irq_handler(int irq, void *dev_data)
 {
 	struct decon_device *decon = dev_data;
@@ -1998,10 +2005,6 @@ static irqreturn_t decon_irq_handler(int irq, void *dev_data)
 					tv.tv_sec, (tv.tv_nsec / 1000));
 		} else
 			decon_debug(decon, "frame start\n");
-		if (dpu_sfr_dump) {
-			decon_dump(exynos_crtc);
-			dpu_sfr_dump = false;
-		}
 
 		if (exynos_crtc && exynos_crtc->crc_state == EXYNOS_DRM_CRC_START)
 			exynos_crtc->crc_state = EXYNOS_DRM_CRC_PEND;
@@ -2410,6 +2413,13 @@ static int decon_parse_dt(struct decon_device *decon, struct device_node *np)
 		exynos_drm_sfr_dma_mode_switch(false);
 	}
 
+	ret = of_property_read_u32(np, "decon,device-orientation", &val);
+	if (ret != 0 && (ret == 0 && val % 90))
+		decon->device_orientation = 0;
+	else
+		decon->device_orientation = (0x1 << (val / 90));
+	decon_info(decon, "device orientation = %d\n", decon->device_orientation);
+
 	ret = decon_parse_dpps(decon, np);
 	if (ret)
 		return ret;
@@ -2553,7 +2563,7 @@ static irqreturn_t decon_te_irq_handler(int irq, void *dev_id)
 
 	if (hibernation && !is_hibernaton_blocked(hibernation)
 			&& decon->state != DECON_STATE_HIBERNATION)
-		kthread_queue_work(&exynos_crtc->worker, &hibernation->work);
+		kthread_queue_work(&hibernation->worker, &hibernation->entry_work);
 
 	if (decon->config.mode.op_mode == DECON_COMMAND_MODE) {
 		drm_crtc_handle_vblank(&exynos_crtc->base);

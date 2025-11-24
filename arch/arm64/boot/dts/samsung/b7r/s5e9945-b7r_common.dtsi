@@ -21,6 +21,8 @@
 #include "../../exynos/board/erd/s5e9945-cp-s5153ap-sipc.dtsi"
 #include "../../exynos/board/erd/s5e9945-erd9945-gnss.dtsi"
 #include "s5e9945-sec-b7r-input-common.dtsi"
+#include "s5e9945-b7r_ems_emstune.dtsi"
+#include "../s5e9945_wakeup_cpu_allocator.dtsi"
 
 #define BOARD_ID	0x0
 
@@ -1099,6 +1101,8 @@
 		samsung,pin-function = <3>;
 		samsung,pin-pud = <0>;
 		samsung,pin-drv = <0>;
+		samsung,pin-con-pdn = <2>;
+		samsung,pin-pud-pdn = <0>;
 	};
 };
 
@@ -1293,6 +1297,7 @@
 };
 
 &drmdecon1 {
+	decon,device-orientation = <90>;
 	recovery-enable;
 	recovery-modes = "mcd_uevent", "customer", "force";
 	recovery-condition {
@@ -1377,6 +1382,11 @@
 
 &drmdpp17 {
 	status = "okay";
+	rcd_block_mode_en = <1>;
+	rcd_block_mode_x  = <109>;
+	rcd_block_mode_y  = <0>;
+	rcd_block_mode_w  = <568>;
+	rcd_block_mode_h  = <748>;
 };
 
 &drmdecon0 {
@@ -1474,5 +1484,14 @@
 		reg = <0x0 0x96000000 0x07400000>;
 		alignment = <0x0 0x00010000>;
 		reusable;
+	};
+};
+
+&pinctrl_7 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&swi_gpio_sleep>;
+	swi_gpio_sleep: swi_auth_sleep {
+		PIN_IN_SLP(gpp3-0, NONE, INPUT, NONE);
+		PIN_IN_SLP(gpp0-0, NONE, INPUT, NONE);
 	};
 };

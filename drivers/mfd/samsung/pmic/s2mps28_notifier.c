@@ -164,6 +164,12 @@ static void s2mps28_irq_work_func(struct work_struct *work)
 	pr_info("[SUB%d_PMIC] %s: pmic interrupt %s\n", dev_type + 1, __func__, buf);
 }
 
+static int s2mps28_enable_irq(struct s2mps28_dev *s2mps28, const bool en)
+{
+	return s2mps28_update_reg(s2mps28->com, S2MPS28_COM_TX_MASK,
+			(en) ? 0 : 0x1, 0x1);
+}
+
 static int s2mps28_notifier_handler(struct notifier_block *nb,
 				    unsigned long action,
 				    void *data)
@@ -181,6 +187,10 @@ static int s2mps28_notifier_handler(struct notifier_block *nb,
 	/* Read interrupt */
 	irq_cnt = S2MPS28_NUM_IRQ_PMIC_REGS;
 
+	ret = s2mps28_enable_irq(s2mps28, false);
+	if (ret)
+		return ret;
+
 	ret = s2mps28_bulk_read(s2mps28->pm1, S2MPS28_PM1_INT1,
 				irq_cnt, &irq_reg[s2mps28->device_type][S2MPS28_PMIC_INT1]);
 	if (ret) {
@@ -189,6 +199,10 @@ static int s2mps28_notifier_handler(struct notifier_block *nb,
 
 		return IRQ_HANDLED;
 	}
+
+	ret = s2mps28_enable_irq(s2mps28, true);
+	if (ret)
+		return ret;
 
 	queue_delayed_work(s2mps28->irq_wqueue, &s2mps28->irq_work, 0);
 

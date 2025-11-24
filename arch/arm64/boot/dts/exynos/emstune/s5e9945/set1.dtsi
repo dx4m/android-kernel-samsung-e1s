@@ -34,6 +34,10 @@
 			htask-boost = < 0 0 0 0>;	/* disable heavy task boost */
 		};
 
+		tex {
+			foreground = <101>;
+		};
+
 		support_uclamp {
 			enabled = <0>;
 		};

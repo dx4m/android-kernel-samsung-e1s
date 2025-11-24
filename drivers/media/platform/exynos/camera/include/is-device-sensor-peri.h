@@ -314,6 +314,7 @@ struct is_flash_data {
 	u32				firingPower;
 	u32				intensity;
 	u32				firing_time_us;
+	u32				adaptive_movie_currrent;
 	bool				flash_fired;
 	bool				high_resolution_flash;
 	struct work_struct		flash_fire_work;
@@ -579,7 +580,7 @@ int is_sensor_flash_fire(struct is_device_sensor_peri *device,
 void is_sensor_long_term_mode_set_work(struct work_struct *data);
 
 int is_sensor_flush_prev_mode_change(struct is_cis *cis);
-int is_sensor_mode_change(struct is_cis *cis);
+int is_sensor_mode_change(struct is_cis *cis, struct is_device_sensor *device);
 void is_sensor_peri_init_work(struct is_device_sensor_peri *sensor_peri);
 
 #define CALL_CISOPS(s, op, args...) (((s)->cis_ops->op) ? ((s)->cis_ops->op(args)) : 0)

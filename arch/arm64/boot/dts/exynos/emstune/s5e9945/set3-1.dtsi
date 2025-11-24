@@ -78,6 +78,9 @@
 				down_threshold = <1500>;
 			};
 		};
+		tex {
+			top-app = <119>;
+		};
 		
 		should_spread {
 			enabled = <1>;

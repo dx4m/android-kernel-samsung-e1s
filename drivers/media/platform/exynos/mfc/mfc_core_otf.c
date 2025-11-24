@@ -10,8 +10,6 @@
  * (at your option) any later version.
  */
 
-#include <linux/delay.h>
-
 #include "mfc_rm.h"
 
 #include "mfc_core_otf.h"
@@ -245,40 +243,41 @@ void mfc_core_otf_notify_error(struct mfc_core *core)
 
 	mfc_core_debug_enter();
 
-	mutex_lock(&dev->mfc_mutex);
+	if (mfc_core_otf_get_lock(dev)) {
+		mfc_dev_err("[OTF] Timed out\n");
+		goto err_wait_fail;
+	}
 
 	curr_ctx = mfc_get_curr_ctx(core);
 	if (curr_ctx < 0) {
 		mfc_core_err("can't find curr_ctx\n");
-		mutex_unlock(&dev->mfc_mutex);
-		return;
+		goto err;
 	}
 
 	ctx = dev->ctx[curr_ctx];
 	if (!ctx) {
 		mfc_core_err("no mfc context\n");
-		mutex_unlock(&dev->mfc_mutex);
-		return;
+		goto err;
 	}
 
 	if (!ctx->otf_handle) {
 		mfc_core_err("[OTF] There is no handle\n");
-		mutex_unlock(&dev->mfc_mutex);
-		return;
+		goto err;
 	}
 
 	if (ctx->otf_handle->otf_err_notified) {
 		mfc_core_debug(2, "[OTF] already notified error\n");
-		mutex_unlock(&dev->mfc_mutex);
-		return;
+		goto err;
 	}
 	ctx->otf_handle->otf_err_notified = 1;
-
-	mutex_unlock(&dev->mfc_mutex);
 
 	ret = repeater_notify_error(1);
 	mfc_ctx_err("[OTF] error notified to repeater, ret: %d\n", ret);
 
+err:
+	mfc_core_otf_release_lock(dev);
+
+err_wait_fail:
 	mfc_core_debug_leave();
 #endif
 	return;
@@ -479,7 +478,7 @@ int mfc_core_otf_ctx_ready_set_bit_raw(struct mfc_core_ctx *core_ctx,
 		return 0;
 
 	/* Context is to parse header */
-	if (core_ctx->state == MFCINST_GOT_INST)
+	if (core_ctx->state == MFCINST_GOT_INST && handle->otf_ctrls_done)
 		is_ready = 1;
 
 	/* Context is to set buffers */
@@ -523,6 +522,31 @@ int mfc_core_otf_ctx_ready_set_bit(struct mfc_core_ctx *core_ctx, struct mfc_bit
 	mfc_debug_leave();
 
 	return is_ready;
+}
+
+void mfc_core_otf_request_work(struct mfc_ctx *ctx)
+{
+	struct mfc_dev *dev = ctx->dev;
+	struct mfc_core *core = NULL;
+	struct mfc_core_ctx *core_ctx = NULL;
+
+	core = mfc_get_main_core(dev, ctx);
+	if (!core) {
+		mfc_ctx_err("[OTF] There is no mater core\n");
+		return;
+	}
+
+	core_ctx = core->core_ctx[ctx->num];
+	if (!core_ctx) {
+		mfc_ctx_err("[OTF] There is no core_ctx\n");
+		return;
+	}
+
+	core->sched->enqueue_otf_work(core, core_ctx, true);
+	if (core->sched->is_work(core))
+		core->sched->queue_work(core);
+
+	return;
 }
 
 static int __check_disable_header_gen(struct mfc_dev *dev)
@@ -858,14 +882,13 @@ void mfc_core_otf_handle_error(struct mfc_core *core, struct mfc_ctx *ctx,
 void mfc_core_otf_path_test(struct mfc_ctx *ctx)
 {
 #if IS_ENABLED(CONFIG_VIDEO_EXYNOS_REPEATER)
-	struct repeater_encoding_param enc_param;
+	struct repeater_encoding_param enc_param = {0};
 #endif
 	int ret;
 #if IS_ENABLED(CONFIG_VIDEO_EXYNOS_REPEATER)
 	/* After generating the header, time is required until TS-MUX is ready */
 	msleep(20);
 
-	enc_param.time_stamp = 0;
 	ret = mfc_otf_encode(0, &enc_param);
 #else
 	ret = 0;
@@ -874,29 +897,44 @@ void mfc_core_otf_path_test(struct mfc_ctx *ctx)
 		mfc_ctx_err("[OTF] OTF path test is failed (err: -%d)\n", ret);
 }
 
-int __mfc_otf_check_run(struct mfc_core_ctx *core_ctx)
+struct _otf_handle *__mfc_otf_check_run(struct mfc_ctx *ctx)
 {
-	struct mfc_ctx *ctx = core_ctx->ctx;
+	struct mfc_core *core = NULL;
+	struct mfc_core_ctx *core_ctx = NULL;
+	struct mfc_dev *dev = ctx->dev;
 	struct _otf_handle *handle = ctx->otf_handle;
 
-	mfc_debug_enter();
+	mfc_ctx_debug_enter();
 
 	if (!handle) {
-		mfc_err("[OTF] there is no handle for OTF\n");
-		return -EINVAL;
+		mfc_ctx_err("[OTF] there is no handle for OTF\n");
+		return NULL;
 	}
+
 	if (handle->otf_work_bit) {
-		mfc_err("[OTF] OTF is already working\n");
-		return -EINVAL;
+		mfc_ctx_err("[OTF] OTF is already working\n");
+		return NULL;
+	}
+
+	core = mfc_get_main_core(dev, ctx);
+	if (!core) {
+		mfc_ctx_err("[OTF] There is no mater core\n");
+		return NULL;
+	}
+
+	core_ctx = core->core_ctx[ctx->num];
+	if (!core_ctx) {
+		mfc_ctx_err("[OTF] There is no core_ctx\n");
+		return NULL;
 	}
 	if (core_ctx->state != MFCINST_RUNNING) {
-		mfc_err("[OTF] mfc is not running state (%d)\n", core_ctx->state);
-		return -EINVAL;
+		mfc_ctx_err("[OTF] mfc is not running state (%d)\n", core_ctx->state);
+		return NULL;
 	}
 
-	mfc_debug_leave();
+	mfc_ctx_debug_leave();
 
-	return 0;
+	return handle;
 }
 
 #if IS_ENABLED(CONFIG_VIDEO_EXYNOS_REPEATER)
@@ -916,7 +954,10 @@ int mfc_otf_drc(void)
 
 	mfc_dev_debug_enter();
 
-	mutex_lock(&dev->mfc_mutex);
+	if (mfc_core_otf_get_lock(dev)) {
+		mfc_dev_err("[OTF] Timed out\n");
+		goto err_wait_fail;
+	}
 
 	for (i = 0; i < MFC_NUM_CONTEXTS; i++) {
 		if (test_bit(i, &dev->otf_inst_bits)) {
@@ -927,47 +968,39 @@ int mfc_otf_drc(void)
 
 	if (!ctx) {
 		mfc_dev_err("[OTF][DRC] there is no context to run\n");
-		mutex_unlock(&dev->mfc_mutex);
-		return -OTF_ERR;
+		goto err_return;
 	}
 
 	core = mfc_get_main_core(dev, ctx);
 	if (!core) {
 		mfc_ctx_err("[OTF][DRC] Tehre is no mater core\n");
-		mutex_unlock(&dev->mfc_mutex);
-		return -OTF_ERR;
+		goto err_return;
 	}
 
 	core_ctx = core->core_ctx[ctx->num];
 	if (!core_ctx) {
 		mfc_ctx_err("[OTF][DRC] There is no core_ctx\n");
-		mutex_unlock(&dev->mfc_mutex);
-		return -OTF_ERR;
+		goto err_return;
 	}
 
 	mfc_info("[OTF] DRC is detected\n");
 
-	if (ctx->otf_handle) {
+	if (ctx->otf_handle)
 		handle = ctx->otf_handle;
-	} else {
-		mutex_unlock(&dev->mfc_mutex);
-		return -OTF_ERR;
-	}
+	else
+		goto err_return;
 
 	ret = mfc_core_get_hwlock_ctx(core_ctx);
 	if (ret < 0) {
 		mfc_err("[OTF][DRC] Failed to get hwlock\n");
-		core->sched->clear_work(core, core_ctx);
-		mfc_change_state(core_ctx, MFCINST_ERROR);
-		mutex_unlock(&dev->mfc_mutex);
-		return -OTF_ERR;
+		goto err_return;
 	}
 
 	__mfc_core_otf_deinit_buf(ctx);
 	ret = __mfc_core_otf_init_buf(ctx);
 	if (ret) {
 		mfc_err("[OTF][DRC] init buf failed\n");
-		goto err;
+		goto err_hwlock;
 	}
 
 	handle->otf_work_bit = 0;
@@ -980,11 +1013,11 @@ int mfc_otf_drc(void)
 	ret = mfc_core_just_run(core, core_ctx->num);
 	if (ret) {
 		mfc_err("[OTF][DRC] Failed to run MFC\n");
-		goto err;
+		goto err_hwlock;
 	}
 	if (mfc_wait_for_done_core_ctx(core_ctx, MFC_REG_R2H_CMD_COMPLETE_SEQ_RET)) {
 		mfc_err("[OTF][DRC] Waiting for LAST_FRAME timed out\n");
-		goto err;
+		goto err_hwlock;
 	}
 
 	/* SEQ_START */
@@ -994,11 +1027,11 @@ int mfc_otf_drc(void)
 	ret = mfc_core_just_run(core, core_ctx->num);
 	if (ret) {
 		mfc_err("[OTF][DRC] Failed to run MFC\n");
-		goto err;
+		goto err_hwlock;
 	}
 	if (mfc_wait_for_done_core_ctx(core_ctx, MFC_REG_R2H_CMD_SEQ_DONE_RET)) {
 		mfc_err("[OTF][DRC] Waiting for SEQ_START timed out\n");
-		goto err;
+		goto err_hwlock;
 	}
 
 	/* INIT_BUFS for new resolution */
@@ -1006,32 +1039,33 @@ int mfc_otf_drc(void)
 	ret = mfc_core_just_run(core, core_ctx->num);
 	if (ret) {
 		mfc_err("[OTF][DRC] Failed to run MFC\n");
-		goto err;
+		goto err_hwlock;
 	}
 	if (mfc_wait_for_done_core_ctx(core_ctx, MFC_REG_R2H_CMD_INIT_BUFFERS_RET)) {
 		mfc_err("[OTF][DRC] Waiting for INIT_BUF timed out\n");
-		goto err;
+		goto err_hwlock;
 	}
 
 	core->sched->clear_work(core, core_ctx);
 	mfc_core_release_hwlock_ctx(core_ctx);
 
-	core->sched->enqueue_otf_work(core, core_ctx, true);
-	if (core->sched->is_work(core))
-		core->sched->queue_work(core);
+	mfc_core_otf_request_work(ctx);
 
-	mutex_unlock(&dev->mfc_mutex);
+	mfc_core_otf_release_lock(dev);
 
 	mfc_ctx_debug_leave();
 
 	return OTF_ERR_NONE;
-err:
+
+err_hwlock:
 	core->sched->clear_work(core, core_ctx);
 	mfc_change_state(core_ctx, MFCINST_ERROR);
 	mfc_core_release_hwlock_ctx(core_ctx);
 
-	mutex_unlock(&dev->mfc_mutex);
+err_return:
+	mfc_core_otf_release_lock(dev);
 
+err_wait_fail:
 	mfc_dev_debug_leave();
 
 	return -OTF_ERR;
@@ -1040,18 +1074,20 @@ err:
 int mfc_otf_encode(int buf_index, struct repeater_encoding_param *param)
 {
 	struct mfc_dev *dev = g_mfc_dev;
-	struct mfc_core *core = NULL;
-	struct mfc_core_ctx *core_ctx;
 	struct _otf_handle *handle;
 	struct mfc_ctx *ctx = NULL;
 #if IS_ENABLED(CONFIG_VIDEO_EXYNOS_TSMUX)
 	struct packetizing_param packet_param;
 #endif
-	int i;
+	int i, ret = OTF_ERR_NONE;
 
 	mfc_dev_debug_enter();
 
-	mutex_lock(&dev->mfc_mutex);
+	if (mfc_core_otf_get_lock(dev)) {
+		mfc_dev_err("[OTF] Timed out\n");
+		ret = -OTF_ERR;
+		goto err_wait_fail;
+	}
 
 	for (i = 0; i < MFC_NUM_CONTEXTS; i++) {
 		if (test_bit(i, &dev->otf_inst_bits)) {
@@ -1062,36 +1098,15 @@ int mfc_otf_encode(int buf_index, struct repeater_encoding_param *param)
 
 	if (!ctx) {
 		mfc_dev_err("[OTF] There is no context to run\n");
-		mutex_unlock(&dev->mfc_mutex);
-		return -OTF_ERR;
+		ret = -OTF_ERR;
+		goto err;
 	}
 
-	core = mfc_get_main_core(dev, ctx);
-	if (!core) {
-		mfc_dev_err("[OTF] There is no mater core\n");
-		mutex_unlock(&dev->mfc_mutex);
-		return -OTF_ERR;
-	}
-
-	core_ctx = core->core_ctx[ctx->num];
-	if (!core_ctx) {
-		mfc_dev_err("[OTF] There is no core_ctx\n");
-		mutex_unlock(&dev->mfc_mutex);
-		return -OTF_ERR;
-	}
-
-	if (__mfc_otf_check_run(core_ctx)) {
-		mfc_err("[OTF] mfc is not prepared\n");
-		mutex_unlock(&dev->mfc_mutex);
-		return -OTF_ERR;
-	}
-
-	if (ctx->otf_handle) {
-		handle = ctx->otf_handle;
-	} else {
-		mfc_err("[OTF] there is no otf_handle\n");
-		mutex_unlock(&dev->mfc_mutex);
-		return -OTF_ERR;
+	handle = __mfc_otf_check_run(ctx);
+	if (!handle) {
+		mfc_ctx_err("[OTF] mfc is not prepared\n");
+		ret = -OTF_ERR;
+		goto err;
 	}
 
 #if IS_ENABLED(CONFIG_VIDEO_EXYNOS_TSMUX)
@@ -1099,26 +1114,28 @@ int mfc_otf_encode(int buf_index, struct repeater_encoding_param *param)
 
 	packet_param.time_stamp = param->time_stamp;
 	if (dev->debugfs.debug_ts == 1)
-		mfc_info("[OTF][TS] timestamp: %llu\n", param->time_stamp);
+		mfc_ctx_info("[OTF][TS] timestamp: %llu\n", param->time_stamp);
 	if (tsmux_packetize(&packet_param)) {
-		mfc_err("[OTF] packetize failed\n");
-		mutex_unlock(&dev->mfc_mutex);
-		return -OTF_ERR;
+		mfc_ctx_err("[OTF] packetize failed\n");
+		ret = -OTF_ERR;
+		goto err;
 	}
 #endif
 	handle->otf_work_bit = 1;
 	handle->otf_buf_index = buf_index;
 	handle->otf_time_stamp = param->time_stamp;
 
-	core->sched->enqueue_otf_work(core, core_ctx, true);
-	if (core->sched->is_work(core))
-		core->sched->queue_work(core);
+	mfc_rm_qos_control(ctx, MFC_QOS_TRIGGER);
+	mfc_qos_repeater_set_decoder_info(dev);
+	mfc_core_otf_request_work(ctx);
 
-	mutex_unlock(&dev->mfc_mutex);
+err:
+	mfc_core_otf_release_lock(dev);
 
+err_wait_fail:
 	mfc_dev_debug_leave();
 
-	return OTF_ERR_NONE;
+	return ret;
 }
 #endif
 

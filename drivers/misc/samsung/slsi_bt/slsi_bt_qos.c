@@ -21,12 +21,13 @@
 
 #include <soc/samsung/exynos_pm_qos.h>
 
-#include <scsc/scsc_mx.h>
+#include "scsc_mx_module.h"
+#include IN_SCSC_INC(scsc_mx.h)
 
 #include "slsi_bt_log.h"
 #include "slsi_bt_qos.h"
 
-#define SLSI_BT_QOS_LOW_LEVEL                   (1)
+#define SLSI_BT_QOS_LOW_LEVEL                   (2)
 #define SLSI_BT_QOS_MED_LEVEL                   (50)
 #define SLSI_BT_QOS_HIGH_LEVEL                  (100)
 #define SLSI_BT_QOS_DISABLE_TIMEOUT_MS          (500)
@@ -144,22 +145,27 @@ static void qos_work_func(struct work_struct *w)
 	qos->lv = scsc_qos_update(qos->lv, qos->expect, qos->data);
 
 	atomic_set(&qos->running, true);
-	while(ret > 0) {
+	while(ret > 0 && qos->enabled) {
 		past = qos->last_msecs;
 		mutex_unlock(&qos->lock);
 		ret = wait_event_timeout(qos->update_req,
 					past != qos->last_msecs,
 					msecs_to_jiffies(scsc_bt_qos_timeout));
 		mutex_lock(&qos->lock);
-		if (ret == 0) {
+		if (ret == 0) { /* Timeout need to be disable */
 			qos_tput_update(qos, 0);
 			qos->expect = SLSI_BT_QOS_DISABLE;
+
+		} else if (qos->expect == SLSI_BT_QOS_DISABLE) {
+			/* This is from outside of this worker to break */
+			break;
 		}
+
 		qos->lv = scsc_qos_update(qos->lv, qos->expect, qos->data);
 	}
 	atomic_set(&qos->running, false);
-	mutex_unlock(&qos->lock);
 	TR_DBG("end. qos level is %d\n", qos->lv);
+	mutex_unlock(&qos->lock);
 }
 
 struct slsi_bt_qos *slsi_bt_qos_start(struct scsc_service *service)
@@ -192,6 +198,8 @@ struct slsi_bt_qos *slsi_bt_qos_start(struct scsc_service *service)
 	atomic_set(&qos->running, false);
 	INIT_WORK(&qos->work, qos_work_func);
 	init_waitqueue_head(&qos->update_req);
+
+	qos->last_msecs = jiffies_to_msecs(jiffies);
 	qos->enabled = true;
 
 	BT_INFO("success. qos levels: [%d, %d, %d], timeout: %d ms\n",
@@ -214,20 +222,23 @@ void slsi_bt_qos_stop(struct slsi_bt_qos *qos)
 	if (qos == NULL || !qos->enabled)
 		return;
 
+	mutex_lock(&qos->lock);
+	qos->enabled = false;
+
 	if (atomic_read(&qos->running)) {
 		qos->expect = SCSC_QOS_DISABLED;
 		qos->last_msecs = 0;
 		wake_up(&qos->update_req);
-		udelay(1000);
 	}
 
 	scsc_service_pm_qos_remove_request((struct scsc_service *)qos->data);
 
-	qos->enabled = false;
-	BT_DBG("request to stop qos thread!\n");
+	mutex_unlock(&qos->lock);
+
 	flush_workqueue(qos->wq);
 	destroy_workqueue(qos->wq);
 	cancel_work_sync(&qos->work);
+
 	mutex_destroy(&qos->lock);
 	kfree(qos);
 	BT_INFO("QoS deinit done!\n");
@@ -239,6 +250,11 @@ void slsi_bt_qos_update(struct slsi_bt_qos *qos, int count)
 		return;
 
 	mutex_lock(&qos->lock);
+	if (!qos->enabled) {
+		mutex_unlock(&qos->lock);
+		return;
+	}
+
 	qos_tput_update(qos, count);
 	qos->expect = get_scsc_qos_level(qos->tput);
 	if (!atomic_read(&qos->running))
@@ -276,7 +292,12 @@ static int slsi_bt_qos_reset_set_param_cb(const char *buffer,
 		slsi_bt_qos_level_reset(qos_pdev);
 		return 0;
 	}
-	return -ENXIO;
+
+	scsc_bt_qos_low_level = SLSI_BT_QOS_LOW_LEVEL;
+	scsc_bt_qos_medium_level = SLSI_BT_QOS_MED_LEVEL;
+	scsc_bt_qos_high_level = SLSI_BT_QOS_HIGH_LEVEL;
+	scsc_bt_qos_timeout = SLSI_BT_QOS_DISABLE_TIMEOUT_MS;
+	return 0;
 }
 
 static struct kernel_param_ops slsi_bt_qos_reset_ops = {

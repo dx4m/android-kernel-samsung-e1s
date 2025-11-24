@@ -107,7 +107,7 @@
 				*	SENSOR_GN3_4080X2296_60FPS_LN2_R12,
 				*	SENSOR_GN3_4080X2296_60FPS_LN2_R10,
 				*	SENSOR_GN3_3840X2160_60FPS_LN2_R12,
-				*	SENSOR_GN3_4080X3060_26FPS_LN4_R12,
+				*	SENSOR_GN3_4080X3060_26FPS_LN4_R12 = 31,
 				*	SENSOR_GN3_4080X3060_26FPS_LN4_R10,
 				*	SENSOR_GN3_4080X2296_30FPS_LN4_R12,
 				*	SENSOR_GN3_4080X2296_30FPS_LN4_R10,
@@ -201,6 +201,15 @@
 						vc2 = </* in */ 2 HW_FORMAT_RAW10_POTF DATA_HPD 4080 764	/* out */ HW_FORMAT_RAW10_POTF_PACK VC_TAILPDAF 4080 764>;
 						vc3 = </* in */ 3 HW_FORMAT_RAW10_POTF DATA_HPD 4080 764	/* out */ HW_FORMAT_UNKNOWN VC_NOTHING 0 0>;
 						option { votf = <0>; max_fps = <60>;};
+					};
+
+					mode6_DCG { /* SENSOR_GN3_4080X3060_60FPS_R12 */
+						common = <4080 3060 60 0 4 CSI_DATA_LANES_3 3315 CSI_MODE_VC_DT LRTE_ENABLE PD_MOD3 EX_DCG>;
+						vc0 = </* in */ 0 HW_FORMAT_RAW12 DATA_IMG 4080 3060	/* out */ HW_FORMAT_RAW12 VC_NOTHING 4080 3060>;
+						vc1 = </* in */ 1 HW_FORMAT_UNKNOWN DATA_NONE 0 0		/* out */ HW_FORMAT_UNKNOWN VC_NOTHING 0 0>;
+						vc2 = </* in */ 2 HW_FORMAT_RAW10_POTF DATA_HPD 4080 764	/* out */ HW_FORMAT_RAW10_POTF_PACK VC_TAILPDAF 4080 764>;
+						vc3 = </* in */ 0 HW_FORMAT_UNKNOWN DATA_NONE 0 0		/* out */ HW_FORMAT_UNKNOWN VC_NOTHING 0 0>;
+						option { votf = <0>; };
 					};
 
 					mode8 { /* SENSOR_GN3_4080X2720_60FPS_R10 */
@@ -365,6 +374,15 @@
 						option { votf = <0>; };
 					};
 
+					mode31 { /* SENSOR_GN3_4080X3060_26FPS_LN4_R12 */
+						common = <4080 3060 26 0 31 CSI_DATA_LANES_3 3315 CSI_MODE_VC_DT LRTE_ENABLE PD_MOD3 EX_LN>;
+						vc0 = </* in */ 0 HW_FORMAT_RAW12 DATA_IMG 4080 3060	/* out */ HW_FORMAT_RAW12 VC_NOTHING 4080 3060>;
+						vc1 = </* in */ 1 HW_FORMAT_UNKNOWN DATA_NONE 0 0		/* out */ HW_FORMAT_UNKNOWN VC_NOTHING 0 0>;
+						vc2 = </* in */ 2 HW_FORMAT_RAW10_POTF DATA_HPD 4080 764	/* out */ HW_FORMAT_RAW10_POTF_PACK VC_TAILPDAF 4080 764>;
+						vc3 = </* in */ 0 HW_FORMAT_UNKNOWN DATA_NONE 0 0		/* out */ HW_FORMAT_UNKNOWN VC_NOTHING 0 0>;
+						option { votf = <0>; };
+					};
+
 					mode36 { /* SENSOR_GN3_4080X3060_30FPS_CROP_R10 */
 						common = <4080 3060 30 0 36 CSI_DATA_LANES_3 3315 CSI_MODE_VC_DT LRTE_ENABLE PD_MOD3 EX_OBTE_TUNE>;
 						vc0 = </* in */ 0 HW_FORMAT_RAW10 DATA_IMG 4080 3060	/* out */ HW_FORMAT_RAW10 VC_NOTHING 4080 3060>;
@@ -414,7 +432,7 @@
 				power_seq {
 					use = <1>;
 					gpio_mclk = <&gpg1 2 0x1>;
-					retention_pin_names = "VDD_WIDECAM_IO_1P8", "VDD_WIDECAM_A2P2";
+					retention_pin_names = "VDD_WIDECAM_IO_1P8";
 					scenario_normal_on {
 						sensor_scenario = <SENSOR_SCENARIO_NORMAL>;
 						gpio_scenario = <GPIO_SCENARIO_ON>;
@@ -521,6 +539,7 @@
 						110 { pname = "VDD_WIDECAM_OIS_3P3"; pin = <PIN_REGULATOR 0 0>; };
 						112 { pname = "VDD_CAM_IO_1P8"; pin = <PIN_REGULATOR 0 0>; share = <SRT_RELEASE SHARED_PIN0 0>; };
 						115 { pname = "VDD_WIDECAM_AF_3P3"; pin = <PIN_REGULATOR 0 0>; };
+						118 { pname = "VDD_WIDECAM_A2P2"; pin = <PIN_REGULATOR 0 0>; };
 						120 { pname = "cam_bb_en"; pin = <PIN_OUTPUT 0 0>; gpio = <&gpc1 0 0x1>; share = <SRT_RELEASE SHARED_PIN1 0>; };
 					};
 

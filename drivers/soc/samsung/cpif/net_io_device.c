@@ -57,7 +57,15 @@ static int vnet_open(struct net_device *ndev)
 	list_add(&iod->node_ndev, &iod->msd->activated_ndev_list);
 	spin_unlock_irqrestore(&msd->active_list_lock, flags);
 
+	ld = get_current_link(iod);
 	netif_start_queue(ndev);
+
+	spin_lock_irqsave(&ld->netif_lock, flags);
+	if (atomic_read(&ld->netif_stopped)) {
+		mif_info("Currently netif stopped, stop normal queue\n");
+		netif_stop_subqueue(ndev, 0);
+	}
+	spin_unlock_irqrestore(&ld->netif_lock, flags);
 
 	mif_info("%s (opened %d) by %s\n",
 		iod->name, atomic_read(&iod->opened), current->comm);

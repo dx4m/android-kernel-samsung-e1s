@@ -86,7 +86,7 @@ static inline unsigned long mfc_rate_get_rt_framerate(struct mfc_ctx *ctx, enum 
 	if (rt == MFC_RT) {
 		if ((framerate == 0) && (ctx->type == MFCINST_ENCODER) &&
 				(ctx->enc_priv->params.rc_framerate))
-			framerate = ctx->enc_priv->params.rc_framerate;
+			framerate = ctx->enc_priv->params.rc_framerate * 1000;
 	} else {
 		if (ctx->src_ts.ts_is_full)
 			framerate = mfc_rate_get_framerate(ctx);

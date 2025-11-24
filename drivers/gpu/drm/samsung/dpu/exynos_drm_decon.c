@@ -1185,6 +1185,11 @@ static void decon_atomic_flush(struct exynos_drm_crtc *exynos_crtc,
 		decon_info(decon, "modeset_only\n");
 	}
 
+	/* wait bts_comp. frame drop will be occur if bts request is pending */
+	if (!wait_for_completion_timeout(&decon->bts.bts_comp,
+					 msecs_to_jiffies(30)))
+		decon_warn(decon, "bts_comp timeout\n");
+
 	/* only for video mode tui */
 	exynos_tui_sec_win_shadow_update_req(decon,
 			old_exynos_crtc_state, new_exynos_crtc_state);

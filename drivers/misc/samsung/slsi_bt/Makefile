@@ -4,19 +4,8 @@ clean-files := *.o *.ko
 
 #
 # SLSI Bluetooth driver
-ifeq ($(CONFIG_KUNIT_SLSI_BT_TEST),y)
-obj-$(CONFIG_KUNIT_SLSI_BT_TEST) += unittest/
-obj-$(CONFIG_KUNIT_SLSI_BT_TEST) += mock/
-obj-$(CONFIG_KUNIT_SLSI_BT_TEST) += scsc_bt.o
-scsc_bt-y += \
-	slsi_bt_err.o\
-	slsi_bt_controller.o\
-	slsi_bt_property.o\
-	hci_h4.o\
-	slsi_bt_tty.o\
-	slsi_bt_log.o\
-
-ccflags-$(CONFIG_KUNIT_SLSI_BT_TEST) += -DCONFIG_SCSC_INDEPENDENT_SUBSYSTEM
+ifeq ($(CONFIG_SLSI_BT_KUNIT_TEST),y)
+obj-$(CONFIG_SLSI_BT_KUNIT_TEST) += ./kunit/
 else
 
 obj-$(CONFIG_SLSI_BT) += scsc_bt.o
@@ -34,22 +23,55 @@ scsc_bt-$(CONFIG_SCSC_QOS) += slsi_bt_qos.o
 
 scsc_bt-$(CONFIG_SLSI_BT_H4) += hci_h4.o
 ifneq ($(CONFIG_SLSI_BT_USE_UART_INTERFACE), )
+ccflags-y += -DCONFIG_SLSI_BT_USE_UART_INTERFACE
 scsc_bt-$(CONFIG_SLSI_BT_USE_UART_INTERFACE) += slsi_bt_tty.o
+endif
 scsc_bt-$(CONFIG_SLSI_BT_BCSP) += hci_bcsp.o
+ifneq ($(CONFIG_SLSI_BT_USE_HCI_INTERFACE), )
+ccflags-y += -DCONFIG_SLSI_BT_USE_HCI_INTERFACE
+scsc_bt-$(CONFIG_SLSI_BT_USE_HCI_INTERFACE) += hci_slsi.o
+endif
+
+ifneq ($(CONFIG_SLSI_BT_LR_WPAN), )
+scsc_bt-$(CONFIG_SLSI_BT_LR_WPAN) += hci_lr_wpan.o
+endif
+ifneq ($(CONFIG_SLSI_BT_FASTPATH), )
+scsc_bt-$(CONFIG_SLSI_BT_FASTPATH) += slsi_bt_fastpath.o
 endif
 
 ifeq ($(CONFIG_SLSI_BT_USE_MIF_INTERFACE), m)
 ccflags-y += -DCONFIG_SLSI_BT_USE_MIF_INTERFACE
 endif
-ifeq ($(CONFIG_SLSI_BT_H4), m)
+ifneq ($(filter $(CONFIG_SLSI_BT_H4), y m),)
 ccflags-y += -DCONFIG_SLSI_BT_H4
 endif
-ifeq ($(CONFIG_SLSI_BT_BCSP), m)
+ifneq ($(filter $(CONFIG_SLSI_BT_BCSP), y m),)
 ccflags-y += -DCONFIG_SLSI_BT_BCSP
+endif
+ifneq ($(filter $(CONFIG_SLSI_BT_FASTPATH), y m),)
+ccflags-y += -DCONFIG_SLSI_BT_FASTPATH
+endif
+ifneq ($(filter $(CONFIG_SLSI_BT_FWLOG_SNOOP), y m),)
+ccflags-y += -DCONFIG_SLSI_BT_FWLOG_SNOOP
+endif
+ifneq ($(filter $(CONFIG_SLSI_BT_LR_WPAN), y m),)
+ccflags-y += -DCONFIG_SLSI_BT_LR_WPAN
 endif
 
 ifneq ($(filter $(CONFIG_SCSC_LOG_COLLECTION), y m),)
 ccflags-y += -DCONFIG_SCSC_LOG_COLLECTION
+endif
+
+ifeq ($(CONFIG_SCSC_WLBTD), y)
+ccflags-y += -DCONFIG_SCSC_WLBTD
+endif
+
+ifeq ($(CONFIG_SCSC_PCIE_PAEAN_X86), y)
+ccflags-y += -DCONFIG_SCSC_PCIE_PAEAN_X86
+endif
+
+ifneq ($(filter $(CONFIG_SLSI_BT_TTY_DEVICE_NAME), ),)
+ccflags-y += -DCONFIG_SLSI_BT_TTY_DEVICE_NAME=\"$(CONFIG_SLSI_BT_TTY_DEVICE_NAME)\"
 endif
 
 ## See sibling scsc/ Makefile for an explanation of the reasons of
@@ -71,5 +93,3 @@ ifneq ($(CONFIG_ARCH_EXYNOS9), )
 ccflags-y += -DCONFIG_EXYNOS_UNIQUE_ID
 endif
 endif
-
-GCOV_PROFILE := y

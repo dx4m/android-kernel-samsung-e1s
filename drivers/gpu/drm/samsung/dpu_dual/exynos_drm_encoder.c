@@ -241,8 +241,10 @@ void exynos_drm_encoder_lastclose(struct drm_device *dev)
 		if (encoder->encoder_type == DRM_MODE_ENCODER_DSI) {
 			bridge = list_first_entry_or_null(&encoder->bridge_chain,
 					struct drm_bridge, chain_node);
+			if (!bridge)
+				continue;
 
-			drm_bridge_chain_post_disable(bridge);
+			exynos_drm_bridge_lastclose(bridge);
 		}
 	}
 }

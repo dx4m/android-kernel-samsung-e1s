@@ -441,7 +441,7 @@ static int sensor_ak7348_actuator_probe_i2c(struct i2c_client *client,
 		goto p_err;
 	}
 
-	subdev_actuator = kzalloc(sizeof(struct v4l2_subdev), GFP_KERNEL);
+	subdev_actuator = pablo_zalloc(sizeof(struct v4l2_subdev), GFP_KERNEL);
 	if (!subdev_actuator) {
 		err("subdev_actuator is NULL");
 		ret = -ENOMEM;

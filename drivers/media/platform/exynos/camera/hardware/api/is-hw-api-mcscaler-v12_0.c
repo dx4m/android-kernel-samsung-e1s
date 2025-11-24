@@ -10,6 +10,7 @@
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
  */
+#include <linux/videodev2_exynos_media.h>
 
 #include "is-hw-api-mcscaler-v4.h"
 #if IS_ENABLED(MCSC_USE_MMIO)
@@ -2220,7 +2221,7 @@ u32 is_scaler_get_payload_size(struct param_mcs_output *output, u8 plane)
 	u32 comp_64b_align, comp_sbwc_en, comp_sbwc_fr;
 	u32 height, stride, payload_size = 0;
 	u32 pixelsize, format, bitwidth, sbwc_type;
-	u32 quality_control;
+	u32 quality_control, width;
 	int ret;
 
 	sbwc_type = output->sbwc_type;
@@ -2237,11 +2238,27 @@ u32 is_scaler_get_payload_size(struct param_mcs_output *output, u8 plane)
 
 		comp_sbwc_fr = is_hw_dma_get_comp_sbwc_fr(sbwc_type);
 		quality_control = comp_sbwc_fr ? LOSSY_COMP_FOOTPRINT : LOSSY_COMP_QUALITY;
+		height = output->height;
+		width = output->full_output_width;
 		stride = is_hw_dma_get_payload_stride(
-			comp_sbwc_en, pixelsize, output->full_output_width,
+			comp_sbwc_en, pixelsize, width,
 			comp_64b_align, quality_control,
 			MCSC_COMP_BLOCK_WIDTH,
 			MCSC_COMP_BLOCK_HEIGHT);
+
+		if (sbwc_type == DMA_INPUT_SBWC_LOSSYLESS_256B) {
+			if (!plane) {
+				if (bitwidth == 8)
+					return SBWC_256_8B_Y_SIZE(width, height);
+				else
+					return SBWC_256_10B_Y_SIZE(width, height);
+			} else {
+				if (bitwidth == 8)
+					return SBWC_256_8B_CBCR_SIZE(width, height);
+				else
+					return SBWC_256_10B_CBCR_SIZE(width, height);
+			}
+		}
 
 		height = output->height;
 		if (plane && format == DMA_INOUT_FORMAT_YUV420)
@@ -2249,7 +2266,7 @@ u32 is_scaler_get_payload_size(struct param_mcs_output *output, u8 plane)
 
 		payload_size = (height + MCSC_COMP_BLOCK_HEIGHT - 1) / MCSC_COMP_BLOCK_HEIGHT * stride;
 		dbg_hw(3, "width %d, height %d, stride %d, payload_size %d\n",
-			output->full_output_width, height, stride, payload_size);
+			width, height, stride, payload_size);
 		dbg_hw(3, "comp_sbwc_en %d, comp_64b_align %d comp_fr %d\n",
 			comp_sbwc_en, comp_64b_align, comp_sbwc_fr);
 	}
@@ -2324,7 +2341,7 @@ void is_scaler_set_wdma_sbwc_config(struct is_common_dma *dma, struct pablo_mmio
 {
 	int ret;
 	u32 sbwc_type;
-	u32 comp_sbwc_en, comp_64b_align, comp_sbwc_fr;
+	u32 comp_sbwc_en, comp_align, comp_sbwc_fr;
 	u32 quality_control = 0;
 	u32 out_width, format, bitwidth, pixelsize = 0;
 	u32 order;
@@ -2335,7 +2352,7 @@ void is_scaler_set_wdma_sbwc_config(struct is_common_dma *dma, struct pablo_mmio
 	out_width = output->full_output_width;
 	order = output->dma_order;
 
-	comp_sbwc_en = is_hw_dma_get_comp_sbwc_en(sbwc_type, &comp_64b_align);
+	comp_sbwc_en = is_hw_dma_get_comp_sbwc_en(sbwc_type, &comp_align);
 	if (comp_sbwc_en) {
 		if (output_id > MCSC_OUTPUT1) {
 			err("invalid scaler ID");
@@ -2350,13 +2367,11 @@ void is_scaler_set_wdma_sbwc_config(struct is_common_dma *dma, struct pablo_mmio
 
 		comp_sbwc_fr = is_hw_dma_get_comp_sbwc_fr(sbwc_type);
 		quality_control = comp_sbwc_fr ? LOSSY_COMP_FOOTPRINT : LOSSY_COMP_QUALITY;
-		*y_stride = is_hw_dma_get_payload_stride(comp_sbwc_en, pixelsize, out_width,
-								comp_64b_align, quality_control,
-								MCSC_COMP_BLOCK_WIDTH,
+		*y_stride = is_hw_dma_get_payload_stride(comp_sbwc_en, pixelsize, out_width, comp_align,
+								quality_control, MCSC_COMP_BLOCK_WIDTH,
 								MCSC_COMP_BLOCK_HEIGHT);
-		*uv_stride = is_hw_dma_get_payload_stride(comp_sbwc_en, pixelsize, out_width,
-								comp_64b_align, quality_control,
-								MCSC_COMP_BLOCK_WIDTH,
+		*uv_stride = is_hw_dma_get_payload_stride(comp_sbwc_en, pixelsize, out_width, comp_align,
+								quality_control, MCSC_COMP_BLOCK_WIDTH,
 								MCSC_COMP_BLOCK_HEIGHT);
 		*y_header_stride = is_hw_dma_get_header_stride(out_width, MCSC_COMP_BLOCK_WIDTH,
 								16);
@@ -2367,7 +2382,7 @@ void is_scaler_set_wdma_sbwc_config(struct is_common_dma *dma, struct pablo_mmio
 		*uv_header_stride = 0;
 	}
 
-	CALL_DMA_OPS(dma, dma_set_comp_64b_align, comp_64b_align);
+	CALL_DMA_OPS(dma, dma_set_comp_64b_align, comp_align);
 	CALL_DMA_OPS(dma, dma_set_comp_sbwc_en, comp_sbwc_en);
 	CALL_DMA_OPS(dma, dma_set_comp_quality, quality_control);
 	is_scaler_set_wdma_sbwc_sram_offset(base_addr, output_id, out_width);

@@ -42,7 +42,7 @@ static void pablo_framemgr_probe_kunit_test(struct kunit *test)
 	struct is_framemgr *framemgr;
 	int ret;
 
-	framemgr = vzalloc(sizeof(struct is_framemgr));
+	framemgr = pablo_zalloc(sizeof(struct is_framemgr), GFP_KERNEL);
 	KUNIT_ASSERT_NOT_ERR_OR_NULL(test, framemgr);
 
 	ret = frame_manager_probe(framemgr, PKT_FRAMEMGR_NAME);
@@ -61,7 +61,8 @@ static void pablo_framemgr_open_kunit_test(struct kunit *test)
 	void *ptr;
 
 	/* TC #1. When it already has frames */
-	framemgr->frames = vzalloc(array_size(sizeof(struct is_frame), PKT_FRAMEMGR_FRM_NUM));
+	framemgr->frames = pablo_zalloc(array_size(sizeof(struct is_frame), PKT_FRAMEMGR_FRM_NUM),
+						GFP_KERNEL);
 	ptr = (void *)framemgr->frames;
 
 	ret = frame_manager_open(framemgr, PKT_FRAMEMGR_FRM_NUM, true);
@@ -383,7 +384,7 @@ static void pablo_framemgr_close_kunit_test(struct kunit *test)
 
 static void pablo_framemgr_release_kunit_test(struct kunit *test)
 {
-	vfree(pkt_ctx.framemgr);
+	pablo_free(pkt_ctx.framemgr);
 }
 
 /**

@@ -331,7 +331,11 @@ static struct samsung_dma_heap *__samsung_heap_add(struct device *dev, void *pri
 		return heap;
 
 	register_trace_android_vh_show_mem(show_dmaheap_total_handler, heap);
-	if (!strncmp(heap_name, "system", strlen("system")))
+	if (!strncmp(heap->name, "system", strlen("system"))
+#ifdef CONFIG_DMABUF_HEAPS_CAMERAPOOL
+		|| !strncmp(heap->name, "camerapool", strlen("camerapool"))
+#endif
+	)
 		register_trace_android_vh_meminfo_proc_show(show_dmaheap_meminfo, heap);
 	dma_coerce_mask_and_coherent(dma_heap_get_dev(heap->dma_heap), DMA_BIT_MASK(36));
 
@@ -494,10 +498,21 @@ static int __init samsung_dma_heap_init(void)
 	if (ret)
 		goto err_rbin;
 
+#ifdef CONFIG_DMABUF_HEAPS_CAMERAPOOL
+	ret = camerapool_dma_heap_init();
+	if (ret)
+		goto err_camerapool;
+#endif
+
 	dma_heap_add_exception_area();
 	dma_heap_debug_init();
 
 	return 0;
+
+#ifdef CONFIG_DMABUF_HEAPS_CAMERAPOOL
+err_camerapool:
+	camerapool_dma_heap_exit();
+#endif
 err_rbin:
 	dmabuf_trace_remove();
 err_trace:
@@ -520,6 +535,9 @@ static void __exit samsung_dma_heap_exit(void)
 	carveout_dma_heap_exit();
 	cma_dma_heap_exit();
 	chunk_dma_heap_exit();
+#ifdef CONFIG_DMABUF_HEAPS_CAMERAPOOL
+	camerapool_dma_heap_exit();
+#endif
 }
 
 module_init(samsung_dma_heap_init);

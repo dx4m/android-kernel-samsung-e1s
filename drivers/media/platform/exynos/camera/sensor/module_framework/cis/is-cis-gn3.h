@@ -437,6 +437,7 @@ struct sensor_gn3_private_runtime {
 	s32 crop_shift_offset_y;
 	bool crop_shift_enabled;
 	bool is_frame_duration_on;
+	bool need_inactive_retention;
 };
 
 static const struct sensor_reg_addr sensor_gn3_reg_addr = {

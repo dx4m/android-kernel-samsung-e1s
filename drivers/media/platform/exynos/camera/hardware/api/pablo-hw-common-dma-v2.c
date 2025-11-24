@@ -10,6 +10,7 @@
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
  */
+#include <linux/videodev2_exynos_media.h>
 
 #include "is-hw-common-dma.h"
 #include "pablo-hw-api-common.h"
@@ -712,14 +713,22 @@ static int pmio_dma_set_comp_sbwc_en(struct is_common_dma *dma, u32 comp_sbwc_en
 	return DMA_OPS_SUCCESS;
 }
 
-static int pmio_dma_set_comp_64b_align(struct is_common_dma *dma, u32 comp_64b_align)
+static int pmio_dma_set_comp_align(struct is_common_dma *dma, u32 comp_align)
 {
 	void __iomem *base = __pmio_dma_get_base_addr(dma);
 	u32 val;
 	unsigned int corex_offset = GET_COREX_OFFSET(dma->set_id);
 
 	val = PMIO_GET_R(base, corex_offset + dma->reg_ofs + dma_regs[DMA_R_COMP_CTRL].sfr_offset);
-	val = SET_V(val, DMA_F_COMP_SBWC_64B_ALIGN, comp_64b_align);
+
+	if (comp_align == SBWC_ALIGN_TYPE_32B || comp_align == SBWC_ALIGN_TYPE_64B) {
+		val = SET_V(val, DMA_F_COMP_SBWC_64B_ALIGN, comp_align);
+		val = SET_V(val, DMA_F_COMP_SBWC_128B_ALIGN, 0);
+	} else {
+		val = SET_V(val, DMA_F_COMP_SBWC_64B_ALIGN, 0);
+		val = SET_V(val, DMA_F_COMP_SBWC_128B_ALIGN, 1);
+	}
+
 	PMIO_SET_R(base, corex_offset + dma->reg_ofs + dma_regs[DMA_R_COMP_CTRL].sfr_offset, val);
 
 	return DMA_OPS_SUCCESS;
@@ -840,34 +849,34 @@ int pmio_dma_set_corex_id(struct is_common_dma *dma, int set_id)
 }
 
 const struct is_common_dma_ops pmio_dma_ops = {
-	.dma_set_corex_id	= pmio_dma_set_corex_id,
-	.dma_set_format		= pmio_dma_set_format,
-	.dma_set_msb_align	= pmio_dma_set_msb_align,
-	.dma_set_comp_sbwc_en	= pmio_dma_set_comp_sbwc_en,
-	.dma_set_comp_64b_align	= pmio_dma_set_comp_64b_align,
-	.dma_set_comp_error	= pmio_dma_set_comp_error,
-	.dma_set_comp_rate	= pmio_dma_set_comp_rate,
-	.dma_set_comp_quality	= pmio_dma_set_comp_quality,
-	.dma_set_cache_32b_pa	= pmio_dma_set_cache_32b_pa,
-	.dma_set_mono_mode	= pmio_dma_set_mono_mode,
-	.dma_set_auto_flush_en	= pmio_dma_set_auto_flush_en,
-	.dma_set_size		= pmio_dma_set_size,
-	.dma_set_img_stride	= pmio_dma_set_img_stride,
-	.dma_set_header_stride	= pmio_dma_set_header_stride,
-	.dma_set_max_mo		= pmio_dma_set_max_mo,
-	.dma_set_line_gap	= pmio_dma_set_line_gap,
-	.dma_set_max_bl		= NULL,
-	.dma_set_bus_info	= pmio_dma_set_bus_info,
-	.dma_set_img_addr	= pmio_dma_set_img_addr,
-	.dma_set_header_addr	= pmio_dma_set_header_addr,
-	.dma_votf_enable	= pmio_dma_votf_enable,
-	.dma_enable		= pmio_dma_enable,
-	.dma_get_enable		= pmio_dma_get_enable,
-	.dma_get_max_mo		= pmio_dma_get_max_mo,
-	.dma_get_img_crc	= pmio_dma_get_img_crc,
-	.dma_get_header_crc	= pmio_dma_get_header_crc,
-	.dma_get_mon_status	= pmio_dma_get_mon_status,
-	.dma_print_info		= pmio_dma_print_info,
+	.dma_set_corex_id = pmio_dma_set_corex_id,
+	.dma_set_format = pmio_dma_set_format,
+	.dma_set_msb_align = pmio_dma_set_msb_align,
+	.dma_set_comp_sbwc_en = pmio_dma_set_comp_sbwc_en,
+	.dma_set_comp_64b_align = pmio_dma_set_comp_align,
+	.dma_set_comp_error = pmio_dma_set_comp_error,
+	.dma_set_comp_rate = pmio_dma_set_comp_rate,
+	.dma_set_comp_quality = pmio_dma_set_comp_quality,
+	.dma_set_cache_32b_pa = pmio_dma_set_cache_32b_pa,
+	.dma_set_mono_mode = pmio_dma_set_mono_mode,
+	.dma_set_auto_flush_en = pmio_dma_set_auto_flush_en,
+	.dma_set_size = pmio_dma_set_size,
+	.dma_set_img_stride = pmio_dma_set_img_stride,
+	.dma_set_header_stride = pmio_dma_set_header_stride,
+	.dma_set_max_mo = pmio_dma_set_max_mo,
+	.dma_set_line_gap = pmio_dma_set_line_gap,
+	.dma_set_max_bl = NULL,
+	.dma_set_bus_info = pmio_dma_set_bus_info,
+	.dma_set_img_addr = pmio_dma_set_img_addr,
+	.dma_set_header_addr = pmio_dma_set_header_addr,
+	.dma_votf_enable = pmio_dma_votf_enable,
+	.dma_enable = pmio_dma_enable,
+	.dma_get_enable = pmio_dma_get_enable,
+	.dma_get_max_mo = pmio_dma_get_max_mo,
+	.dma_get_img_crc = pmio_dma_get_img_crc,
+	.dma_get_header_crc = pmio_dma_get_header_crc,
+	.dma_get_mon_status = pmio_dma_get_mon_status,
+	.dma_print_info = pmio_dma_print_info,
 };
 
 int pmio_dma_set_ops(struct is_common_dma *dma)
@@ -878,30 +887,34 @@ int pmio_dma_set_ops(struct is_common_dma *dma)
 }
 EXPORT_SYMBOL_GPL(pmio_dma_set_ops);
 
-int is_hw_dma_get_comp_sbwc_en(u32 sbwc_type, u32 *comp_64b_align)
+int is_hw_dma_get_comp_sbwc_en(u32 sbwc_type, u32 *comp_align)
 {
 	u32 comp_sbwc_en = 0;
 
 	switch (sbwc_type & DMA_INPUT_SBWC_MASK) {
 	case DMA_INPUT_SBWC_DISABLE:
 		comp_sbwc_en = 0;
-		*comp_64b_align = 0;
+		*comp_align = 0;
 		break;
 	case DMA_INPUT_SBWC_LOSSYLESS_32B:
 		comp_sbwc_en = 1;
-		*comp_64b_align = 0;
+		*comp_align = SBWC_ALIGN_TYPE_32B;
 		break;
 	case DMA_INPUT_SBWC_LOSSYLESS_64B:
 		comp_sbwc_en = 1;
-		*comp_64b_align = 1;
+		*comp_align = SBWC_ALIGN_TYPE_64B;
+		break;
+	case DMA_INPUT_SBWC_LOSSYLESS_256B:
+		comp_sbwc_en = 1;
+		*comp_align = SBWC_ALIGN_TYPE_256B;
 		break;
 	case DMA_INPUT_SBWC_LOSSY_32B:
 		comp_sbwc_en = 2;
-		*comp_64b_align = 0;
+		*comp_align = SBWC_ALIGN_TYPE_32B;
 		break;
 	case DMA_INPUT_SBWC_LOSSY_64B:
 		comp_sbwc_en = 2;
-		*comp_64b_align = 1;
+		*comp_align = SBWC_ALIGN_TYPE_64B;
 		break;
 	default:
 		err_hw("invalid sbwc_type(%d)", sbwc_type);
@@ -1235,6 +1248,12 @@ u32 is_hw_dma_get_payload_stride(u32 comp_sbwc_en, u32 bit_depth, u32 width,
 
 	if (comp_sbwc_en == COMP) {
 		/* lossless */
+		if (comp_align_type == SBWC_ALIGN_TYPE_256B) {
+			if (bit_depth == 8)
+				return SBWC_256_8B_STRIDE(width);
+			else
+				return SBWC_256_10B_STRIDE(width);
+		}
 		if (block_width == 256 && block_height == 1) {
 			/* Bayer 256x1 */
 			payload_stride = (((width + 255) / 256) * (256 * 1 * ALIGN(bit_depth, 2))) / 8;

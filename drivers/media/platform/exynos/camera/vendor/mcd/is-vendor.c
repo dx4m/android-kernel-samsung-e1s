@@ -54,6 +54,11 @@ struct workqueue_struct *sensor_pwr_ctrl_wq;
 #define CAMERA_WORKQUEUE_MAX_WAITING	1000
 #endif
 
+#ifdef CONFIG_DMABUF_HEAPS_CAMERAPOOL
+extern void camerapool_preallocate(unsigned long heap_size);
+extern void camerapool_free_pages(void);
+#endif
+
 extern int sensor_cis_set_registers(struct v4l2_subdev *subdev, const u32 *regs, const u32 size);
 
 #if IS_ENABLED(CONFIG_CAMERA_HW_BIG_DATA)
@@ -574,8 +579,7 @@ int is_vendor_probe(struct is_vendor *vendor)
 	snprintf(vendor->fw_path, sizeof(vendor->fw_path), "%s", IS_FW_SDCARD);
 	snprintf(vendor->request_fw_path, sizeof(vendor->request_fw_path), "%s", IS_FW);
 
-	vendor_priv = devm_kzalloc(&core->pdev->dev,
-			sizeof(struct is_vendor_private), GFP_KERNEL);
+	vendor_priv = pablo_zalloc(sizeof(struct is_vendor_private), GFP_KERNEL);
 	if (!vendor_priv) {
 		probe_err("failed to allocate is_vendor_private");
 		return -ENOMEM;
@@ -656,12 +660,14 @@ int is_vendor_driver_init(void)
 int is_vendor_driver_exit(void)
 {
 	int ret = 0;
+	struct is_vendor *vendor = &is_get_is_core()->vendor;
 
 	i2c_del_driver(is_get_rom_driver());
 #ifdef CONFIG_CAMERA_USE_INTERNAL_MCU
 	platform_driver_unregister(&sensor_ois_mcu_platform_driver);
 #endif
 
+	pablo_free(vendor->private_data);
 	return ret;
 }
 #endif
@@ -871,7 +877,7 @@ int is_vendor_rom_parse_dt(struct device_node *dnode, int rom_id)
 						&rom_info->rom_sensor2_af_distance_cal_addr_len);
 	if (rom_sensor2_af_distance_cal_addr_spec) {
 		rom_info->rom_sensor2_af_distance_cal_addr_len /= (unsigned int)sizeof(*rom_sensor2_af_distance_cal_addr_spec);
-		
+
 		if (rom_info->rom_sensor2_af_distance_cal_addr_len > AF_CAL_DISTANCE_MAX) {
 			err("rom_info->rom_sensor2_af_distance_cal_addr_len > AF_CAL_DISTANCE_MAX");
 			rom_info->rom_sensor2_af_distance_cal_addr_len = 0;
@@ -987,6 +993,7 @@ int is_vendor_rom_parse_dt(struct device_node *dnode, int rom_id)
 	DT_READ_U32_DEFAULT(dnode, "rom_header_sensor_id_addr", rom_info->rom_header_sensor_id_addr, -1);
 	DT_READ_U32_DEFAULT(dnode, "rom_header_sensor2_id_addr", rom_info->rom_header_sensor2_id_addr, -1);
 	DT_READ_U32_DEFAULT(dnode, "rom_header_mtf_data_addr", rom_info->rom_header_mtf_data_addr, -1);
+	DT_READ_U32_DEFAULT(dnode, "rom_header_sfr_data_addr", rom_info->rom_header_sfr_data_addr, -1);
 	DT_READ_U32_DEFAULT(dnode, "rom_header_sensor2_mtf_data_addr", rom_info->rom_header_sensor2_mtf_data_addr, -1);
 
 	DT_READ_U32_DEFAULT(dnode, "rom_awb_master_addr", rom_info->rom_awb_master_addr, -1);
@@ -1869,11 +1876,16 @@ void is_vendor_print_hw_debug_info(struct is_core *core)
 			return;
 		}
 
-		sprintf(msg_buf, " [R%d:%c,%x,%x,%x,%x,%x,%x]",
-			(i + 1), cam_info->valid ? 'Y':'N',
-			ec_param->i2c_ois_err_cnt, ec_param->i2c_af_err_cnt,
-			ec_param->i2c_sensor_err_cnt, ec_param->mipi_sensor_err_cnt,
-			ec_param->eeprom_i2c_err_cnt, ec_param->eeprom_crc_err_cnt);
+		if (cam_info->valid)
+			sprintf(msg_buf, " [R%d:%c,%x,%x,%x,%x,%x,%x]",
+				(i + 1), 'Y',
+				ec_param->i2c_ois_err_cnt, ec_param->i2c_af_err_cnt,
+				ec_param->i2c_sensor_err_cnt, ec_param->mipi_sensor_err_cnt,
+				ec_param->eeprom_i2c_err_cnt, ec_param->eeprom_crc_err_cnt);
+		else
+			sprintf(msg_buf, " [R%d:%c,%x,%x,%x,%x,%x,%x]",
+				(i + 1), 'N', 0, 0, 0, 0, 0, 0);
+
 		strcat(log_buf, msg_buf);
 	}
 
@@ -1889,11 +1901,16 @@ void is_vendor_print_hw_debug_info(struct is_core *core)
 			return;
 		}
 
-		sprintf(msg_buf, " [F%d:%c,%x,%x,%x,%x,%x,%x]",
-			(i + 1), cam_info->valid ? 'Y':'N',
-			ec_param->i2c_ois_err_cnt, ec_param->i2c_af_err_cnt,
-			ec_param->i2c_sensor_err_cnt, ec_param->mipi_sensor_err_cnt,
-			ec_param->eeprom_i2c_err_cnt, ec_param->eeprom_crc_err_cnt);
+		if (cam_info->valid)
+			sprintf(msg_buf, " [F%d:%c,%x,%x,%x,%x,%x,%x]",
+				(i + 1), 'Y',
+				ec_param->i2c_ois_err_cnt, ec_param->i2c_af_err_cnt,
+				ec_param->i2c_sensor_err_cnt, ec_param->mipi_sensor_err_cnt,
+				ec_param->eeprom_i2c_err_cnt, ec_param->eeprom_crc_err_cnt);
+		else
+			sprintf(msg_buf, " [F%d:%c,%x,%x,%x,%x,%x,%x]",
+				(i + 1), 'N', 0, 0, 0, 0, 0, 0);
+
 		strcat(log_buf, msg_buf);
 	}
 
@@ -2201,6 +2218,12 @@ int is_vendor_vidioc_g_ext_ctrl(struct is_video_ctx *vctx,
 			break;
 		case V4L2_CID_DEV_INFO_GET_LENS_DISTANCE_DATA:
 			ret = is_vendor_device_info_get_lens_distance_data(ext_ctrl->ptr);
+			break;
+		case V4L2_CID_DEV_INFO_GET_SFR_DATA:
+			ret = is_vendor_device_info_get_sfr_data(ext_ctrl->ptr);
+			break;
+		case V4L2_CID_DEV_INFO_GET_MTF_DATA:
+			ret = is_vendor_device_info_get_mtf_data(ext_ctrl->ptr);
 			break;
 		default:
 			ret = -ENOIOCTLCMD;
@@ -2954,6 +2977,20 @@ int is_vendor_notify_hal_init(int mode, struct is_device_sensor *sensor)
 	}
 
 	return ret;
+}
+
+int is_vendor_set_campool_heap_size(int size)
+{
+	info("[%s] size[%d]\n", __func__, size);
+
+#ifdef CONFIG_DMABUF_HEAPS_CAMERAPOOL
+	if (size > 0)
+		camerapool_preallocate(size);
+	else
+		camerapool_free_pages();
+#endif
+
+	return 0;
 }
 
 #if IS_ENABLED(CONFIG_SEC_ABC)

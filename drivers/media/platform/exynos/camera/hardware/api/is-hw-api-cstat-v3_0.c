@@ -13,6 +13,8 @@
 #include <linux/delay.h>
 #include <dt-bindings/camera/exynos_is_dt.h>
 
+#include "is-core.h"
+#include "pablo-mem.h"
 #include "pablo-hw-api-common.h"
 #include "is-hw-api-cstat.h"
 #include "sfr/is-sfr-cstat-v3_0.h"
@@ -69,6 +71,8 @@
 #define CSTAT_CAV_OUT_MAX_H		480
 #define CSTAT_SRAM_MAX_SIZE		16384
 
+#define CAMERA_POOL_BUF_NUM		2
+
 struct cstat_hw_dma {
 	enum cstat_dma_id dma_id;
 	enum is_hw_cstat_reg_name reg_id;
@@ -101,7 +105,15 @@ static const struct cstat_stat_buf_info stat_buf_info[IS_CSTAT_SUBDEV_NUM] = {
 	[IS_CSTAT_AWB_THUMB] = { .w = 65536, .h = 1, .bpp = 8, .num = CSAT_STAT_BUF_NUM },
 	[IS_CSTAT_RGBY_HIST] = { .w = 5120, .h = 1, .bpp = 8, .num = CSAT_STAT_BUF_NUM },
 	[IS_CSTAT_CDAF_MW] = { .w = 13680, .h = 1, .bpp = 8, .num = CSAT_STAT_BUF_NUM },
+	[IS_CSTAT_DRC] = { .w = 490000, .h = 1, .bpp = 14, .num = 1 },
+	[IS_CSTAT_LMEDS0] = { .w = 2076672, .h = 1, .bpp = 8, .num = 1 },
 };
+
+static const int camera_pool_buf_id[CAMERA_POOL_BUF_NUM] = {
+	IS_CSTAT_DRC,
+	IS_CSTAT_LMEDS0,
+};
+static struct is_priv_buf *__pb_camera_pool[GROUP_ID_3AA_MAX][CAMERA_POOL_BUF_NUM] = {0};
 
 struct cstat_dma_cfg {
 	pdma_addr_t *addrs;
@@ -2215,6 +2227,67 @@ skip_dma:
 	return 0;
 }
 KUNIT_EXPORT_SYMBOL(cstat_hw_s_wdma_cfg);
+
+void cstat_hw_internal_buf_alloc(u32 hw_id)
+{
+	struct cstat_stat_buf_info info;
+	struct is_core *core;
+	struct is_mem *mem;
+	u32 i;
+	size_t size;
+
+	core = is_get_is_core();
+	mem = &core->resourcemgr.mem;
+
+	for (i = 0; i < CAMERA_POOL_BUF_NUM; i++) {
+		if (__pb_camera_pool[hw_id][i])
+			continue;
+		cstat_hw_g_stat_size(camera_pool_buf_id[i], &info);
+		size = ALIGN(DIV_ROUND_UP(info.w * info.bpp, BITS_PER_BYTE), 32)
+		* info.h;
+
+		__pb_camera_pool[hw_id][i] = CALL_PTR_MEMOP(mem, alloc, mem->priv, size, NULL, 0);
+		if (IS_ERR_OR_NULL(__pb_camera_pool[hw_id][i]))
+			err("failed to allocate buffer for CAMERA_POOL_BUF%d\n", i);
+	}
+}
+KUNIT_EXPORT_SYMBOL(cstat_hw_internal_buf_alloc);
+
+void cstat_hw_config_lock_delay_handler(void __iomem *base, u32 hw_id, u32 num_buffers)
+{
+	unsigned int sfr_offset, sfr_offset_lsb;
+	u32 b, i;
+	dma_addr_t addr;
+
+	for (i = 0; i < CAMERA_POOL_BUF_NUM; i++) {
+		if (camera_pool_buf_id[i] == IS_CSTAT_DRC) {
+			sfr_offset = CSTAT_R_STAT_WDMADRCGRID_IMG_BASE_ADDR_1P_FRO0;
+			sfr_offset_lsb = CSTAT_R_STAT_WDMADRCGRID_IMG_BASE_ADDR_1P_FRO0_LSB_4B;
+		} else {
+			sfr_offset = CSTAT_R_Y_WDMALMEDS0_IMG_BASE_ADDR_1P_FRO0;
+			sfr_offset_lsb = CSTAT_R_Y_WDMALMEDS0_IMG_BASE_ADDR_1P_FRO0_LSB_4B;
+		}
+
+		for (b = 0; b < num_buffers; b++) {
+			if (IS_ERR_OR_NULL( __pb_camera_pool[hw_id][i])) {
+				warn_hw("[CSTAT%d] %s pb is ERR_OR_NULL\n", hw_id, i ? "LMEDS0" : "DRCGRID");
+				continue;
+			}
+			addr = __pb_camera_pool[hw_id][i]->iova;
+			CSTAT_SET_R_DIRECT(base, sfr_offset + b,
+					(u32)((addr & MSB_32BITS_MASK) >> LSB_BIT));
+			CSTAT_SET_R_DIRECT(base, sfr_offset_lsb + b,
+					addr & LSB_4BITS_MASK);
+
+			CSTAT_SET_R(base, sfr_offset + b,
+					(u32)((addr & MSB_32BITS_MASK) >> LSB_BIT));
+			CSTAT_SET_R(base, sfr_offset_lsb + b,
+					addr & LSB_4BITS_MASK);
+			warn_hw("[CSTAT%d] set %s wdma addr 0x%x", hw_id, i ? "LMEDS0" : "DRCGRID", (u32)addr);
+		}
+	}
+}
+KUNIT_EXPORT_SYMBOL(cstat_hw_config_lock_delay_handler);
 
 void cstat_hw_s_simple_lic_cfg(void __iomem *base, struct cstat_simple_lic_cfg *cfg)
 {

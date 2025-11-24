@@ -451,7 +451,7 @@ int is_mcu_i2c_write(struct i2c_client *client, u32 address, u8 *src, size_t len
 	startaddr[4] = is_mcu_checksum(startaddr, 4);
 
 	/* build number of bytes + checksum */
-	buf = kzalloc(len + 2, GFP_KERNEL);
+	buf = pablo_zalloc(len + 2, GFP_KERNEL);
 	if (!buf) {
 		err("[MCU] failed to alloc memory");
 		return -ENOMEM;
@@ -512,12 +512,12 @@ int is_mcu_i2c_write(struct i2c_client *client, u32 address, u8 *src, size_t len
 			continue;
 		}
 
-		kfree(buf);
+		pablo_free(buf);
 
 		return 0;
 	}
 
-	kfree(buf);
+	pablo_free(buf);
 
 	return -EINVAL;
 }
@@ -596,7 +596,7 @@ int is_mcu_erase(struct v4l2_subdev *subdev, u32 address, size_t len)
 
 	info("mcu erase page 0x%x", erase.page);
 
-	xmit = kzalloc(1024, GFP_KERNEL);
+	xmit = pablo_zalloc(1024, GFP_KERNEL);
 	if (!xmit) {
 		err("xmit is NULL");
 		return -EINVAL;
@@ -690,13 +690,13 @@ int is_mcu_erase(struct v4l2_subdev *subdev, u32 address, size_t len)
 		}
 
 		if (xmit)
-			kfree(xmit);
+			pablo_free(xmit);
 
 		return 0;
 	}
 
 	if (xmit)
-		kfree(xmit);
+		pablo_free(xmit);
 
 	return -EINVAL;
 }
@@ -1110,7 +1110,7 @@ int is_mcu_open_fw(struct v4l2_subdev *subdev, char *name, u8 **buf, ulong *buf_
 	size = fp->f_path.dentry->d_inode->i_size;
 	info("mcu start read sdcard, file path %s, size %lu Bytes\n", fw_name, size);
 
-	*buf = vmalloc(size);
+	*buf = pablo_malloc(size, GFP_KERNEL);
 	if (!(*buf)) {
 		err("failed to allocate memory");
 		ret = -ENOMEM;
@@ -1169,7 +1169,7 @@ request_fw:
 
 		size = fw_blob->size;
 
-		*buf = vmalloc(size);
+		*buf = pablo_malloc(size, GFP_KERNEL);
 		if (!(*buf)) {
 			err("failed to allocate memory");
 			ret = -ENOMEM;
@@ -1251,7 +1251,7 @@ int is_mcu_open_fw(struct v4l2_subdev *subdev, char *name, u8 **buf, ulong *buf_
 	size = bin.size;
 	info("mcu start read sdcard, file path %s, size %lu Bytes\n", fw_name, size);
 
-	*buf = vmalloc(size);
+	*buf = pablo_malloc(size, GFP_KERNEL);
 	if (!(*buf)) {
 		err("failed to allocate memory");
 		ret = -ENOMEM;
@@ -1305,7 +1305,7 @@ request_fw:
 
 		size = fw_blob->size;
 
-		*buf = vmalloc(size);
+		*buf = pablo_malloc(size, GFP_KERNEL);
 		if (!(*buf)) {
 			err("failed to allocate memory");
 			ret = -ENOMEM;
@@ -1528,7 +1528,7 @@ retry:
 
 p_err:
 	if (buf) {
-		vfree(buf);
+		pablo_free(buf);
 	}
 
 	info("%s end", __func__);
@@ -4089,49 +4089,49 @@ static int is_mcu_probe(struct i2c_client *client,
 		}
 	}
 
-	mcu = kzalloc(sizeof(struct is_mcu) * sensor_id_len, GFP_KERNEL);
+	mcu = pablo_zalloc(sizeof(struct is_mcu) * sensor_id_len, GFP_KERNEL);
 	if (!mcu) {
 		err("is_mcu is NULL");
 		ret = -ENOMEM;
 		goto p_err;
 	}
 
-	subdev_mcu = kzalloc(sizeof(struct v4l2_subdev) * sensor_id_len, GFP_KERNEL);
+	subdev_mcu = pablo_zalloc(sizeof(struct v4l2_subdev) * sensor_id_len, GFP_KERNEL);
 	if (!subdev_mcu) {
 		err("subdev_mcu is NULL");
 		ret = -ENOMEM;
 		goto p_err;
 	}
 
-	ois = kzalloc(sizeof(struct is_ois) * sensor_id_len, GFP_KERNEL);
+	ois = pablo_zalloc(sizeof(struct is_ois) * sensor_id_len, GFP_KERNEL);
 	if (!ois) {
 		err("is_ois is NULL");
 		ret = -ENOMEM;
 		goto p_err;
 	}
 
-	subdev_ois = kzalloc(sizeof(struct v4l2_subdev) * sensor_id_len, GFP_KERNEL);
+	subdev_ois = pablo_zalloc(sizeof(struct v4l2_subdev) * sensor_id_len, GFP_KERNEL);
 	if (!subdev_ois) {
 		err("subdev_ois is NULL");
 		ret = -ENOMEM;
 		goto p_err;
 	}
 
-	ois_device = kzalloc(sizeof(struct is_device_ois), GFP_KERNEL);
+	ois_device = pablo_zalloc(sizeof(struct is_device_ois), GFP_KERNEL);
 	if (!ois_device) {
 		err("is_device_ois is NULL");
 		ret = -ENOMEM;
 		goto p_err;
 	}
 
-	aperture = kzalloc(sizeof(struct is_aperture) * sensor_id_len, GFP_KERNEL);
+	aperture = pablo_zalloc(sizeof(struct is_aperture) * sensor_id_len, GFP_KERNEL);
 	if (!aperture) {
 		err("aperture is NULL");
 		ret = -ENOMEM;
 		goto p_err;
 	}
 
-	subdev_aperture = kzalloc(sizeof(struct v4l2_subdev)  * sensor_id_len, GFP_KERNEL);
+	subdev_aperture = pablo_zalloc(sizeof(struct v4l2_subdev)  * sensor_id_len, GFP_KERNEL);
 	if (!subdev_aperture) {
 		err("subdev_aperture is NULL");
 		ret = -ENOMEM;
@@ -4231,25 +4231,25 @@ static int is_mcu_probe(struct i2c_client *client,
 
 p_err:
 	if (mcu)
-		kfree(mcu);
+		pablo_free(mcu);
 
 	if (subdev_mcu)
-		kfree(subdev_mcu);
+		pablo_free(subdev_mcu);
 
 	if (ois)
-		kfree(ois);
+		pablo_free(ois);
 
 	if (subdev_ois)
-		kfree(subdev_ois);
+		pablo_free(subdev_ois);
 
 	if (ois_device)
-		kfree(ois_device);
+		pablo_free(ois_device);
 
 	if (aperture)
-		kfree(aperture);
+		pablo_free(aperture);
 
 	if (subdev_aperture)
-		kfree(subdev_aperture);
+		pablo_free(subdev_aperture);
 
 	return ret;
 }

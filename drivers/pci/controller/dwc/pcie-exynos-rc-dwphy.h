@@ -279,6 +279,9 @@
 #define DWPHY_RX_VCO_CNTR_SETTLE_MASK	GENMASK(2, 0)
 #define DWPHY_RX_VCO_CNTR_SETTLE_TIME	(0x7)
 
+#define PCIE_DWPHY_INIT_PWRUP_DONE_LN0	0xC068
+#define PCIE_DWPHY_INIT_PWRUP_DONE_LN1	0xC868
+
 #define PCIE_DWPHY_RAWMEM_CMN24_B0_R1	0x2C004
 #define PCIE_DWPHY_RAWMEM_CMN24_B2_R1	0x2C104
 #define DWPHY_RAWMEM_CMN24_BX_R1_VAL	(0x2AE)
@@ -600,6 +603,7 @@ struct exynos_pcie_ep_cfg {
 	int no_speed_check;
 	int enable_eq; /* Enable EQ */
 	int linkup_max_count;
+	int set_rxei;
 	u32 tpoweron_time;
 	u32 common_restore_time;
 	u32 ltr_threshold;

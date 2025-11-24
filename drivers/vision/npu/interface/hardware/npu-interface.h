@@ -97,6 +97,11 @@ void fw_rprt_manager(void);
 int mbx_rslt_fault_listener(void);
 int npu_check_unposted_mbox(int nCtrl);
 void fw_rprt_gather(void);
+#if IS_ENABLED(CONFIG_SOC_S5E9945)
+int npu_interface_force_suspend(struct npu_system *system);
+#else
+#define npu_interface_force_suspend(p)	(0)
+#endif
 #if IS_ENABLED(CONFIG_DSP_USE_VS4L)
 int dsp_interface_send_irq(int status);
 #endif

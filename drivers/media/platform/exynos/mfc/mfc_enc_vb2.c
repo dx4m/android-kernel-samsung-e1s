@@ -110,7 +110,11 @@ static void mfc_enc_unlock(struct vb2_queue *q)
 	struct mfc_ctx *ctx = q->drv_priv;
 	struct mfc_dev *dev = ctx->dev;
 
+	mfc_ctx_debug_enter();
+
 	mutex_unlock(&dev->mfc_mutex);
+
+	mfc_ctx_debug_leave();
 }
 
 static void mfc_enc_lock(struct vb2_queue *q)
@@ -118,7 +122,11 @@ static void mfc_enc_lock(struct vb2_queue *q)
 	struct mfc_ctx *ctx = q->drv_priv;
 	struct mfc_dev *dev = ctx->dev;
 
+	mfc_ctx_debug_enter();
+
 	mutex_lock(&dev->mfc_mutex);
+
+	mfc_ctx_debug_leave();
 }
 
 static int mfc_enc_buf_init(struct vb2_buffer *vb)

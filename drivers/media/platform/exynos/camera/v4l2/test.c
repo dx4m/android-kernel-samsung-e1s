@@ -555,10 +555,10 @@ int pablo_v4l2_test_init(void)
 	int i;
 
 	for (i = 0; i < ARRAY_SIZE(pablo_v4l2_test_cases); i++) {
-		pablo_v4l2_test_cases[i].result = kvzalloc(MAX_RESULT, GFP_KERNEL);
+		pablo_v4l2_test_cases[i].result = pablo_zalloc(MAX_RESULT, GFP_KERNEL);
 		if (ZERO_OR_NULL_PTR(pablo_v4l2_test_cases[i].result)) {
 			while (i-- > 0)
-				kvfree(pablo_v4l2_test_cases[i].result);
+				pablo_free(pablo_v4l2_test_cases[i].result);
 
 			return -ENOMEM;
 		}
@@ -643,7 +643,7 @@ int pablo_v4l2_test_get_result(struct file *file, __user char *buf, size_t count
 		goto exit;
 	}
 
-	kvfree(latest_case->result);
+	pablo_free(latest_case->result);
 	latest_case->result = NULL;
 	latest_case->id = -ENOENT;
 	latest_case = NULL;
@@ -664,7 +664,7 @@ int pablo_v4l2_test_run_test(struct file *file, const char __user *buf, size_t c
 	char *arg;
 	int i, ret;
 
-	arg = kvzalloc(count, GFP_KERNEL);
+	arg = pablo_zalloc(count, GFP_KERNEL);
 	if (ZERO_OR_NULL_PTR(arg)) {
 		pr_err("failed to alloc arg buffer\n");
 		return -ENOMEM;
@@ -692,7 +692,7 @@ int pablo_v4l2_test_run_test(struct file *file, const char __user *buf, size_t c
 			mutex_lock(&iv->lock);
 			if (!pablo_v4l2_test_cases[i].result) {
 				pablo_v4l2_test_cases[i].result =
-					kvzalloc(MAX_RESULT, GFP_KERNEL);
+					pablo_zalloc(MAX_RESULT, GFP_KERNEL);
 				if (ZERO_OR_NULL_PTR(pablo_v4l2_test_cases[i].result)) {
 					pr_err("failed to alloc result buffer\n");
 					mutex_unlock(&iv->lock);
@@ -716,7 +716,7 @@ int pablo_v4l2_test_run_test(struct file *file, const char __user *buf, size_t c
 	}
 
 exit:
-	kvfree(arg);
+	pablo_free(arg);
 
 	return count;
 }

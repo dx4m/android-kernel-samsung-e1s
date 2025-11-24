@@ -49,8 +49,8 @@ static void pablo_blob_set_clear_pd(struct pablo_blob_pd *blob_pd)
 	int i;
 
 	for (i = 0; i < PD_BLOB_MAX; i++) {
-		vfree(blob_pd[i].blob.data);
-		vfree(blob_pd[i].blob_stat_info.data);
+		pablo_free(blob_pd[i].blob.data);
+		pablo_free(blob_pd[i].blob_stat_info.data);
 
 		blob_pd[i].blob.data = NULL;
 		blob_pd[i].blob.size = 0;
@@ -148,10 +148,10 @@ int pablo_blob_dump(struct debugfs_blob_wrapper *blob, ulong *kva, size_t *size,
 	if (!size_sum)
 		return -EINVAL;
 
-	vfree(blob->data);
+	pablo_free(blob->data);
 	blob->size = 0;
 
-	blob->data = vmalloc(size_sum);
+	blob->data = pablo_malloc(size_sum, GFP_KERNEL);
 	if (!blob->data)
 		return -ENOMEM;
 
@@ -221,7 +221,7 @@ int pablo_blob_lvn_probe(struct dentry *root, struct pablo_blob_lvn **blob_lvn,
 
 	FIMC_BUG(!root);
 
-	blob_tmp = kvzalloc(sizeof(struct pablo_blob_lvn) * array_size, GFP_KERNEL);
+	blob_tmp = pablo_zalloc(sizeof(struct pablo_blob_lvn) * array_size, GFP_KERNEL);
 	if (ZERO_OR_NULL_PTR(blob_tmp)) {
 		pr_err("[@] out of memory for blob_tmp\n");
 		return -ENOMEM;
@@ -245,7 +245,7 @@ void pablo_blob_lvn_remove(struct pablo_blob_lvn **blob_lvn, size_t array_size)
 	for (i = 0; i < array_size; i++)
 		debugfs_remove((*blob_lvn)[i].dentry);
 
-	kvfree(*blob_lvn);
+	pablo_free(*blob_lvn);
 	*blob_lvn = NULL;
 }
 
@@ -259,10 +259,10 @@ static void wq_func_pd_dump(struct work_struct *data)
 	blob_pd = container_of(data, struct pablo_blob_pd, work);
 	frame = blob_pd->frame;
 
-	vfree(blob_pd->blob_stat_info.data);
+	pablo_free(blob_pd->blob_stat_info.data);
 	blob_pd->blob_stat_info.size = 0;
 
-	blob_pd->blob_stat_info.data = vmalloc(PD_BLOB_STAT_INFO_MAX);
+	blob_pd->blob_stat_info.data = pablo_malloc(PD_BLOB_STAT_INFO_MAX, GFP_KERNEL);
 	dst = blob_pd->blob_stat_info.data;
 
 	memcpy(dst, (void *)blob_pd->stat_info, PD_BLOB_STAT_INFO_MAX);
@@ -310,7 +310,7 @@ int pablo_blob_pd_probe(struct dentry *root, struct pablo_blob_pd **blob_pd)
 
 	FIMC_BUG(!root);
 
-	blob_tmp = kvzalloc(sizeof(struct pablo_blob_pd) * PD_BLOB_MAX, GFP_KERNEL);
+	blob_tmp = pablo_zalloc(sizeof(struct pablo_blob_pd) * PD_BLOB_MAX, GFP_KERNEL);
 	if (ZERO_OR_NULL_PTR(blob_tmp)) {
 		pr_err("[@] out of memory for blob_tmp\n");
 		return -ENOMEM;
@@ -339,7 +339,7 @@ void pablo_blob_pd_remove(struct pablo_blob_pd **blob_pd)
 		debugfs_remove((*blob_pd)[i].dentry_stat_info);
 	}
 
-	kvfree(*blob_pd);
+	pablo_free(*blob_pd);
 	*blob_pd = NULL;
 }
 

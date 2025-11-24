@@ -31,6 +31,15 @@
 			model = "Samsung S5E9945 board based on ERD9945";
 		}; /* end of __overlay__ */
 	}; /* end of fragment */
+
+	fragment@camera {
+		target-path = "/";
+		__overlay__ {
+			ois_mcu: ois_mcu@1A310000 {
+				ois_gyro_direction = <0x01 0x00 0x01 0x00 0x00 0x00 0x00>;
+			};
+		};
+	};
 }; /* end of root */
 
 &serial_0 {

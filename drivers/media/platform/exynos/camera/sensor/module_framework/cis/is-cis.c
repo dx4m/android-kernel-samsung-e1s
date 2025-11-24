@@ -125,7 +125,7 @@ int sensor_cis_write_registers(struct v4l2_subdev *subdev, const struct sensor_r
 				break;
 			}
 
-			burst_data = vmalloc(burst_num * 2);
+			burst_data = pablo_malloc(burst_num * 2, GFP_KERNEL);
 			start_data = index_str + IXC_NEXT;
 			for (j = 0; j < burst_num; j++) {
 				burst_data[j * 2] = (regset.regs[j * IXC_NEXT + start_data] & 0xFF00) >> 8;
@@ -137,10 +137,10 @@ int sensor_cis_write_registers(struct v4l2_subdev *subdev, const struct sensor_r
 			if (ret < 0) {
 				err("write8_sequential(burst) fail, ret(%d), addr(%#x), data(%#x)",
 						ret, regset.regs[index_str], burst_data[0]);
-				vfree(burst_data);
+				pablo_free(burst_data);
 				goto p_err;
 			}
-			vfree(burst_data);
+			pablo_free(burst_data);
 			burst_num = 1;
 			break;
 
@@ -151,7 +151,7 @@ int sensor_cis_write_registers(struct v4l2_subdev *subdev, const struct sensor_r
 				break;
 			}
 
-			burst_data = vmalloc(burst_num);
+			burst_data = pablo_malloc(burst_num, GFP_KERNEL);
 			start_data = index_str + IXC_NEXT;
 			for (j = 0; j < burst_num; j++) {
 				burst_data[j] = regset.regs[j * IXC_NEXT + start_data];
@@ -162,10 +162,10 @@ int sensor_cis_write_registers(struct v4l2_subdev *subdev, const struct sensor_r
 			if (ret < 0) {
 				err("write8_sequential(burst) fail, ret(%d), addr(%#x), data(%#x)",
 						ret, regset.regs[index_str], burst_data[0]);
-				vfree(burst_data);
+				pablo_free(burst_data);
 				goto p_err;
 			}
-			vfree(burst_data);
+			pablo_free(burst_data);
 			burst_num = 1;
 			break;
 
@@ -1717,7 +1717,7 @@ int sensor_cis_init_state(struct v4l2_subdev *subdev, int mode)
 	cis_shared_data *cis_data = cis->cis_data;
 	const struct sensor_cis_mode_info *mode_info;
 	struct is_sensor_seamless_ctl init_seamless_mode;
-	unsigned int target_history_index;
+	int i;
 
 	if (mode >= cis->sensor_info->mode_count) {
 		err("invalid mode(%d)!!", mode);
@@ -1732,13 +1732,12 @@ int sensor_cis_init_state(struct v4l2_subdev *subdev, int mode)
 	cis_data->stream_on = false;
 	cis->long_term_mode.sen_strm_off_on_step = 0;
 	cis->long_term_mode.sen_strm_off_on_enable = false;
-	cis->mipi_clock_index_cur = CAM_MIPI_NOT_INITIALIZED;
-	cis->mipi_clock_index_new = CAM_MIPI_NOT_INITIALIZED;
-
 
 	cis_data->cur_pattern_mode = SENSOR_TEST_PATTERN_MODE_OFF;
 	cis_data->pre_remosaic_zoom_ratio = 0;
 	cis_data->cur_remosaic_zoom_ratio = 0;
+	cis_data->pre_bayer_pattern = 0;
+	cis_data->cur_bayer_pattern = 0;
 	cis_data->pre_lownoise_mode = IS_CIS_LNOFF;
 	cis_data->cur_lownoise_mode = IS_CIS_LNOFF;
 	cis_data->pre_hdr_mode = SENSOR_HDR_MODE_SINGLE;
@@ -1746,21 +1745,16 @@ int sensor_cis_init_state(struct v4l2_subdev *subdev, int mode)
 	cis_data->seamless_update_vsync_cnt = 0;
 	cis_data->remosaic_crop_update_vsync_cnt = 0;
 	cis_data->skip_control_vsync_count = 0;
-
-	memset(cis_data->seamless_mode_history, 0, sizeof(struct is_sensor_seamless_ctl) * NUM_FRAMES);
+	cis_data->last_seamless_history_vsync_cnt = 0;
 
 	memset(&init_seamless_mode, 0, sizeof(struct is_sensor_seamless_ctl));
 
 	if (cis_data->cur_12bit_mode == SENSOR_12BIT_STATE_REAL_12BIT)
 		init_seamless_mode.mode |= SENSOR_MODE_REAL_12BIT;
 
-	if (cis->ctrl_delay == N_PLUS_ONE_FRAME)
-		target_history_index = (cis_data->sen_vsync_count % NUM_FRAMES);
-	else
-		target_history_index = ((NUM_FRAMES + cis_data->sen_vsync_count - 1) % NUM_FRAMES);
-
-	memcpy(&cis_data->seamless_mode_history[target_history_index % NUM_FRAMES],
-		&init_seamless_mode, sizeof(struct is_sensor_seamless_ctl));
+	for (i = 0; i < NUM_FRAMES; i++)
+		memcpy(&cis_data->seamless_mode_history[i],
+			&init_seamless_mode, sizeof(struct is_sensor_seamless_ctl));
 
 	info("%s [%d][%d][%s] SS_DBG LN2[%d] LN4[%d] 12bit[%d] AEB[%d] RM[%d,%d]\n",
 		__func__, cis->id,
@@ -1789,10 +1783,25 @@ int sensor_cis_update_seamless_state(struct v4l2_subdev *subdev)
 	cis_data = cis->cis_data;
 
 	if (!cis_data->update_seamless_state && cis->cis_data->stream_on) {
+
+		/* if N-1 frame drop occurs, N-1 history should be copied from N-2 */
+		if (cis_data->sen_vsync_count > 1 &&
+			cis_data->last_seamless_history_vsync_cnt > 0 &&
+			cis_data->last_seamless_history_vsync_cnt + 2 == cis_data->sen_vsync_count) {
+			memcpy(&cis_data->seamless_mode_history[(cis_data->sen_vsync_count - 1) % NUM_FRAMES],
+				&cis_data->seamless_mode_history[(cis_data->sen_vsync_count - 2) % NUM_FRAMES],
+				sizeof(struct is_sensor_seamless_ctl));
+
+			ssinfo("N-1[%d] frame drop occurred, copy N-2 frame history to N-1\n",
+				cis, cis_data->last_seamless_history_vsync_cnt + 1);
+		}
+
 		if (cis_data->sen_vsync_count > 0)
 			memcpy(&cis_data->seamless_mode_history[cis_data->sen_vsync_count % NUM_FRAMES],
 				&cis_data->seamless_mode_history[(cis_data->sen_vsync_count - 1) % NUM_FRAMES],
 				sizeof(struct is_sensor_seamless_ctl));
+
+		cis_data->last_seamless_history_vsync_cnt = cis_data->sen_vsync_count;
 
 		return ret;
 	}
@@ -1803,6 +1812,7 @@ int sensor_cis_update_seamless_state(struct v4l2_subdev *subdev)
 			__func__, cis->id, cis_data->sen_vsync_count, cis->sensor_info->name,
 			cis_data->remosaic_crop_update_vsync_cnt);
 	}
+	cis_data->pre_bayer_pattern = cis_data->cur_bayer_pattern;
 	cis_data->pre_remosaic_zoom_ratio = cis_data->cur_remosaic_zoom_ratio;
 	cis_data->pre_lownoise_mode = cis_data->cur_lownoise_mode;
 	cis_data->pre_12bit_mode = cis_data->cur_12bit_mode;
@@ -1838,6 +1848,7 @@ int sensor_cis_update_seamless_state(struct v4l2_subdev *subdev)
 		(new_seamless_mode.mode & SENSOR_MODE_CROPPED_RMS),
 		new_seamless_mode.remosaic_crop_zoom_ratio);
 
+	cis_data->last_seamless_history_vsync_cnt = cis_data->sen_vsync_count;
 	cis_data->update_seamless_state = false;
 
 	return ret;
@@ -2775,7 +2786,7 @@ int sensor_cis_probe(void *client, struct device *client_dev,
 	device = &core->sensor[sensor_dev_id];
 
 	cis = &sp->cis;
-	subdev_cis = kzalloc(sizeof(struct v4l2_subdev), GFP_KERNEL);
+	subdev_cis = devm_kzalloc(dev, sizeof(struct v4l2_subdev), GFP_KERNEL);
 	if (!subdev_cis) {
 		probe_err("subdev_cis is NULL");
 		return -ENOMEM;
@@ -2786,7 +2797,7 @@ int sensor_cis_probe(void *client, struct device *client_dev,
 	cis->client = client;
 	cis->mipi_clock_index_cur = CAM_MIPI_NOT_INITIALIZED;
 	cis->mipi_clock_index_new = CAM_MIPI_NOT_INITIALIZED;
-	cis->cis_data = kzalloc(sizeof(cis_shared_data), GFP_KERNEL);
+	cis->cis_data = devm_kzalloc(dev, sizeof(cis_shared_data), GFP_KERNEL);
 	if (!cis->cis_data) {
 		err("cis_data is NULL");
 		ret = -ENOMEM;

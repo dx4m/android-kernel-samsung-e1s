@@ -25,9 +25,9 @@
 #include <panel/panel-samsung-drv.h>
 #include <mcd_drm_helper.h>
 
-extern int no_disp[MAX_PANEL_CNT];
-extern int bypass_display[MAX_PANEL_CNT];
-extern int commit_retry[MAX_PANEL_CNT];
+extern int no_disp[MAX_DECON_CNT];
+extern int bypass_display[MAX_DECON_CNT];
+extern int commit_retry[MAX_DECON_CNT];
 
 bool mcd_drm_check_commit_skip(struct exynos_drm_crtc *exynos_crtc, const char *caller)
 {
@@ -40,7 +40,7 @@ bool mcd_drm_check_commit_skip(struct exynos_drm_crtc *exynos_crtc, const char *
 	}
 
 	crtc_idx = exynos_crtc->base.index;
-	if (crtc_idx >= MAX_PANEL_CNT) {
+	if (crtc_idx >= MAX_DECON_CNT) {
 		pr_err("%s: invalid crtc index: %d\n", caller, crtc_idx);
 		return false;
 	}
@@ -65,7 +65,7 @@ bool mcd_drm_check_commit_retry(struct exynos_drm_crtc *exynos_crtc, const char 
 	}
 
 	crtc_idx = exynos_crtc->base.index;
-	if (crtc_idx >= MAX_PANEL_CNT) {
+	if (crtc_idx >= MAX_DECON_CNT) {
 		pr_err("%s: invalid crtc index: %d\n", caller, crtc_idx);
 		return false;
 	}
@@ -86,7 +86,7 @@ int mcd_drm_get_bypass(struct exynos_drm_crtc *exynos_crtc)
 		return -EINVAL;
 
 	crtc_idx = exynos_crtc->base.index;
-	if (crtc_idx >= MAX_PANEL_CNT) {
+	if (crtc_idx >= MAX_DECON_CNT) {
 		pr_err("%s: invalid crtc index: %d\n", __func__, crtc_idx);
 		return -EINVAL;
 	}
@@ -103,7 +103,7 @@ int mcd_drm_set_bypass(struct exynos_drm_crtc *exynos_crtc, bool on)
 		return -EINVAL;
 
 	crtc_idx = exynos_crtc->base.index;
-	if (crtc_idx >= MAX_PANEL_CNT) {
+	if (crtc_idx >= MAX_DECON_CNT) {
 		pr_err("%s: invalid crtc index: %d\n", __func__, crtc_idx);
 		return -EINVAL;
 	}
@@ -123,7 +123,7 @@ int mcd_drm_set_commit_retry(struct exynos_drm_crtc *exynos_crtc, bool on)
 		return -EINVAL;
 
 	crtc_idx = exynos_crtc->base.index;
-	if (crtc_idx >= MAX_PANEL_CNT) {
+	if (crtc_idx >= MAX_DECON_CNT) {
 		pr_err("%s: invalid crtc index: %d\n", __func__, crtc_idx);
 		return -EINVAL;
 	}

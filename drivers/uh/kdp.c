@@ -114,11 +114,6 @@ early_param("androidboot.boot_recovery", boot_recovery);
  * CRED
  *------------------------------------------------
  */
-struct cred_kdp_init {
-	atomic_t use_cnt;
-	struct ro_rcu_head ro_rcu_head_init;
-};
-
 struct cred_kdp_init init_cred_use_cnt = {
 	.use_cnt = ATOMIC_INIT(4),
 	.ro_rcu_head_init = {
@@ -318,7 +313,7 @@ struct cred *prepare_ro_creds(struct cred *old, int kdp_cmd, u64 p)
 		panic("[%d] : Unable to allocate usage pointer\n", kdp_cmd);
 
 	// get_usecnt_rcu
-	rcu_ptr = (struct ro_rcu_head *)((atomic_t *)use_cnt_ptr + 1);
+	rcu_ptr = &((struct cred_kdp_init *)use_cnt_ptr)->ro_rcu_head_init;
 	((struct ro_rcu_head *)rcu_ptr)->bp_cred = (void *)new_ro;
 
 	tsec = kmem_cache_alloc(tsec_jar, GFP_KERNEL | __GFP_NOFAIL);
@@ -447,12 +442,10 @@ static inline unsigned int cmp_sec_integrity(const struct cred *cred, struct mm_
 {
 	if (cred == &init_cred) {
 		if (init_cred_kdp.bp_task != current)
-			printk(KERN_ERR "[KDP] init_cred_kdp.bp_task: 0x%lx, current: 0x%lx\n",
-							(unsigned long) init_cred_kdp.bp_task, (unsigned long) current);
+			pr_err("[KDP] %s: init_cred_kdp.bp_task and current mismatch\n", __func__);
 
 		if (mm && (init_cred_kdp.bp_pgd != swapper_pg_dir) && (init_cred_kdp.bp_pgd != mm->pgd ))
-			printk(KERN_ERR "[KDP] mm: 0x%lx, init_cred_kdp.bp_pgd: 0x%lx, swapper_pg_dir: %p, mm->pgd: 0x%lx\n",
-							(unsigned long) mm, (unsigned long) init_cred_kdp.bp_pgd, swapper_pg_dir, (unsigned long) mm->pgd);
+			pr_err("[KDP] %s: init_cred_kdp.bp_pgd and swapper_pg_dir mismatch, init_cred_kdp.bp_pgd and mm->pgd mismatch.\n", __func__);
 
 		return ((init_cred_kdp.bp_task != current) ||
 				(mm && (!(in_interrupt() || in_softirq())) &&
@@ -462,13 +455,11 @@ static inline unsigned int cmp_sec_integrity(const struct cred *cred, struct mm_
 		if (!is_kdp_protect_addr((u64)cred))
 			return 0;
 		if (((struct cred_kdp *)cred)->bp_task != current)
-			printk(KERN_ERR "[KDP] cred->bp_task: 0x%lx, current: %s:0x%lx\n",
-						(unsigned long) ((struct cred_kdp *)cred)->bp_task, current->comm, (unsigned long)current);
+			pr_err("[KDP] %s: cred->bp_task and current mismatch\n", __func__);
 
 		if (mm && (((struct cred_kdp *)cred)->bp_pgd != swapper_pg_dir) &&
 			(((struct cred_kdp *)cred)->bp_pgd != mm->pgd))
-			printk(KERN_ERR "[KDP] mm: 0x%lx, cred->bp_pgd: 0x%lx, swapper_pg_dir: %p, mm->pgd: 0x%lx\n",
-							(unsigned long) mm, (unsigned long) ((struct cred_kdp *)cred)->bp_pgd, swapper_pg_dir, (unsigned long) mm->pgd);
+			pr_err("[KDP] %s: cred->bp_pgd and swapper_pg_dir mismatch, cred->bp_pgd and mm->pgd mismatch.\n", __func__);
 
 		return ((((struct cred_kdp *)cred)->bp_task != current) ||
 				(mm && (!(in_interrupt() || in_softirq())) &&
@@ -506,8 +497,7 @@ static inline bool is_kdp_invalid_cred_sp(u64 cred, u64 sec_ptr)
 	}
 
 	if ((u64)tsec->bp_cred != cred) {
-		printk("[KDP] %s: tesc->bp_cred: %llx, cred: %llx\n",
-				__func__, (u64)tsec->bp_cred, cred);
+		pr_err("[KDP] %s: tesc->bp_cred and cred mismatch.\n", __func__);
 		return true;
 	}
 

@@ -281,19 +281,20 @@ int frame_manager_open(struct is_framemgr *this, u32 buffers, bool need_param)
 	 * each video node was opened.
 	 */
 	if (this->frames)
-		vfree(this->frames);
+		pablo_free(this->frames);
 
-	this->frames = vzalloc(array_size(sizeof(struct is_frame), buffers));
+	this->frames = pablo_zalloc(array_size(sizeof(struct is_frame), buffers), GFP_KERNEL);
 	if (!this->frames) {
 		err("failed to allocate frames");
 		return -ENOMEM;
 	}
 
 	if (need_param) {
-		this->parameters = vzalloc(array_size(sizeof(struct is_param_region), buffers));
+		this->parameters = pablo_zalloc(array_size(sizeof(struct is_param_region), buffers),
+				GFP_KERNEL);
 		if (!this->parameters) {
 			err("failed to allocate parameters");
-			vfree(this->frames);
+			pablo_free(this->frames);
 			this->frames = NULL;
 			return -ENOMEM;
 		}

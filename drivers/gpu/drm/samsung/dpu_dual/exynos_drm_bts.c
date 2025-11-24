@@ -10,6 +10,7 @@
  * published by the Free Software Foundation.
  */
 
+#include <uapi/linux/sched/types.h>
 #include <exynos_drm_decon.h>
 #include <exynos_drm_dp.h>
 #include <exynos_drm_bts.h>
@@ -40,6 +41,10 @@
 #define FHD_WIDTH 	1080U
 #define FHD_MIN_RATIO	560U
 #define FHD_MAX_RATIO	1667U
+#define CAM_W_RATIO	9
+#define CAM_H_RATIO	22
+#define WITHIN_TOLERANCE(val, target, tol) \
+	((val) >= ((target) - (tol)) && (val) <= ((target) + (tol)))
 
 static int dpu_bts_log_level = 6;
 module_param(dpu_bts_log_level, int, 0600);
@@ -442,8 +447,14 @@ static u32
 dpu_bts_count_per_clk(struct decon_device *decon, u32 width, bool is_comp, bool is_rotate)
 {
 	u32 ppc;
+	bool horizontal_scanning;
 
-	if (is_comp && !is_rotate)
+	if (decon->device_orientation & (DRM_MODE_ROTATE_90 | DRM_MODE_ROTATE_270))
+		horizontal_scanning = is_rotate;
+	else
+		horizontal_scanning = !is_rotate;
+
+	if (is_comp && horizontal_scanning)
 		ppc = decon->bts.ppc_scaler_comp;
 	else
 		ppc = decon->bts.ppc_scaler * DISP_FACTOR;
@@ -823,10 +834,50 @@ static void create_win_overlay_coordinate(int win_cnt, struct dpu_bts_win_config
 	}
 }
 
+static u32
+__get_tdm_resource_count(struct decon_device *decon, struct bts_overlay_private *info, bool is_sajc)
+{
+	struct decon_device *overlay_decon;
+	struct dpu_bts_win_config *config;
+	int i;
+	u32 count = 0, max_count = 0;
+	u32 max_resource = is_sajc ? MAX_SAJC_PER_DPUF : DPP_PER_DPUF;
+	u32 resource_idx = is_sajc ? DPU_TDM_SAJC : DPU_TDM_HDR;
+
+	config = decon->bts.win_config;
+	create_win_overlay_coordinate(decon->win_cnt, config, info, is_sajc);
+	max_count = get_win_max_overlay_count(decon, info);
+	decon->bts.tdm_rsc_count[resource_idx] = max_count;
+
+	for (i = 0; i < MAX_DECON_CNT; ++i) {
+		overlay_decon = get_decon_drvdata(i);
+		if (!overlay_decon)
+			continue;
+
+		if (overlay_decon->id == decon->id)
+			continue;
+
+		if (overlay_decon->state != DECON_STATE_ON)
+			continue;
+
+		count += overlay_decon->bts.tdm_rsc_count[resource_idx];
+	}
+
+	if (count) {
+		DPU_DEBUG_BTS(decon, "(%s) resource overlapped (%d:%d)\n",
+				is_sajc ? "SAJC" : "HDR", max_count, count);
+		max_count += count;
+	}
+
+	if (max_count > max_resource)
+		max_count = max_resource;
+
+	return max_count;
+}
+
 static u64
 dpu_bts_calc_hdr_disp_freq(struct decon_device *decon, u64 resol_clk, u32 max_clk)
 {
-	struct dpu_bts_win_config *config = decon->bts.win_config;
 	struct bts_overlay_private hdr_info;
 	u32 hdr_tdm_ppc[DPP_PER_DPUF + 1] = {0,};
 	u32 max_overlay_hdr_cnt = 0;
@@ -837,13 +888,12 @@ dpu_bts_calc_hdr_disp_freq(struct decon_device *decon, u64 resol_clk, u32 max_cl
 
 	hdr_tdm_ppc[0] = 400;
 	hdr_tdm_ppc[1] = 200;
-	for (i = 2; i <= DPP_PER_DPUF; ++i) {
+	hdr_tdm_ppc[2] = 170;
+	for (i = 3; i <= DPP_PER_DPUF; ++i) {
 		hdr_tdm_ppc[i] = 400 / i;
 	}
 
-	create_win_overlay_coordinate(decon->win_cnt, config, &hdr_info, false);
-	max_overlay_hdr_cnt = get_win_max_overlay_count(decon, &hdr_info);
-
+	max_overlay_hdr_cnt = __get_tdm_resource_count(decon, &hdr_info, false);
 	if (!max_overlay_hdr_cnt) {
 		hdr_need_clk = resol_clk * DISP_FACTOR / hdr_tdm_ppc[0];
 		return hdr_need_clk;
@@ -860,7 +910,6 @@ dpu_bts_calc_hdr_disp_freq(struct decon_device *decon, u64 resol_clk, u32 max_cl
 static u64
 dpu_bts_calc_sajc_disp_freq(struct decon_device *decon, u64 resol_clk, u32 max_clk)
 {
-	struct dpu_bts_win_config *config = decon->bts.win_config;
 	struct bts_overlay_private sajc_info;
 	u32 *sajc_tdm_ppc;
 	u32 sajc_tdm_ppc_0[MAX_SAJC_PER_DPUF + 1] = {400, 400, 170, 100, 67};
@@ -869,9 +918,8 @@ dpu_bts_calc_sajc_disp_freq(struct decon_device *decon, u64 resol_clk, u32 max_c
 	u64 sajc_need_clk = max_clk;
 
 	memset(&sajc_info, 0, sizeof(struct bts_overlay_private));
+	max_overlay_sajc_cnt = __get_tdm_resource_count(decon, &sajc_info, true);
 
-	create_win_overlay_coordinate(decon->win_cnt, config, &sajc_info, true);
-	max_overlay_sajc_cnt = get_win_max_overlay_count(decon, &sajc_info);
 	if (!is_version_above(&decon->config.version, 7, 2))
 		sajc_tdm_ppc = sajc_tdm_ppc_0;
 	else
@@ -901,21 +949,21 @@ dpu_bts_calc_sajc_disp_freq(struct decon_device *decon, u64 resol_clk, u32 max_c
 static void dpu_bts_dsi_qos_update(struct decon_device *decon)
 {
 	s32 mif_qos_min = 845 * 1000;
-	static int mif_qos_org = 0;
+	static int mif_qos_org[MAX_DSI_CNT];
 
 	if (is_version_above(&decon->config.version, 7, 0)) {
 		if ((decon->bts.max_disp_freq > decon->bts.dfs_lv[1]) &&
 				(decon->bts.fps >= 120)) {
 			if (exynos_pm_qos_read_req_value(PM_QOS_BUS_THROUGHPUT,
 						&decon->bts.mif_qos) != mif_qos_min) {
-				mif_qos_org = exynos_pm_qos_read_req_value(
+				mif_qos_org[decon->id] = exynos_pm_qos_read_req_value(
 					PM_QOS_BUS_THROUGHPUT, &decon->bts.mif_qos);
 				exynos_pm_qos_update_request(&decon->bts.mif_qos,
 						mif_qos_min);
 			}
 		} else if (exynos_pm_qos_read_req_value(PM_QOS_BUS_THROUGHPUT,
 					&decon->bts.mif_qos) == mif_qos_min)
-			exynos_pm_qos_update_request(&decon->bts.mif_qos, mif_qos_org);
+			exynos_pm_qos_update_request(&decon->bts.mif_qos, mif_qos_org[decon->id]);
 	}
 }
 
@@ -996,7 +1044,60 @@ static void dpu_bts_calc_overlap_bw(struct decon_device *decon)
 }
 
 static bool
-__check_suspicious_layer(u32 half_h, u32 full_w, struct dpu_bts_win_config *config)
+__is_aspect_ratio_condition(u32 src_w, u32 src_h, u32 ratio_w, u32 ratio_h)
+{
+	u32 r1 = src_w * ratio_h;
+	u32 r2 = src_h * ratio_w;
+	u32 tol = src_w * 2;
+
+	if (WITHIN_TOLERANCE(r1, r2, tol))
+		return true;
+
+	return false;
+}
+
+static bool
+__find_video_preview_layer(u32 src_w, u32 src_h, u32 dst_w, u32 dst_h, bool is_yuv)
+{
+	if (!is_yuv)
+		return false;
+
+	if (src_w == dst_w && src_h == dst_h)
+		return false;
+
+	if (__is_aspect_ratio_condition(src_w, src_h, CAM_W_RATIO, CAM_H_RATIO))
+		return true;
+
+	return false;
+}
+
+static bool
+__find_video_xbgr_layer(struct dpu_bts_win_config *config, const struct dpu_fmt *info)
+{
+	u32 sw, sh;
+
+	if (info->fmt != DRM_FORMAT_XBGR8888 && info->fmt != DRM_FORMAT_ABGR8888)
+		return false;
+
+	if (config->is_rot) {
+		sw = config->src_h;
+		sh = config->src_w;
+	} else {
+		sw = config->src_w;
+		sh = config->src_h;
+	}
+
+	if (sw == config->dst_w && sh == config->dst_h)
+		return false;
+
+	if (__is_aspect_ratio_condition(sw, sh, 16, 9))
+		return true;
+
+	return false;
+}
+
+static bool
+__check_suspicious_layer(u32 full_w, struct dpu_bts_win_config *config, bool is_yuv)
 {
 	u32 min, max;
 	u32 y, w, h, src_w, src_h;
@@ -1016,9 +1117,6 @@ __check_suspicious_layer(u32 half_h, u32 full_w, struct dpu_bts_win_config *conf
 
 	is_scale = (src_w > config->dst_w || src_h > config->dst_h) ? true : false;
 
-	if (y > half_h)
-		return false;
-
 	if (!is_scale && w != full_w)
 		return false;
 
@@ -1026,6 +1124,9 @@ __check_suspicious_layer(u32 half_h, u32 full_w, struct dpu_bts_win_config *conf
 	max = w * FHD_MAX_RATIO / 1000;
 
 	if (h > min && h < max)
+		return true;
+
+	if (__find_video_preview_layer(src_w, src_h, w, h, is_yuv))
 		return true;
 
 	return false;
@@ -1057,10 +1158,11 @@ static void dpu_bts_bandwidth_boost(struct decon_device *decon)
 	int i;
 	struct dpu_bts_win_config *config = decon->bts.win_config;
 	const struct dpu_fmt *fmt_info;
-	bool is_hdr, is_yuv, is_10bpc, is_comp, is_rot;
+	bool is_hdr, is_yuv, is_10bpc, is_comp, is_rot, is_weak;
 	u32 new_info = 0;
 	u32 suspicious_layer_cnt = 0;
-	u32 half = decon->config.image_height >> 1;
+	u32 total_layer_cnt = 0;
+	u32 xbgr_layer_cnt = 0;
 
 	for (i = 0; i < decon->win_cnt; ++i) {
 		if (!is_version_above(&decon->config.version, 7, 3))
@@ -1072,14 +1174,19 @@ static void dpu_bts_bandwidth_boost(struct decon_device *decon)
 		if (config[i].state != DPU_WIN_STATE_BUFFER)
 			continue;
 
+		++total_layer_cnt;
 		fmt_info = dpu_find_fmt_info(config[i].format);
 		is_hdr = config[i].is_hdr;
 		is_yuv = IS_YUV(fmt_info);
 		is_10bpc = IS_10BPC(fmt_info);
 		is_comp = config[i].is_comp;
 		is_rot = config[i].is_rot;
-		if (__check_suspicious_layer(half, decon->config.image_width, &config[i]))
-			++suspicious_layer_cnt;
+		is_weak = is_yuv && is_hdr && is_10bpc && !is_comp && is_rot;
+		if (__check_suspicious_layer(decon->config.image_width, &config[i], is_yuv))
+			suspicious_layer_cnt += (is_weak ? 2 : 1);
+
+		if (__find_video_xbgr_layer(&config[i], fmt_info))
+			++xbgr_layer_cnt;
 
 		DPU_DEBUG_BTS(decon, "\t [%d] (yuv:%d, hdr:%d, 10bit:%d, is_comp:%d, is_rot:%d, s:%u)\n",
 			      i, is_yuv, is_hdr, is_10bpc, is_comp, is_rot, suspicious_layer_cnt);
@@ -1097,6 +1204,12 @@ static void dpu_bts_bandwidth_boost(struct decon_device *decon)
 				}
 			}
 		}
+	}
+
+	if (xbgr_layer_cnt > 0) {
+		new_info |= BIT(0) | BIT(1);
+		if (total_layer_cnt > 3)
+			new_info |= BIT(2);
 	}
 
 	if (suspicious_layer_cnt > 1)
@@ -1134,6 +1247,7 @@ static void dpu_bts_find_max_disp_freq(struct decon_device *decon)
 	struct dsim_reg_config *dsim_config = NULL;
 	u32 wclk;
 	int div = DSIM_CAL_CLK_DIVIDER_DPHY;
+	bool resource_updated;
 
 	if (decon->config.vote_overlap_bw) {
 		dpu_bts_calc_overlap_bw(decon);
@@ -1185,6 +1299,7 @@ static void dpu_bts_find_max_disp_freq(struct decon_device *decon)
 			disp_op_freq = freq;
 	}
 
+	resource_updated = false;
 	for (i = 0; i < decon->win_cnt; ++i) {
 		if (!is_version_above(&decon->config.version, 7, 0))
 			continue;
@@ -1203,10 +1318,14 @@ static void dpu_bts_find_max_disp_freq(struct decon_device *decon)
 				disp_op_freq = freq;
 			DPU_DEBUG_BTS(decon, "AFTER sajc check\n");
 			DPU_DEBUG_BTS(decon, "\tdisp_op_freq: %llu KHz\n", disp_op_freq);
+			resource_updated = true;
 			break;
 		}
 	}
+	if (!resource_updated)
+		decon->bts.tdm_rsc_count[DPU_TDM_SAJC] = 0;
 
+	resource_updated = false;
 	for (i = 0; i < decon->win_cnt; ++i) {
 		if (!is_version_above(&decon->config.version, 7, 0))
 			continue;
@@ -1224,9 +1343,12 @@ static void dpu_bts_find_max_disp_freq(struct decon_device *decon)
 				disp_op_freq = freq;
 			DPU_DEBUG_BTS(decon, "AFTER hdr check\n");
 			DPU_DEBUG_BTS(decon, "\tdisp_op_freq: %llu KHz\n", disp_op_freq);
+			resource_updated = true;
 			break;
 		}
 	}
+	if (!resource_updated)
+		decon->bts.tdm_rsc_count[DPU_TDM_HDR] = 0;
 
 	config = &decon->bts.wb_config;
 	if (config->state != DPU_WIN_STATE_DISABLED) {
@@ -1497,17 +1619,70 @@ void dpu_bts_calc_bw(struct exynos_drm_crtc *exynos_crtc)
 	DPU_ATRACE_END(__func__);
 }
 
+void dpu_bts_work_handler(struct kthread_work *work)
+{
+	struct dpu_bts *bts = container_of(work, struct dpu_bts, bts_work);
+	struct decon_device *decon =
+		container_of(bts, struct decon_device, bts);
+	struct exynos_drm_crtc *exynos_crtc = decon->crtc;
+	struct drm_crtc_state *new_crtc_state = exynos_crtc->base.state;
+	struct exynos_drm_crtc_state *new_exynos_crtc_state =
+		to_exynos_crtc_state(new_crtc_state);
+	u64 system_disp;
+
+	DPU_ATRACE_BEGIN(__func__);
+	mutex_lock(&bts->bts_lock);
+
+	DPU_EVENT_LOG("[C0] BTS_UPDATE_BW", exynos_crtc, 0, UPDATE_BW_FMT,
+		      UPDATE_BW_ARG_BTS(&decon->bts));
+	if (bts->total_bw > bts->prev_total_bw ||
+	    __check_boost_layer_bit(decon, false))
+		bts_update_bw(bts->bw_idx, bts->bw_applied);
+
+	DPU_EVENT_LOG("[C1] BTS_UPDATE_BW", exynos_crtc, 0, UPDATE_BW_FMT,
+		      UPDATE_BW_ARG_BTS(&decon->bts));
+
+	if (new_exynos_crtc_state->wb_type == EXYNOS_WB_CWB) {
+		if (exynos_pm_qos_request_active(&bts->int_qos))
+			exynos_pm_qos_update_request(&bts->int_qos, 663 * 1000);
+		if (exynos_pm_qos_request_active(&bts->mif_qos))
+			exynos_pm_qos_update_request(&bts->mif_qos, 845 * 1000);
+	}
+
+	DPU_EVENT_LOG("[C2] BTS_UPDATE_BW", exynos_crtc, 0, UPDATE_BW_FMT,
+		      UPDATE_BW_ARG_QOS(&decon->bts));
+	system_disp = exynos_devfreq_get_domain_freq(bts->df_disp_idx);
+	if (system_disp < bts->max_disp_freq ||
+	    bts->max_disp_freq > bts->prev_max_disp_freq) {
+		if (system_disp < bts->max_disp_freq)
+			DPU_DEBUG_BTS(decon,
+				      "\tWARN: Applied disp clock is lower\n");
+
+		exynos_pm_qos_update_request(&bts->disp_qos,
+					     bts->max_disp_freq);
+		DPU_DEBUG_BTS(decon, "disp_qos_update_request(disp_qos=%d)\n",
+			      bts->max_disp_freq);
+	}
+	mutex_unlock(&bts->bts_lock);
+
+	if (new_exynos_crtc_state->wb_type == EXYNOS_WB_CWB)
+		DPU_DEBUG_BTS(decon, "\tCWB: " FREQ_FMT "\n",
+			      FREQ_ARG(&decon->bts));
+
+	DPU_EVENT_LOG("BTS_UPDATE_BW", exynos_crtc, 0, FREQ_FMT,
+		      FREQ_ARG(&decon->bts));
+	complete(&bts->bts_comp);
+	DPU_ATRACE_END(__func__);
+}
+
 void dpu_bts_update_bw(struct exynos_drm_crtc *exynos_crtc, bool shadow_updated)
 {
 	struct decon_device *decon = exynos_crtc->ctx;
-	struct bts_bw bw = { 0, };
-	struct drm_crtc_state *new_crtc_state = exynos_crtc->base.state;
-	struct exynos_drm_crtc_state *new_exynos_crtc_state =
-					to_exynos_crtc_state(new_crtc_state);
-	u64 system_disp = 0;
+	struct dpu_bts *bts = &decon->bts;
+	struct bts_bw *bw = &bts->bw_applied;
 	u64 dp_pixelclock;
 
-	if (!decon->bts.enabled)
+	if (!bts->enabled)
 		return;
 
 	DPU_ATRACE_BEGIN(__func__);
@@ -1516,83 +1691,54 @@ void dpu_bts_update_bw(struct exynos_drm_crtc *exynos_crtc, bool shadow_updated)
 
 	DPU_DEBUG_BTS(decon, "+\n");
 
+	mutex_lock(&bts->bts_lock);
 	/* update peak & read bandwidth per DPU port */
-	bw.peak = decon->bts.peak;
-	bw.read = decon->bts.read_bw;
-	bw.write = decon->bts.write_bw;
+	bw->peak = bts->peak;
+	bw->read = bts->read_bw;
+	bw->write = bts->write_bw;
 	DPU_DEBUG_BTS(decon, "\t(%s shadow_update) peak = %d, read = %d, write = %d\n",
-		(shadow_updated ? "after" : "before"), bw.peak, bw.read, bw.write);
+		(shadow_updated ? "after" : "before"), bw->peak, bw->read, bw->write);
+	mutex_unlock(&bts->bts_lock);
 
 	if (shadow_updated) {
 		/* after DECON h/w configs are updated to shadow SFR */
 		DPU_EVENT_LOG("[S0] BTS_UPDATE_BW", exynos_crtc, 0,
 				UPDATE_BW_FMT, UPDATE_BW_ARG_BTS(&decon->bts));
-		if (decon->bts.total_bw < decon->bts.prev_total_bw ||
+		if (bts->total_bw < bts->prev_total_bw ||
 			__check_boost_layer_bit(decon, shadow_updated))
-			bts_update_bw(decon->bts.bw_idx, bw);
+			bts_update_bw(bts->bw_idx, *bw);
 
 		DPU_EVENT_LOG("[S1] BTS_UPDATE_BW", exynos_crtc, 0,
 				UPDATE_BW_FMT, UPDATE_BW_ARG_BTS(&decon->bts));
 
 		if ((decon->config.out_type & DECON_OUT_DP) &&
 				IS_DP_ON_STATE() && dp_pixelclock >= 297000000) {
-			decon->bts.prev_max_disp_freq = decon->bts.max_disp_freq;
+			bts->prev_max_disp_freq = bts->max_disp_freq;
 			return;
 		}
 
 		DPU_EVENT_LOG("[S2] BTS_UPDATE_BW", exynos_crtc, 0,
 				UPDATE_BW_FMT, UPDATE_BW_ARG_BTS(&decon->bts));
 
-		if (decon->bts.max_disp_freq < decon->bts.prev_max_disp_freq) {
-			exynos_pm_qos_update_request(&decon->bts.disp_qos,
-					decon->bts.max_disp_freq);
+		if (bts->max_disp_freq < bts->prev_max_disp_freq) {
+			exynos_pm_qos_update_request(&bts->disp_qos,
+					bts->max_disp_freq);
 			DPU_DEBUG_BTS(decon, "disp_qos_update_request(disp_qos=%d)\n",
-						decon->bts.max_disp_freq);
+						bts->max_disp_freq);
 		}
-		decon->bts.prev_total_bw = decon->bts.total_bw;
-		decon->bts.prev_max_disp_freq = decon->bts.max_disp_freq;
-		decon->bts.prev_boost_info = decon->bts.boost_info;
+		bts->prev_total_bw = bts->total_bw;
+		bts->prev_max_disp_freq = bts->max_disp_freq;
+		bts->prev_boost_info = bts->boost_info;
 	} else {
-		DPU_EVENT_LOG("[C0] BTS_UPDATE_BW", exynos_crtc, 0,
-				UPDATE_BW_FMT, UPDATE_BW_ARG_BTS(&decon->bts));
-		if (decon->bts.total_bw > decon->bts.prev_total_bw ||
-			__check_boost_layer_bit(decon, shadow_updated))
-			bts_update_bw(decon->bts.bw_idx, bw);
-
-		DPU_EVENT_LOG("[C1] BTS_UPDATE_BW", exynos_crtc, 0,
-				UPDATE_BW_FMT, UPDATE_BW_ARG_BTS(&decon->bts));
-
-		if (new_exynos_crtc_state->wb_type == EXYNOS_WB_CWB) {
-			if (exynos_pm_qos_request_active(&decon->bts.int_qos))
-				exynos_pm_qos_update_request(&decon->bts.int_qos, 663 * 1000);
-			if (exynos_pm_qos_request_active(&decon->bts.mif_qos))
-				exynos_pm_qos_update_request(&decon->bts.mif_qos, 845 * 1000);
-		}
-
+		reinit_completion(&bts->bts_comp);
 		if (decon->config.out_type & DECON_OUT_DP &&
-				IS_DP_ON_STATE() && dp_pixelclock >= 297000000)
+				IS_DP_ON_STATE() && dp_pixelclock >= 297000000) {
+			complete(&bts->bts_comp);
 			return;
-
-		DPU_EVENT_LOG("[C2] BTS_UPDATE_BW", exynos_crtc, 0,
-				UPDATE_BW_FMT, UPDATE_BW_ARG_QOS(&decon->bts));
-		system_disp = exynos_devfreq_get_domain_freq(decon->bts.df_disp_idx);
-		if (system_disp < decon->bts.max_disp_freq ||
-			decon->bts.max_disp_freq > decon->bts.prev_max_disp_freq) {
-
-			if (system_disp < decon->bts.max_disp_freq)
-				DPU_DEBUG_BTS(decon, "\tWARN: Applied disp clock is lower\n");
-
-			exynos_pm_qos_update_request(&decon->bts.disp_qos,
-					decon->bts.max_disp_freq);
-			DPU_DEBUG_BTS(decon, "disp_qos_update_request(disp_qos=%d)\n",
-						decon->bts.max_disp_freq);
 		}
 
-		if (new_exynos_crtc_state->wb_type == EXYNOS_WB_CWB)
-			DPU_DEBUG_BTS(decon, "\tCWB: "FREQ_FMT"\n", FREQ_ARG(&decon->bts));
+		kthread_queue_work(&bts->bts_worker, &bts->bts_work);
 	}
-
-	DPU_EVENT_LOG("BTS_UPDATE_BW", exynos_crtc, 0, FREQ_FMT, FREQ_ARG(&decon->bts));
 
 	DPU_DEBUG_BTS(decon, "-\n");
 	DPU_ATRACE_END(__func__);
@@ -1601,10 +1747,17 @@ void dpu_bts_update_bw(struct exynos_drm_crtc *exynos_crtc, bool shadow_updated)
 void dpu_bts_release_bw(struct exynos_drm_crtc *exynos_crtc)
 {
 	struct decon_device *decon = exynos_crtc->ctx;
+	struct exynos_drm_crtc_state *new_exynos_crtc_state;
 	struct bts_bw bw = { 0, };
 
 	if (!decon->bts.enabled)
 		return;
+
+	new_exynos_crtc_state =	to_exynos_crtc_state(decon->crtc->base.state);
+	if (new_exynos_crtc_state->tui_changed) {
+		DPU_INFO_BTS(decon, "tui transition : skip dpu_bts_release_bw() \n");
+		return;
+	}
 
 	DPU_DEBUG_BTS(decon, "+\n");
 
@@ -1668,6 +1821,8 @@ void dpu_bts_init(struct exynos_drm_crtc *exynos_crtc)
 	char bts_idx_name[MAX_IDX_NAME_SIZE];
 	const struct drm_encoder *encoder;
 	struct decon_device *decon = exynos_crtc->ctx;
+	struct dpu_bts *bts = &decon->bts;
+	struct sched_param param = { .sched_priority = 20 };
 	const char *scen_name[DPU_BS_MAX] = {
 		"default",
 		"mfc_uhd",
@@ -1678,7 +1833,7 @@ void dpu_bts_init(struct exynos_drm_crtc *exynos_crtc)
 
 	DPU_DEBUG_BTS(decon, "+\n");
 
-	decon->bts.enabled = false;
+	bts->enabled = false;
 
 	if ((!IS_ENABLED(CONFIG_EXYNOS_BTS) && !IS_ENABLED(CONFIG_EXYNOS_BTS_MODULE))
 			|| (!IS_ENABLED(CONFIG_EXYNOS_PM_QOS) &&
@@ -1689,7 +1844,7 @@ void dpu_bts_init(struct exynos_drm_crtc *exynos_crtc)
 
 	memset(bts_idx_name, 0, MAX_IDX_NAME_SIZE);
 	snprintf(bts_idx_name, MAX_IDX_NAME_SIZE, "DECON%d", decon->id);
-	decon->bts.bw_idx = bts_get_bwindex(bts_idx_name);
+	bts->bw_idx = bts_get_bwindex(bts_idx_name);
 
 	/*
 	 * Get scenario index from BTS driver
@@ -1697,24 +1852,33 @@ void dpu_bts_init(struct exynos_drm_crtc *exynos_crtc)
 	 */
 	for (i = 1; i < DPU_BS_MAX; i++) {
 		if (scen_name[i] != NULL)
-			decon->bts.scen_idx[i] =
-				bts_get_scenindex(scen_name[i]);
+			bts->scen_idx[i] = bts_get_scenindex(scen_name[i]);
 	}
 
 	for (i = 0; i < MAX_PORT_CNT; i++)
-		decon->bts.ch_bw[decon->id][i] = 0;
+		bts->ch_bw[decon->id][i] = 0;
 
-	DPU_DEBUG_BTS(decon, "BTS_BW_TYPE(%d)\n", decon->bts.bw_idx);
-	exynos_pm_qos_add_request(&decon->bts.mif_qos,
-					PM_QOS_BUS_THROUGHPUT, 0);
-	exynos_pm_qos_add_request(&decon->bts.int_qos,
-					PM_QOS_DEVICE_THROUGHPUT, 0);
-	exynos_pm_qos_add_request(&decon->bts.disp_qos,
-					PM_QOS_DISPLAY_THROUGHPUT, 0);
+	DPU_DEBUG_BTS(decon, "BTS_BW_TYPE(%d)\n", bts->bw_idx);
+	exynos_pm_qos_add_request(&bts->mif_qos, PM_QOS_BUS_THROUGHPUT, 0);
+	exynos_pm_qos_add_request(&bts->int_qos, PM_QOS_DEVICE_THROUGHPUT, 0);
+	exynos_pm_qos_add_request(&bts->disp_qos, PM_QOS_DISPLAY_THROUGHPUT, 0);
+
+	kthread_init_worker(&bts->bts_worker);
+	bts->bts_thread = kthread_run(kthread_worker_fn, &bts->bts_worker,
+				      "drm_bts%d", decon->id);
+	if (IS_ERR(bts->bts_thread)) {
+		DPU_ERR_BTS(decon, "failed to run bts thread\n");
+		return;
+	}
+	sched_setscheduler_nocheck(bts->bts_thread, SCHED_FIFO, &param);
+	kthread_init_work(&bts->bts_work, dpu_bts_work_handler);
+
+	init_completion(&decon->bts.bts_comp);
+	mutex_init(&decon->bts.bts_lock);
 
 	for (i = 0; i < decon->win_cnt; ++i) { /* dma type order */
-		decon->bts.bw[i].ch_num = decon->dpp[i]->port;
-		DPU_INFO_BTS(decon, "CH(%d) Port(%d)\n", i, decon->bts.bw[i].ch_num);
+		bts->bw[i].ch_num = decon->dpp[i]->port;
+		DPU_INFO_BTS(decon, "CH(%d) Port(%d)\n", i, bts->bw[i].ch_num);
 	}
 
 	drm_for_each_encoder(encoder, decon->drm_dev) {
@@ -1722,13 +1886,13 @@ void dpu_bts_init(struct exynos_drm_crtc *exynos_crtc)
 
 		if (encoder->encoder_type == DRM_MODE_ENCODER_VIRTUAL) {
 			wb = enc_to_wb_dev(encoder);
-			decon->bts.bw[wb->id].ch_num = wb->port;
+			bts->bw[wb->id].ch_num = wb->port;
 			break;
 		}
 	}
 
-	decon->bts.enabled = true;
-	decon->bts.boost_info = 0;
+	bts->enabled = true;
+	bts->boost_info = 0;
 
 	DPU_INFO_BTS(decon, "bts feature is enabled\n");
 }
@@ -1752,7 +1916,7 @@ void dpu_bts_print_info(const struct exynos_drm_crtc *exynos_crtc)
 	int i;
 	struct decon_device *decon = exynos_crtc->ctx;
 	const struct bts_decon_info *info = &decon->bts.bts_info;
-	static ktime_t bts_info_print_block_ts;
+	static ktime_t bts_info_print_block_ts[MAX_DECON_CNT];
 	bool bts_info_print_blocked = true;
 
 	if (!decon->bts.enabled)
@@ -1765,8 +1929,8 @@ void dpu_bts_print_info(const struct exynos_drm_crtc *exynos_crtc)
 
 	DPU_INFO_BTS(decon, FREQ_FMT"\n", FREQ_ARG(&decon->bts));
 
-	if (ktime_after(ktime_get(), bts_info_print_block_ts)) {
-		bts_info_print_block_ts = ktime_add_ms(ktime_get(),
+	if (ktime_after(ktime_get(), bts_info_print_block_ts[decon->id])) {
+		bts_info_print_block_ts[decon->id] = ktime_add_ms(ktime_get(),
 					BTS_INFO_PRINT_BLOCK_TIMEOUT);
 		bts_info_print_blocked = false;
 	}

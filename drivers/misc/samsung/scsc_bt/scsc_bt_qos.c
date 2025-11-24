@@ -243,8 +243,7 @@ void scsc_bt_qos_service_init(void)
 	ret = platform_driver_register(&platform_bt_qos_driver);
 	if (ret)
 		SCSC_TAG_WARNING(BT_COMMON,
-			"platform_driver_register for SCSC_BT_QOS is failed\n",
-			ret);
+			"failed to retister platform driver: %d\n", ret);
 }
 
 void scsc_bt_qos_service_exit(void)

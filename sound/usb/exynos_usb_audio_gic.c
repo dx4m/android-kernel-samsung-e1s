@@ -346,6 +346,11 @@ static int exynos_usb_audio_desc(struct usb_device *udev)
 	if (DEBUG)
 		dev_info(&udev->dev, "USB_AUDIO_IPC : %s\n", __func__);
 
+	if (udev->config == NULL) {
+		pr_err("%s: device config is NULL", __func__);
+		return -ENODEV;
+	}
+
 	configuration = usb_choose_configuration(udev);
 
 	cfgno = -1;
@@ -1189,6 +1194,7 @@ void exynos_usb_audio_disconnect(void *data, struct usb_interface *intf)
 	set_usb_audio_cardnum(chip->card->number, 0, 0);
 out:
 #endif
+	pr_info("USB_AUDIO_IPC : %s\n", __func__);
 	audio_work_data.is_conn = 0;
 	audio_work_data.sysmmu_mapping_done = 0;
 	usb_audio.user_scenario = AUDIO_MODE_NORMAL;

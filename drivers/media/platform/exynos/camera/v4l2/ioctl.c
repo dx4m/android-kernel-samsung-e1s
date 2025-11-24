@@ -195,7 +195,7 @@ static int is_queue_alloc(struct is_video_ctx *ivc)
 	struct is_video *iv = ivc->video;
 	struct is_queue *queue;
 
-	queue = kvzalloc(sizeof(struct is_queue), GFP_KERNEL);
+	queue = pablo_zalloc(sizeof(struct is_queue), GFP_KERNEL);
 	if (ZERO_OR_NULL_PTR(queue)) {
 		mverr("alloc fail", ivc, iv);
 		return -ENOMEM;
@@ -222,7 +222,7 @@ static int is_queue_alloc(struct is_video_ctx *ivc)
 		goto err;
 	}
 
-	queue->vbq = kvzalloc(sizeof(struct vb2_queue), GFP_KERNEL);
+	queue->vbq = pablo_zalloc(sizeof(struct vb2_queue), GFP_KERNEL);
 	if (ZERO_OR_NULL_PTR(queue->vbq)) {
 		mverr("out of memory for vbq", ivc, iv);
 		goto err;
@@ -237,10 +237,10 @@ static int is_queue_alloc(struct is_video_ctx *ivc)
 	return ret;
 
 err:
-	kvfree(queue->vbq);
+	pablo_free(queue->vbq);
 	queue->vbq = NULL;
 
-	kvfree(queue);
+	pablo_free(queue);
 	ivc->queue = NULL;
 
 	return ret;
@@ -1065,6 +1065,11 @@ int is_vidioc_s_ctrl(struct file *file, void *fh, struct v4l2_control *a)
 		if (ret)
 			return ret;
 		break;
+	case V4L2_CID_IS_CAMPOOL_HEAP_SIZE:
+		ret = is_vendor_set_campool_heap_size(a->value);
+		if (ret)
+			return ret;
+		break;
 	default:
 		ret = is_vendor_vidioc_s_ctrl(ivc, a);
 		if (ret) {
@@ -1498,6 +1503,11 @@ int is_ssx_video_s_ctrl(struct file *file, void *priv, struct v4l2_control *ctrl
 		 */
 		clear_bit(IS_GROUP_STANDBY, &device->group_sensor.state);
 		minfo("Clear STANDBY state", device);
+		break;
+	case V4L2_CID_IS_CAMPOOL_HEAP_SIZE:
+		ret = is_vendor_set_campool_heap_size(ctrl->value);
+		if (ret)
+			return ret;
 		break;
 	default:
 		ret = is_sensor_s_ctrl(device, ctrl);

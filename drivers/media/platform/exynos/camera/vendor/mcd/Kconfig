@@ -112,6 +112,12 @@ config CAMERA_BRY_V7
         default n
         help
           This camera is bry_v7.
+config CAMERA_RSY_V13
+        bool "This camera is rsy_v13"
+        depends on CAMERA_VENDOR_MCD
+        default n
+        help
+          This camera is rsy_v13.
 config USE_OIS_TAMODE_CONTROL
 	bool "Use ois TAMODE control"
         depends on CAMERA_VENDOR_MCD

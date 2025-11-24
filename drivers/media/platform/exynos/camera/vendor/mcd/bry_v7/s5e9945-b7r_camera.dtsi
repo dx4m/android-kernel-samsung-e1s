@@ -28,6 +28,7 @@
 				id = <0 4>;
 				status = "okay";
 				flash-gpio = <&gpc1 1 0x1>;
+				adaptive_movie_currrent = <120>;
 			};
 
 			/* OIS_MCU */
@@ -250,11 +251,11 @@
 	aw36518@63 {
 		compatible = "aw36518";
 		reg = <0x63>;
-		torch_level_1_cur = <50>;
-		torch_level_2_cur = <75>;
-		torch_level_3_cur = <125>;
-		torch_level_4_cur = <175>;
-		torch_level_5_cur = <225>;
+		torch_level_1_cur = <40>;
+		torch_level_2_cur = <60>;
+		torch_level_3_cur = <85>;
+		torch_level_4_cur = <150>;
+		torch_level_5_cur = <170>;
 		pre_flash_cur = <225>;
 		main_flash_cur = <1300>;
 		video_torch_cur = <225>;
@@ -317,6 +318,7 @@
 		rom_header_module_id_addr = <0xAE>; /* 0xA8 + reserved bytes */
 		rom_header_sensor_id_addr = <0xB8>;
 		rom_header_mtf_data_addr = <0x66>;
+		rom_header_sfr_data_addr = <0x68>;
 		rom_awb_master_addr = <0x1C00>;
 		rom_awb_module_addr = <0x1C24>;
 	};
@@ -398,6 +400,7 @@
 		rom_header_module_id_addr = <0xAE>; /* 0xA8 + reserved bytes */
 		rom_header_sensor_id_addr = <0xB8>;
 		rom_header_mtf_data_addr = <0xE0>;
+		rom_header_sfr_data_addr = <0xE2>;
 		rom_paf_cal_start_addr = <0x1D00>;
 		rom_awb_master_addr = <0x2D60>;
 		rom_awb_module_addr = <0x2D84>;
@@ -467,6 +470,7 @@
 		rom_header_module_id_addr = <0xAE>; /* 0xA8 + reserved bytes */
 		rom_header_sensor_id_addr = <0x70>;
 		rom_header_mtf_data_addr = <0xE0>;
+		rom_header_sfr_data_addr = <0xE2>;
 		rom_awb_master_addr = <0x200>;
 		rom_awb_module_addr = <0x20C>;
 	};
@@ -684,6 +688,13 @@
 			rear_single_video_uhd60_int = <6>;
 			rear_single_video_uhd60_icpu = <1>;
 
+			rear_single_video_uhd60_hf_cam = <5>;
+			rear_single_video_uhd60_hf_isp = <6>;
+			rear_single_video_uhd60_hf_int_cam = <4>;
+			rear_single_video_uhd60_hf_mif = <7>;
+			rear_single_video_uhd60_hf_int = <6>;
+			rear_single_video_uhd60_hf_icpu = <1>;
+
 			rear_single_video_uhd60_supersteady_cam = <5>;
 			rear_single_video_uhd60_supersteady_isp = <5>;
 			rear_single_video_uhd60_supersteady_int_cam = <4>;
@@ -759,7 +770,7 @@
 			rear_single_vt_int_cam = <6>;
 			rear_single_vt_mif = <10>;
 			rear_single_vt_int = <1>;
-			rear_single_vt_icpu = <0>;
+			rear_single_vt_icpu = <4>;
 
 			rear_single_video_8k24_cam = <4>;
 			rear_single_video_8k24_isp = <4>;
@@ -948,7 +959,7 @@
 			front_single_vt_int_cam = <6>;
 			front_single_vt_mif = <10>;
 			front_single_vt_int = <1>;
-			front_single_vt_icpu = <0>;
+			front_single_vt_icpu = <4>;
 
 			front_single_fastae_cam = <0>;
 			front_single_fastae_isp = <0>;

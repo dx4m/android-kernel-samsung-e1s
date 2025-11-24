@@ -2740,36 +2740,28 @@ throttle_mode_sustainable_power_store(struct device *dev, struct device_attribut
 static ssize_t thermal_log_show(struct file *file, struct kobject *kobj,
 		struct bin_attribute *attr, char *buf, loff_t offset, size_t count)
 {
-	ssize_t len = 0, printed = 0;
+	ssize_t printed = 0;
 	static unsigned int front = 0, log_len = 0, i = 0;
 	struct thermal_log *log;
-	char str[256];
 
-	if (offset == 0) {
+	if (!offset) {
+		i = 0;
+
 		front = dss_get_first_thermal_log_idx();
 		log_len = dss_get_len_thermal_log();
-		printed = 0;
-		i = 0;
-		len = snprintf(str, sizeof(str), "TEST: %d %d\n", front, log_len);
-		memcpy(buf + printed, str, len);
-		printed += len;
 	}
 
-	for ( ; i < log_len; i++) {
+	while (i < log_len && printed + 256 < count) {
 		log = dss_get_thermal_log_iter(i + front);
 #if IS_ENABLED(CONFIG_EXYNOS_EA_DTM)
-		len = snprintf(str, sizeof(str), "%llu %s %3d'C, %4uMHz, %4umV, flag=%d, state=%2u, t_coef=%d, f_coef=%d\n",
+		printed += scnprintf(buf + printed, count - printed, "%llu %s %3d'C, %4uMHz, %4umV, flag=%d, state=%2u, t_coef=%d, f_coef=%d\n",
 				log->time, log->cooling_device, log->temp, log->freq,
 				log->power, (log->state >> 8) & 0xFF, log->state & 0xFF,
 				log->t_coef, log->f_coef);
 #else
-		len = snprintf(str, sizeof(str), "%llu %d %s %d %llu\n", log->time, log->cpu, log->cooling_device, log->temp, log->cooling_state);
+		printed += scnprintf(buf + printed, count - printed, "%llu %d %s %d %llu\n", log->time, log->cpu, log->cooling_device, log->temp, log->cooling_state);
 #endif
-		if (len + printed <= count) {
-			memcpy(buf + printed, str, len);
-			printed += len;
-		} else
-			break;
+		i++;
 	}
 
 	return printed;
@@ -2800,6 +2792,38 @@ static ssize_t thermal_status_show(struct kobject *kobj, struct kobj_attribute *
 		devnode->thermal_status[2] = 0;
 		mutex_unlock(&devnode->lock);
 	}
+
+	return count;
+}
+
+static ssize_t use_cold_show(struct kobject *kobj, struct kobj_attribute *attr,
+		char *buf)
+{
+	ssize_t count = 0;
+	int mode = 0;
+
+	exynos_acpm_tmu_get_use_cold(&mode);
+
+	count += snprintf(buf + count, PAGE_SIZE, "%s\n",
+			mode == DISABLE_USE_COLD ? "false" : "true");
+
+	return count;
+}
+
+static ssize_t use_cold_store(struct kobject *kobj, struct kobj_attribute *attr,
+		const char *buf, size_t count)
+{
+	int mode = 0;
+
+	if (kstrtou32(buf, 10, &mode))
+		return -EINVAL;
+
+	if (mode != 0 && mode != 1) {
+		pr_info("%s: usage >> echo [0/1] > /sys/kernel/thermal/use_cold\n", __func__);
+		return -EINVAL;
+	}
+
+	exynos_acpm_tmu_set_use_cold(mode);
 
 	return count;
 }
@@ -2841,6 +2865,7 @@ time_in_state_json_attr = __ATTR_RO_MODE(time_in_state_json, 0440);
 #endif /* CONFIG_SEC_PM */
 
 static struct kobj_attribute thermal_status_attr = __ATTR(thermal_status, 0440, thermal_status_show, NULL);
+static struct kobj_attribute use_cold_attr = __ATTR(use_cold, 0660, use_cold_show, use_cold_store);
 
 #if IS_ENABLED(CONFIG_EXYNOS_ESCA_THERMAL)
 #define create_s32_param_attr(name, pos)					\
@@ -3704,6 +3729,8 @@ static int exynos_tmu_probe(struct platform_device *pdev)
 		if (sysfs_create_bin_file(kobj, &thermal_log_bin_attr))
 			dev_err(&pdev->dev, "Failed to create bin file\n");
 		if (sysfs_create_file(kobj, &thermal_status_attr.attr))
+			dev_err(&pdev->dev, "Failed to create thermal_status file\n");
+		if (sysfs_create_file(kobj, &use_cold_attr.attr))
 			dev_err(&pdev->dev, "Failed to create thermal_status file\n");
 #if IS_ENABLED(CONFIG_SEC_PM)
 		if (sysfs_create_file(kobj, &time_in_state_json_attr.attr))

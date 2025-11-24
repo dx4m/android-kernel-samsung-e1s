@@ -21,6 +21,9 @@
 #include <linux/types.h>
 #include <linux/dma-buf.h>
 #include <linux/timer.h>
+#include <linux/pm_qos.h>
+#include <soc/samsung/exynos_pm_qos.h>
+#include <soc/samsung/freq-qos-tracer.h>
 
 #include <media/exynos_repeater.h>
 
@@ -46,11 +49,20 @@ struct repeater_context_status {
 	enum repeater_status status;
 };
 
+struct repeater_cpu_clk {
+	unsigned int num_cpu;
+	unsigned int cpu_clk;
+};
+
 struct repeater_device {
 	struct miscdevice misc_dev;
 	struct device *dev;
 	atomic_t ctx_num;
 	struct repeater_context *ctx[REPEATER_MAX_CONTEXTS_NUM];
+
+	struct repeater_cpu_clk *cpu_clk_table;
+	unsigned int num_cluster;
+	bool cpu_clk_requested;
 };
 
 struct repeater_context {

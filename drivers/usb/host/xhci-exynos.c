@@ -21,8 +21,6 @@
 #include "../core/phy.h"
 #include "xhci.h"
 #include "xhci-plat.h"
-#include "xhci-mvebu.h"
-#include "xhci-rcar.h"
 #include "../dwc3/dwc3-exynos.h"
 #include "../dwc3/exynos-otg.h"
 #include "xhci-exynos.h"
@@ -354,7 +352,8 @@ int xhci_exynos_inform_dp_use(int use, int lane_cnt)
 		udelay(1);
 	} else {
 #ifdef CONFIG_EXYNOS_USBDRD_PHY30
-		if (g_xhci_exynos->port_state == PORT_USB2) {
+		if ((g_xhci_exynos->port_state == PORT_USB2)
+				&& (g_xhci_exynos->usb_host_ready == true)) {
 			if (g_xhci_exynos->usb3_phy_control == true) {
 				usb_power_notify_control(1, 0);
 				g_xhci_exynos->usb3_phy_control = false;
@@ -535,22 +534,6 @@ static struct attribute *xhci_exynos_attrs[] = {
 ATTRIBUTE_GROUPS(xhci_exynos);
 
 #ifdef CONFIG_OF
-static const struct xhci_plat_priv xhci_plat_marvell_armada = {
-	.init_quirk = xhci_mvebu_mbus_init_quirk,
-};
-
-static const struct xhci_plat_priv xhci_plat_marvell_armada3700 = {
-	.init_quirk = xhci_mvebu_a3700_init_quirk,
-};
-
-static const struct xhci_plat_priv xhci_plat_renesas_rcar_gen2 = {
-	SET_XHCI_PLAT_PRIV_FOR_RCAR(XHCI_RCAR_FIRMWARE_NAME_V1)
-};
-
-static const struct xhci_plat_priv xhci_plat_renesas_rcar_gen3 = {
-	SET_XHCI_PLAT_PRIV_FOR_RCAR(XHCI_RCAR_FIRMWARE_NAME_V3)
-};
-
 static const struct of_device_id usb_xhci_of_match[] = {
 	{
 	 .compatible = "generic-xhci",
@@ -1033,7 +1016,7 @@ static int xhci_exynos_remove(struct platform_device *dev)
 					need_wait = true;
 			}
 		}
-		if (need_wait == true) {
+		if ((need_wait == true) || (xhci_exynos->dp_use == true)) {
 			usleep_range(20000, 22000);
 			timeout += 20;
 			xhci_info(xhci, "Waiting USB hub disconnect\n");

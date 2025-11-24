@@ -182,6 +182,38 @@
 						vc3 = </* in */ 3 HW_FORMAT_UNKNOWN DATA_NONE 0 0	/* out */ HW_FORMAT_UNKNOWN VC_NOTHING 0 0>;
 						option { votf = <0>; };
 					};
+					mode11 {
+						common = <3008 2080 30 0 11 CSI_DATA_LANES_4 1984 CSI_MODE_VC_ONLY LRTE_DISABLE PD_NONE EX_NONE>;
+						vc0 = </* in */ 0 HW_FORMAT_RAW10 DATA_IMG 3008 2080	/* out */ HW_FORMAT_RAW10 VC_NOTHING 3008 2080>;
+						vc1 = </* in */ 1 HW_FORMAT_UNKNOWN DATA_NONE 0 0	/* out */ HW_FORMAT_UNKNOWN VC_NOTHING 0 0>;
+						vc2 = </* in */ 2 HW_FORMAT_UNKNOWN DATA_NONE 0 0	/* out */ HW_FORMAT_UNKNOWN VC_NOTHING 0 0>;
+						vc3 = </* in */ 3 HW_FORMAT_UNKNOWN DATA_NONE 0 0	/* out */ HW_FORMAT_UNKNOWN VC_NOTHING 0 0>;
+						option { votf = <0>; };
+					};
+					mode12 {
+						common = <1504 848 30 0 12 CSI_DATA_LANES_4 1984 CSI_MODE_VC_ONLY LRTE_DISABLE PD_NONE EX_NONE>;
+						vc0 = </* in */ 0 HW_FORMAT_RAW10 DATA_IMG 1504 848	/* out */ HW_FORMAT_RAW10 VC_NOTHING 1504 848>;
+						vc1 = </* in */ 1 HW_FORMAT_UNKNOWN DATA_NONE 0 0	/* out */ HW_FORMAT_UNKNOWN VC_NOTHING 0 0>;
+						vc2 = </* in */ 2 HW_FORMAT_UNKNOWN DATA_NONE 0 0	/* out */ HW_FORMAT_UNKNOWN VC_NOTHING 0 0>;
+						vc3 = </* in */ 3 HW_FORMAT_UNKNOWN DATA_NONE 0 0	/* out */ HW_FORMAT_UNKNOWN VC_NOTHING 0 0>;
+						option { votf = <0>; };
+					};
+					mode13 {
+						common = <1824 1028 30 0 13 CSI_DATA_LANES_4 1984 CSI_MODE_VC_ONLY LRTE_DISABLE PD_NONE EX_NONE>;
+						vc0 = </* in */ 0 HW_FORMAT_RAW10 DATA_IMG 1824 1028	/* out */ HW_FORMAT_RAW10 VC_NOTHING 1824 1028>;
+						vc1 = </* in */ 1 HW_FORMAT_UNKNOWN DATA_NONE 0 0	/* out */ HW_FORMAT_UNKNOWN VC_NOTHING 0 0>;
+						vc2 = </* in */ 2 HW_FORMAT_UNKNOWN DATA_NONE 0 0	/* out */ HW_FORMAT_UNKNOWN VC_NOTHING 0 0>;
+						vc3 = </* in */ 3 HW_FORMAT_UNKNOWN DATA_NONE 0 0	/* out */ HW_FORMAT_UNKNOWN VC_NOTHING 0 0>;
+						option { votf = <0>; };
+					};
+					mode14 {
+						common = <1504 1040 30 0 14 CSI_DATA_LANES_4 1984 CSI_MODE_VC_ONLY LRTE_DISABLE PD_NONE EX_NONE>;
+						vc0 = </* in */ 0 HW_FORMAT_RAW10 DATA_IMG 1504 1040	/* out */ HW_FORMAT_RAW10 VC_NOTHING 1504 1040>;
+						vc1 = </* in */ 1 HW_FORMAT_UNKNOWN DATA_NONE 0 0	/* out */ HW_FORMAT_UNKNOWN VC_NOTHING 0 0>;
+						vc2 = </* in */ 2 HW_FORMAT_UNKNOWN DATA_NONE 0 0	/* out */ HW_FORMAT_UNKNOWN VC_NOTHING 0 0>;
+						vc3 = </* in */ 3 HW_FORMAT_UNKNOWN DATA_NONE 0 0	/* out */ HW_FORMAT_UNKNOWN VC_NOTHING 0 0>;
+						option { votf = <0>; };
+					};
 				};
 
 				power_seq {

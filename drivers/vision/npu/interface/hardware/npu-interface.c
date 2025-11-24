@@ -1397,6 +1397,62 @@ int fw_msg_available(void)
 }
 #endif
 
+#if IS_ENABLED(CONFIG_SOC_S5E9945)
+#define F_SUSPEND_TIMEOUT_MS		(3000)
+#define FORCE_SUSPEND_REQUEST_MAGIC	(0xdeadbeef)
+#define FORCE_SUSPEND_READY_MAGIC	(0x900dc0de)
+int npu_interface_force_suspend(struct npu_system *system)
+{
+	int ret = 0;
+	int i;
+	struct command cmd = {};
+	struct message msg = {};
+	u32 force_suspend_ready;
+	u32 force_suspend_request;
+
+
+	force_suspend_ready = dsp_dhcp_read_reg_idx(system->dhcp, FORCE_SUSPEND_READY);
+	force_suspend_request = dsp_dhcp_read_reg_idx(system->dhcp, FORCE_SUSPEND_REQUEST);
+	npu_info("FORCE SUSPEND READY(0x%x), FORCE_SUSPEND_REQUEST(0x%x)\n",
+			force_suspend_ready, force_suspend_request);
+
+	dsp_dhcp_write_reg_idx(system->dhcp, FORCE_SUSPEND_REQUEST, FORCE_SUSPEND_REQUEST_MAGIC);
+
+	cmd.payload = 0;
+	msg.command = COMMAND_PWR_CTL;
+	msg.length = (u32)sizeof(struct command);
+
+	msg.mid = 0;
+
+	npu_info("npu set cmd and send interrupt before\n");
+	ret = npu_set_cmd(&msg, &cmd, NPU_MBOX_REQUEST_LOW);
+	if (ret) {
+		npu_err("npu_set_cmd is failed(%d)\n", ret);
+		goto p_err;
+	}
+
+	mbx_ipc_print_dbg(NPU_MBOX_BASE((void *)interface.mbox_hdr), &interface.mbox_hdr->h2fctrl[0]);
+
+	ret = -ETIMEDOUT;
+	for (i = 0; i < F_SUSPEND_TIMEOUT_MS; i++) {
+		if (dsp_dhcp_read_reg_idx(system->dhcp, FORCE_SUSPEND_READY)
+				== FORCE_SUSPEND_READY_MAGIC) {
+			npu_info("FORCE SUSPEND READY(0x%x), FORCE_SUSPEND_REQUEST(0x%x)\n",
+				dsp_dhcp_read_reg_idx(system->dhcp, FORCE_SUSPEND_READY),
+				dsp_dhcp_read_reg_idx(system->dhcp, FORCE_SUSPEND_REQUEST));
+			ret = 0;
+			break;
+		}
+
+		mdelay(1);
+		if (!(i % 500))
+			npu_info("waiting force suspend response from rtos\n");
+	}
+
+p_err:
+	return ret;
+}
+#endif
 
 #if IS_ENABLED(CONFIG_NPU_USE_UTIL_STATS)
 static int get_npu_utilization(int n)

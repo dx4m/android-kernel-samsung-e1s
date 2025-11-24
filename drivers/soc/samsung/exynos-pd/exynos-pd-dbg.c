@@ -223,26 +223,9 @@ static int exynos_pd_dbg_probe(struct platform_device *pdev)
 
 	pm_runtime_enable(&pdev->dev);
 
-	ret = pm_runtime_get_sync(&pdev->dev);
-	if (ret) {
-		pr_err("%s %s: get_sync of %s failed.\n",
-			EXYNOS_PD_DBG_PREFIX, __func__, dev_name(&pdev->dev));
-		goto err_get_sync;
-	}
-
-	ret = pm_runtime_put_sync(&pdev->dev);
-	if (ret) {
-		pr_err("%s %s: put sync of %s failed.\n",
-			EXYNOS_PD_DBG_PREFIX, __func__, dev_name(&pdev->dev));
-		goto err_put_sync;
-	}
-
 	return 0;
 
-err_get_sync:
-err_put_sync:
 #ifdef CONFIG_DEBUG_FS
-	debugfs_remove_recursive(dbg_info->d);
 err_dbgfs_pd:
 	debugfs_remove_recursive(exynos_pd_dbg_root);
 err_dbgfs_root:
@@ -287,10 +270,23 @@ static int exynos_pd_dbg_runtime_resume(struct device *dev)
 	return 0;
 }
 
+static int exynos_pd_dbg_suspend(struct device *dev)
+{
+	device_set_wakeup_path(dev);
+
+	return 0;
+}
+
+static int exynos_pd_dbg_resume(struct device *dev)
+{
+	return 0;
+}
+
 static struct dev_pm_ops exynos_pd_dbg_pm_ops = {
-	SET_RUNTIME_PM_OPS(exynos_pd_dbg_runtime_suspend,
-			exynos_pd_dbg_runtime_resume,
-			NULL)
+	.runtime_suspend = exynos_pd_dbg_runtime_suspend,
+	.runtime_resume = exynos_pd_dbg_runtime_resume,
+	.suspend = exynos_pd_dbg_suspend,
+	.resume = exynos_pd_dbg_resume,
 };
 
 #ifdef CONFIG_OF

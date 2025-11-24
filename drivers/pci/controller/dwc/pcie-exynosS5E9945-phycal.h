@@ -8,6 +8,7 @@ struct phycal_seq pciphy_pwrdn_clr_ch0[] = {
 	PHYCAL_SEQ_DESC(PHYCAL_EXT_DELAY, "delay", 0, 0, 0, 0x0, 0, 0, 0, 0, EP_TYPE_ALL, 0, 100, "NULL"),
 	PHYCAL_SEQ_DESC(PHYCAL_EXT_WRITE, "PCIE_REFCLK_CTRL__SOC_OPTION_6", 0x181b0000, 0xa218, (0xffffffff << 0), (0x1 << 0), 0, 0, 0xffffffff, 0, EP_TYPE_ALL, 0, 0, "NULL"),
 	PHYCAL_SEQ_DESC(PHYCAL_EXT_WRITE, "PCIE_REFCLK_CTRL__SOC_OPTION_7", 0x181b0000, 0xa21c, (0xffffffff << 0), (0x1 << 0), 0, 0, 0xffffffff, 0, EP_TYPE_ALL, 0, 0, "NULL"),
+	PHYCAL_SEQ_DESC(PHYCAL_EXT_WRITE, "PCIE_REFCLK_CTRL__SOC_OPTION_7", 0x181b0000, 0xa21c, (0xffffffff << 0), (0x100 << 0), 0, 0, 0xffffffff, 0, EP_TYPE_SAMSUNG_WIFI, 0, 0, "NULL"),
 };
 
 struct phycal_seq pciphy_config_ch0[] = {
@@ -41,6 +42,7 @@ struct phycal_seq pciphy_config_ch0_rom_change[] = {
 	PHYCAL_SEQ_DESC(PHYCAL_EXT_WRITE, "PCIE_REFCLK_CTRL__SOC_OPTION_3", 0x181b0000, 0xa20c, (0x1 << 26), (0x1 << 26), 0, 0, 0xffffffff, 0, EP_TYPE_ALL, 0, 0, "NULL"),
 	PHYCAL_SEQ_DESC(PHYCAL_EXT_WRITE, "PCIE_REFCLK_CTRL__SOC_OPTION_6", 0x181b0000, 0xa218, (0xffffffff << 0), (0x1 << 0), 0, 0, 0xffffffff, 0, EP_TYPE_ALL, 0, 0, "NULL"),
 	PHYCAL_SEQ_DESC(PHYCAL_EXT_WRITE, "PCIE_REFCLK_CTRL__SOC_OPTION_7", 0x181b0000, 0xa21c, (0xffffffff << 0), (0x1 << 0), 0, 0, 0xffffffff, 0, EP_TYPE_ALL, 0, 0, "NULL"),
+	PHYCAL_SEQ_DESC(PHYCAL_EXT_WRITE, "PCIE_REFCLK_CTRL__SOC_OPTION_7", 0x181b0000, 0xa21c, (0xffffffff << 0), (0x100 << 0), 0, 0, 0xffffffff, 0, EP_TYPE_SAMSUNG_WIFI, 0, 0, "NULL"),
 	PHYCAL_SEQ_DESC(PHYCAL_EXT_WRITE, "PCIE_SS_RW___9", 0x181b0000, 0xb024, (0xf << 9), (0x4 << 9), 0, 0, 0xffffffff, 0, EP_TYPE_ALL, 0, 0, "NULL"),
 	PHYCAL_SEQ_DESC(PHYCAL_EXT_SET_BIT, "GEN_CONTROL_SS_RST_CTRL", 0x18140000, 0x0048, (0x1 << 0), (0x1 << 0), 0, 0, 0xffffffff, 0, EP_TYPE_ALL, 0, 0, "NULL"),
 	PHYCAL_SEQ_DESC(PHYCAL_EXT_DELAY, "delay", 0, 0, 0, 0x0, 0, 0, 0, 0, EP_TYPE_ALL, 0, 10, "NULL"),
@@ -252,4 +254,4 @@ struct phycal_seq pciphy_ch1_ia1[] = {
 struct phycal_seq pciphy_ch1_ia2[] = {
 };
 
-char phycal_revinfo[] = "ver0.17";
+char phycal_revinfo[] = "ver0.19";

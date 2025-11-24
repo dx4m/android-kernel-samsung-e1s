@@ -69,9 +69,9 @@ static struct is_video_ctx *is_vctx_open(struct file *file,
 		return ERR_PTR(-EINVAL);
 	}
 
-	ivc = kvzalloc(sizeof(struct is_video_ctx), GFP_KERNEL);
+	ivc = pablo_zalloc(sizeof(struct is_video_ctx), GFP_KERNEL);
 	if (ZERO_OR_NULL_PTR(ivc)) {
-		err("[V%02d] kvzalloc is fail", video->id);
+		err("[V%02d] pablo_zalloc is fail", video->id);
 		return ERR_PTR(-ENOMEM);
 	}
 
@@ -89,7 +89,7 @@ static int is_vctx_close(struct file *file,
 	struct is_video *video,
 	struct is_video_ctx *vctx)
 {
-	kvfree(vctx);
+	pablo_free(vctx);
 	file->private_data = NULL;
 
 	return vref_put(video, NULL);
@@ -126,10 +126,10 @@ static int __is_video_close(struct is_video_ctx *ivc)
 
 	if (iq) {
 		vb2_queue_release(iq->vbq);
-		kvfree(iq->vbq);
+		pablo_free(iq->vbq);
 		iq->vbq = NULL;
 		is_queue_close(iq);
-		kvfree(iq);
+		pablo_free(iq);
 	}
 
 	/*

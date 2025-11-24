@@ -1,0 +1,23 @@
+// SPDX-License-Identifier: GPL-2.0
+/*
+ * COPYRIGHT(C) 2025 Samsung Electronics Co., Ltd. All Right Reserved.
+ */
+
+/ {
+	fragment@model {
+		target-path = "/";
+		__overlay__ {
+			gpio_keys {
+				label = "gpio_keys_flex";
+			};
+		};
+	};
+};
+
+&acpm_mfd_bus0 {
+	s2mps27mfd@1d {
+		s2mps27-keys {
+			label = "s2mps27-power-keys_flex";
+		};
+	};
+};

@@ -33,9 +33,7 @@
 
 #include "panel/panel-samsung-drv.h"
 
-#define HIBERNATION_ENTRY_DEFAULT_FPS		60
-#define HIBERNATION_ENTRY_MIN_TIME_MS		50
-#define HIBERNATION_ENTRY_MIN_ENTRY_CNT		2
+#define HIBERNATION_ENTRY_MIN_TIME_NS		(50 * NSEC_PER_MSEC)
 
 static int dpu_hiber_log_level = 6;
 module_param(dpu_hiber_log_level, int, 0600);
@@ -87,18 +85,15 @@ static bool is_queueing_work(struct exynos_hibernation *hiber)
 
 	exynos_crtc = decon->crtc;
 
-	if (atomic_read(&exynos_crtc->hibernation->trig_cnt) > 1)
-		return false;
-
 	return drm_modeset_is_locked(&exynos_crtc->base.mutex);
 }
 
 int exynos_hibernation_queue_exit_work(struct exynos_drm_crtc *exynos_crtc)
 {
-	if (!exynos_crtc->hibernation || !exynos_crtc->hibernation->early_wakeup_enable)
+	if (!exynos_crtc->hibernation)
 		return -EPERM;
 
-	kthread_queue_work(&exynos_crtc->hibernation->exit_worker,
+	kthread_queue_work(&exynos_crtc->hibernation->worker,
 			&exynos_crtc->hibernation->exit_work);
 
 	return 0;
@@ -113,6 +108,7 @@ static ssize_t exynos_show_hibernation_exit(struct device *dev,
 	int len = 0;
 
 	hiber_debug(exynos_crtc->hibernation, "+\n");
+	hibernation_trig_reset(exynos_crtc->hibernation);
 
 	/* If decon is OFF state, just return here */
 	if (decon->state == DECON_STATE_OFF)
@@ -127,37 +123,12 @@ static ssize_t exynos_show_hibernation_exit(struct device *dev,
 }
 static DEVICE_ATTR(hiber_exit, S_IRUGO, exynos_show_hibernation_exit, NULL);
 
-static bool __is_builtin_display(struct decon_device *decon)
-{
-	int builtin = 0;
-
-	if (decon->config.mode.dsi_mode == DSI_MODE_DUAL_DISPLAY)
-		++builtin;
-
-	return decon->id > builtin ? false : true;
-}
-
 void hibernation_trig_reset(struct exynos_hibernation *hiber)
 {
-	struct drm_crtc_state *crtc_state;
-	unsigned int fps = HIBERNATION_ENTRY_DEFAULT_FPS;
-	int entry_cnt;
-
 	if (!hiber || !hiber->decon->crtc)
 		return;
 
-	crtc_state = hiber->decon->crtc->base.state;
-	if (crtc_state)
-		fps = drm_mode_vrefresh(&crtc_state->mode);
-
-	entry_cnt = (fps <= hiber->min_entry_fps) ?
-		HIBERNATION_ENTRY_MIN_ENTRY_CNT :
-		DIV_ROUND_UP(fps * HIBERNATION_ENTRY_MIN_TIME_MS, MSEC_PER_SEC);
-
-	if (entry_cnt < HIBERNATION_ENTRY_MIN_ENTRY_CNT)
-		entry_cnt = HIBERNATION_ENTRY_MIN_ENTRY_CNT;
-
-	atomic_set(&hiber->trig_cnt, entry_cnt);
+	hiber->entry_time = ktime_add(ktime_get(), HIBERNATION_ENTRY_MIN_TIME_NS);
 }
 
 static int dpu_hiber_enable_mask;
@@ -172,9 +143,24 @@ static bool exynos_hibernation_check(struct exynos_hibernation *hiber)
 		return false;
 	}
 
-	return (!is_hibernaton_blocked(hiber) && !is_dsr_operating(hiber) &&
-		!is_dim_operating(hiber) && !is_queueing_work(hiber) &&
-		atomic_dec_and_test(&hiber->trig_cnt));
+	if (is_hibernaton_blocked(hiber))
+		goto reset;
+
+	if (is_dsr_operating(hiber))
+		goto reset;
+
+	if (is_dim_operating(hiber))
+		goto reset;
+
+	if (is_queueing_work(hiber))
+		goto reset;
+
+	return (hiber->entry_time && ktime_after(ktime_get(), hiber->entry_time));
+
+reset:
+	hibernation_trig_reset(hiber);
+
+	return false;
 }
 
 static bool needs_self_refresh_change(struct drm_crtc_state *old_crtc_state, bool sr_active)
@@ -182,7 +168,7 @@ static bool needs_self_refresh_change(struct drm_crtc_state *old_crtc_state, boo
 	struct exynos_drm_crtc *exynos_crtc = to_exynos_crtc(old_crtc_state->crtc);
 	struct exynos_hibernation *hiber = exynos_crtc->hibernation;
 
-	if (sr_active && atomic_read(&exynos_crtc->hibernation->trig_cnt) > 0)
+	if (sr_active && !ktime_after(ktime_get(), hiber->entry_time))
 		return false;
 
 	if (!old_crtc_state->enable) {
@@ -282,88 +268,48 @@ out_drop_locks:
 	return ret;
 }
 
-static void exynos_hibernation_enter(struct exynos_hibernation *hiber)
+static void __exynos_hibernation_handler(struct exynos_hibernation *hiber, bool entry)
 {
-	struct decon_device *decon = hiber->decon;
-	struct exynos_drm_crtc *exynos_crtc;
-	int ret;
+        struct decon_device *decon = hiber->decon;
+        struct exynos_drm_crtc *exynos_crtc;
+        char *event_name;
+        int ret;
 
-	hiber_debug(hiber, "+\n");
+        event_name = entry ? "HIBER_ENTER" : "HIBER_EXIT";
+        hiber_debug(hiber, "%s+\n", event_name);
 
-	if (!decon)
-		return;
+        if (!decon)
+                return;
 
-	exynos_crtc = decon->crtc;
+        exynos_crtc = decon->crtc;
 
-	mutex_lock(&hiber->lock);
-	hibernation_block(hiber);
+        mutex_lock(&hiber->lock);
+        hibernation_block(hiber);
 
-	DPU_ATRACE_BEGIN(__func__);
+        DPU_ATRACE_BEGIN(event_name);
 
-	DPU_EVENT_LOG("ENTER_HIBERNATION_IN", decon->crtc, 0, "DPU POWER %s",
-			pm_runtime_active(exynos_crtc->dev) ? "ON" : "OFF");
+        DPU_EVENT_LOG(event_name, decon->crtc, 0, "+ DPU POWER %s",
+                        pm_runtime_active(exynos_crtc->dev) ? "ON" : "OFF");
 
-	ret = exynos_crtc_self_refresh_update(&exynos_crtc->base, true);
-	if (ret) {
-		hiber_err(hiber, "failed to commit self refresh\n");
-		goto out;
-	}
+        ret = exynos_crtc_self_refresh_update(&exynos_crtc->base, entry);
+        if (ret) {
+                hiber_err(hiber, "failed to commit self refresh\n");
+                goto out;
+        }
 
-	DPU_EVENT_LOG("ENTER_HIBERNATION_OUT", decon->crtc, 0, "DPU POWER %s",
-			pm_runtime_active(exynos_crtc->dev) ? "ON" : "OFF");
-
-	dpu_profile_hiber_enter(exynos_crtc);
-
-	DPU_ATRACE_END(__func__);
+        if (entry)
+                dpu_profile_hiber_enter(exynos_crtc);
+        else
+                dpu_profile_hiber_exit(exynos_crtc);
 out:
-	hibernation_unblock(hiber);
-	mutex_unlock(&hiber->lock);
+        DPU_EVENT_LOG(event_name, decon->crtc, 0, "- DPU POWER %s",
+                        pm_runtime_active(exynos_crtc->dev) ? "ON" : "OFF");
+        DPU_ATRACE_END(event_name);
+        hibernation_unblock(hiber);
+        mutex_unlock(&hiber->lock);
 
-	hiber_debug(hiber, "DPU power %s -\n",	pm_runtime_active(decon->dev) ? "on" : "off");
-}
-
-static void exynos_hibernation_exit(struct exynos_hibernation *hiber)
-{
-	struct decon_device *decon = hiber->decon;
-	struct exynos_drm_crtc *exynos_crtc;
-	int ret;
-
-	hiber_debug(hiber, "+\n");
-
-	if (!decon)
-		return;
-
-	exynos_crtc = decon->crtc;
-	hibernation_block(hiber);
-
-	/*
-	 * Cancel and/or wait for finishing previous queued hibernation entry work. It only
-	 * goes to sleep when work is currently executing. If not, there is no operation here.
-	 */
-	kthread_cancel_work_sync(&hiber->work);
-
-	mutex_lock(&hiber->lock);
-
-	DPU_ATRACE_BEGIN(__func__);
-
-	DPU_EVENT_LOG("EXIT_HIBERNATION_IN", decon->crtc, 0, "DPU POWER %s",
-			pm_runtime_active(exynos_crtc->dev) ? "ON" : "OFF");
-
-	ret = exynos_crtc_self_refresh_update(&exynos_crtc->base, false);
-	if (ret) {
-		hiber_err(hiber, "failed to commit self refresh\n");
-		goto out;
-	}
-
-	DPU_EVENT_LOG("EXIT_HIBERNATION_OUT", decon->crtc, 0, "DPU POWER %s",
-			pm_runtime_active(exynos_crtc->dev) ? "ON" : "OFF");
-	DPU_ATRACE_END(__func__);
-	dpu_profile_hiber_exit(exynos_crtc);
-out:
-	mutex_unlock(&hiber->lock);
-	hibernation_unblock(hiber);
-
-	hiber_debug(hiber, "DPU power %s -\n", pm_runtime_active(decon->dev) ? "on" : "off");
+        hiber_debug(hiber, "%s- DPU power %s -\n",
+                        event_name, pm_runtime_active(decon->dev) ? "on" : "off");
 }
 
 void hibernation_block_exit(struct exynos_hibernation *hiber)
@@ -372,22 +318,23 @@ void hibernation_block_exit(struct exynos_hibernation *hiber)
 		return;
 
 	hibernation_block(hiber);
-	exynos_hibernation_exit(hiber);
+	__exynos_hibernation_handler(hiber, false);
 }
 
 static void exynos_hibernation_handler(struct kthread_work *work)
 {
 	struct exynos_hibernation *hibernation =
-		container_of(work, struct exynos_hibernation, work);
+		container_of(work, struct exynos_hibernation, entry_work);
 
-	hiber_debug(hibernation, "Display hibernation handler is called(trig_cnt:%d)\n",
-			atomic_read(&hibernation->trig_cnt));
+	hiber_debug(hibernation,
+			"curr(%lld) entry_time(%lld)\n",
+			ktime_get(), hibernation->entry_time);
 
 	/* If hibernation entry condition does NOT meet, just return here */
 	if (!exynos_hibernation_check(hibernation))
 		return;
 
-	exynos_hibernation_enter(hibernation);
+	__exynos_hibernation_handler(hibernation, true);
 }
 
 static void exynos_hibernation_exit_handler(struct kthread_work *work)
@@ -397,7 +344,7 @@ static void exynos_hibernation_exit_handler(struct kthread_work *work)
 
 	hiber_debug(hibernation, "Display hibernation exit handler is called\n");
 
-	exynos_hibernation_exit(hibernation);
+	__exynos_hibernation_handler(hibernation, false);
 }
 
 static ssize_t hiber_enter_show(struct device *dev,
@@ -426,10 +373,7 @@ static ssize_t hiber_enter_store(struct device *dev,
 		return ret;
 	}
 
-	if (enabled)
-		exynos_hibernation_enter(exynos_crtc->hibernation);
-	else
-		exynos_hibernation_exit(exynos_crtc->hibernation);
+	__exynos_hibernation_handler(exynos_crtc->hibernation, enabled);
 
 	return len;
 }
@@ -465,53 +409,35 @@ exynos_hibernation_register(struct exynos_drm_crtc *exynos_crtc)
 	hibernation->decon = decon;
 	hibernation->id = decon->id;
 
-	ret = of_property_read_u32(np, "hibernation-min-entry-fps", &val);
-	if (ret == -EINVAL || (ret == 0 && val >= HIBERNATION_ENTRY_DEFAULT_FPS))
-		hibernation->min_entry_fps = 0;
-	else
-		hibernation->min_entry_fps = val;
-
 	mutex_init(&hibernation->lock);
-
-	hibernation_trig_reset(hibernation);
 
 	atomic_set(&hibernation->block_cnt, 0);
 
-	kthread_init_work(&hibernation->work, exynos_hibernation_handler);
+	kthread_init_work(&hibernation->entry_work, exynos_hibernation_handler);
 
 	dpu_hiber_enable_mask |=  (1 << hibernation->id);
-	hiber_info(hibernation, "display hibernation is supported\n");
-
-	/* register asynchronous hibernation early wakeup feature */
-	hibernation->early_wakeup_enable = false;
-	if (!IS_ENABLED(CONFIG_DRM_SAMSUNG_HIBERNATION_EARLY_WAKEUP) ||
-			!__is_builtin_display(decon)) {
-		hiber_info(hibernation, "hibernation early wakeup is disabled\n");
- 		return hibernation;
- 	}
-
-	/* initialize exit hibernation thread */
-	kthread_init_worker(&hibernation->exit_worker);
-	hibernation->exit_thread = kthread_run(kthread_worker_fn,
-			&hibernation->exit_worker, "exynos_hibernation_exit");
-	if (IS_ERR(hibernation->exit_thread)) {
-		hibernation->exit_thread = NULL;
-		hiber_err(hibernation, "failed to run exit hibernation thread\n");
-		return hibernation;
+	/* initialize hibernation thread */
+	kthread_init_worker(&hibernation->worker);
+	hibernation->thread = kthread_run(kthread_worker_fn,
+			&hibernation->worker, "exynos_hiber%d", decon->id);
+	if (IS_ERR(hibernation->thread)) {
+		hibernation->thread = NULL;
+		hiber_err(hibernation, "failed to run hibernation thread\n");
+		return NULL;
 	}
 	param.sched_priority = 20;
-	sched_setscheduler_nocheck(hibernation->exit_thread, SCHED_FIFO, &param);
+	sched_setscheduler_nocheck(hibernation->thread, SCHED_FIFO, &param);
 	kthread_init_work(&hibernation->exit_work, exynos_hibernation_exit_handler);
 	hibernation->early_wakeup_cnt = 0;
 	ret = device_create_file(decon->dev, &dev_attr_hiber_exit);
 	ret = device_create_file(decon->dev, &dev_attr_hiber_enter);
 	if (ret) {
-		hiber_err(hibernation, "failed to create hiber exit file\n");
-		return hibernation;
+		hiber_err(hibernation, "failed to create hiber file\n");
+		return NULL;
 	}
-	hibernation->early_wakeup_enable = true;
 
-	hiber_info(hibernation, "hibernation early wakeup is enabled\n");
+	hibernation->entry_time = 0;
+	hiber_info(hibernation, "display hibernation is supported\n");
 
 	return hibernation;
 }

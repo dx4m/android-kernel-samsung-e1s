@@ -430,6 +430,13 @@ config SAMSUNG_MHDVFS
 
 	  If unsure, say N.
 
+config EXYNOS_MIF_REQUEST_PROFILER
+	tristate "Exynos MIF REQUEST duration PROFILER for MX"
+	depends on EXYNOS_PM
+	default n
+	help
+		Calculation of mif duration during AP sleep.
+
 source "drivers/soc/samsung/acpm/Kconfig"
 source "drivers/soc/samsung/esca_v2/Kconfig"
 source "drivers/soc/samsung/exynos/Kconfig"

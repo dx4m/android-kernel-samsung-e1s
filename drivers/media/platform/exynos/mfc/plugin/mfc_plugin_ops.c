@@ -134,7 +134,7 @@ int mfc_plugin_instance_deinit(struct mfc_core *core, struct mfc_ctx *ctx)
 			mfc_err("[PLUGIN] failed to just run\n");
 			continue;
 		}
-		if (mfc_wait_for_done_plugin(core, MFC_PLUGIN_FRAME_DONE_RET)) {
+		if (core_ctx->fg_sent_cmd && mfc_wait_for_done_plugin(core, MFC_PLUGIN_FRAME_DONE_RET)) {
 			mfc_err("[PLUGIN] Failed to wait plugin job\n");
 			mfc_core_clean_dev_int_flags(core);
 			ret = -EAGAIN;

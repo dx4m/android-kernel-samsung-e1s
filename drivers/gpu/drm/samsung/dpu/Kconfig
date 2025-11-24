@@ -161,6 +161,16 @@ config SEC_DISPLAYPORT
 	help
 	  Enable SEC DISPLAYPORT config to check if DP support
 
+config DP_PHY_TUNING_PROJECT_R13
+	bool "Enable Displayport PHY tuning for project R13"
+	default n
+	help
+	  Enable this config to apply project-specific Displayport phy tuning
+	  values for R13 project
+	  If enabled, the PHY parameters will be adjusted according to the
+	  requirements of the R13 project to ensure optinal signal intergrity and
+	  compatibility. If disabled, default tuning values will be used
+
 config USE_DISPLAYPORT_PDIC_EVENT_QUEUE
 	bool "use queue for PDIC notifications"
 	depends on DRM_SAMSUNG_DP
@@ -180,6 +190,13 @@ config EXYNOS_DPU_USE_DUAL_DRV
 	default n
 	help
 	  If this menu is disabled, you can use legacy exynos dpu driver
+
+config EXYNOS_DPU_USE_DECODER_DSC
+	bool "Use pps v2 function"
+	depends on DRM_SAMSUNG_DECON
+	default n
+	help
+	  If this menu is disabled, pps will be generated.
 
 source "drivers/gpu/drm/samsung/dpu/panel/Kconfig"
 source "drivers/gpu/drm/samsung/dpu/mcd_cal/Kconfig"

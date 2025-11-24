@@ -772,7 +772,7 @@ static int cis_3lu_probe_i2c(struct i2c_client *client,
 	/* belows are depend on sensor cis. MUST check sensor spec */
 	cis->bayer_order = OTF_INPUT_ORDER_BAYER_GR_BG;
 	cis->reg_addr = &sensor_3lu_reg_addr;
-	cis->priv_runtime = kzalloc(sizeof(struct sensor_3lu_private_runtime), GFP_KERNEL);
+	cis->priv_runtime = pablo_zalloc(sizeof(struct sensor_3lu_private_runtime), GFP_KERNEL);
 	if (!cis->priv_runtime) {
 		kfree(cis->cis_data);
 		kfree(cis->subdev);

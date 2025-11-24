@@ -27,16 +27,6 @@ struct hci_h4 {
 	unsigned int            recv_skb_count;
 };
 
-static inline struct sk_buff *alloc_hci_h4_pkt_skb(int size)
-{
-	struct sk_buff *skb = __alloc_hci_pkt_skb(size, HCI_H4_PKT_TYPE_SIZE);
-	if (skb)
-		SET_HCI_PKT_TR_TYPE(skb, HCI_TRANS_H4);
-	else
-		BT_WARNING("allocation failed\n");
-	return skb;
-}
-
 static inline struct hci_h4 *get_hci_h4(struct hci_trans *htr)
 {
 	return htr ? (struct hci_h4 *)htr->tdata : NULL;
@@ -94,7 +84,7 @@ static int hci_h4_skb_unpack(struct hci_trans *htr, struct sk_buff *skb)
 		h4->recv_skb_count++;
 	} else if (GET_HCI_PKT_TR_TYPE(skb) != HCI_TRANS_HCI) {
 		TR_WARNING("Invalid tr type: %u\n", GET_HCI_PKT_TR_TYPE(skb));
-		return - EINVAL;
+		return -EINVAL;
 	}
 
 	type = GET_HCI_PKT_TYPE(skb);
@@ -281,6 +271,9 @@ static int hci_h4_proc_show(struct hci_trans *htr, struct seq_file *m)
 int hci_h4_init(struct hci_trans *htr, bool reverse)
 {
 	struct hci_h4 *h4;
+
+	if (htr == NULL)
+		return -EINVAL;
 
 	TR_DBG("reverse=%d\n", reverse);
 	if (reverse) {

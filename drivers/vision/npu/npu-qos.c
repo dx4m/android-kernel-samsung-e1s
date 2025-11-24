@@ -24,6 +24,7 @@
 #include "npu-dvfs.h"
 #include "npu-qos.h"
 #include "npu-dtm.h"
+#include "npu-state.h"
 
 static struct npu_qos_setting *qos_setting;
 static LIST_HEAD(qos_list);
@@ -466,6 +467,10 @@ int npu_qos_probe(struct npu_system *system)
 		return -1;
 	}
 
+	if (npu_state_sysfs_create(system)) {
+		probe_info("npu_state_sysfs create failed\n");
+		return -1;
+	}
 
 	return 0;
 }

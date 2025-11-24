@@ -178,6 +178,8 @@ struct samsung_pin_bank {
 	u32		eint_offset;
 	u32		eint_num;
 	u32		fltcon_offset;
+	u32		eint_keep_filter;
+
 	const char	*name;
 	unsigned int    sysreg_cmgp_offs;
 	unsigned int    sysreg_cmgp_bit;

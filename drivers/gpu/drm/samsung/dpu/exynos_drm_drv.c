@@ -1435,10 +1435,27 @@ static void
 exynos_atomic_commit_modeset_disables(struct drm_device *dev,
 				      struct drm_atomic_state *old_state)
 {
+	struct drm_connector *connector;
+	struct drm_connector_state *old_conn_state, *new_conn_state;
+	struct drm_crtc *crtc;
+	int i;
+
 	DPU_ATRACE_BEGIN(__func__);
 	disable_outputs(dev, old_state);
 
 	drm_atomic_helper_update_legacy_modeset_state(dev, old_state);
+	for_each_oldnew_connector_in_state(old_state, connector, old_conn_state, new_conn_state, i) {
+		crtc = new_conn_state->crtc;
+		if ((!crtc && old_conn_state->crtc) ||
+		    (crtc && drm_atomic_crtc_needs_modeset(crtc->state))) {
+			int mode = DRM_MODE_DPMS_OFF;
+
+			if (crtc && drm_atomic_crtc_effectively_active(crtc->state))
+				mode = DRM_MODE_DPMS_ON;
+
+			connector->dpms = mode;
+		}
+	}
 	drm_atomic_helper_calc_timestamping_constants(old_state);
 
 	crtc_set_mode(dev, old_state);
@@ -1718,12 +1735,13 @@ static void exynos_atomic_commit_tail(struct drm_atomic_state *old_state)
 
 	exynos_atomic_update_conn_bts(old_state);
 
+	exynos_atomic_bts_pre_update(dev, old_state);
+
 	exynos_atomic_commit_modeset_enables(dev, old_state);
 
 	/* request to change DPHY PLL frequency */
 	exynos_atomic_set_freq_hop(old_state, true);
 
-	exynos_atomic_bts_pre_update(dev, old_state);
 	DPU_ATRACE_END("modeset");
 
 	DPU_ATRACE_BEGIN("commit_planes");
@@ -1822,10 +1840,14 @@ static void exynos_drm_postclose(struct drm_device *dev, struct drm_file *file)
 	file->driver_priv = NULL;
 }
 
+static void exynos_drm_platform_shutdown(struct platform_device *pdev);
 static void exynos_drm_lastclose(struct drm_device *dev)
 {
+	struct platform_device *pdev = to_platform_device(dev->dev);
+
 	exynos_drm_fbdev_restore_mode(dev);
 	exynos_drm_encoder_lastclose(dev);
+	exynos_drm_platform_shutdown(pdev);
 }
 
 static const struct file_operations exynos_drm_driver_fops = {
@@ -2090,9 +2112,63 @@ static int exynos_drm_platform_remove(struct platform_device *pdev)
 	return 0;
 }
 
+static void exynos_drm_platform_shutdown(struct platform_device *pdev)
+{
+	struct drm_atomic_state *state;
+	struct drm_crtc_state *crtc_state;
+	struct drm_crtc *crtc;
+	struct drm_modeset_acquire_ctx ctx;
+	struct drm_device *dev;
+	struct exynos_drm_crtc_state *exynos_crtc_state;
+	int ret;
+
+	dev = platform_get_drvdata(pdev);
+	if (!dev) {
+		pr_err("%s: failed to get platform drive data\n", __func__);
+		return;
+	}
+
+	DRM_MODESET_LOCK_ALL_BEGIN(dev, ctx, 0, ret);
+
+	state = drm_atomic_state_alloc(dev);
+	if (!state) {
+		dpu_err(dev, "failed to alloc shutdown state\n");
+		goto out;
+	}
+
+	state->acquire_ctx = &ctx;
+
+	drm_for_each_crtc(crtc, dev) {
+		/* In the case of a DSI encoder, panel shutdown is used. */
+		if (crtc_get_encoder(crtc->state, DRM_MODE_ENCODER_DSI))
+			continue;
+
+		crtc_state = drm_atomic_get_crtc_state(state, crtc);
+		if (IS_ERR(crtc_state)) {
+			dpu_err(dev, "failed to get crtc state\n");
+			goto out;
+		}
+
+		crtc_state->active = false;
+
+		exynos_crtc_state = to_exynos_crtc_state(crtc_state);
+		exynos_crtc_state->dqe_fd = -1;
+	}
+
+	if (drm_atomic_commit(state))
+		dpu_err(dev, "failed to commit shutdown\n");
+
+	dpu_info(dev, "success to commit shutdown\n");
+out:
+	if (state)
+		drm_atomic_state_put(state);
+	DRM_MODESET_LOCK_ALL_END(dev, ctx, ret);
+}
+
 static struct platform_driver exynos_drm_platform_driver = {
 	.probe	= exynos_drm_platform_probe,
 	.remove	= exynos_drm_platform_remove,
+	.shutdown = exynos_drm_platform_shutdown,
 	.driver	= {
 		.name	= "exynos-drm",
 	},

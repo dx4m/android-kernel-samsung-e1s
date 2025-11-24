@@ -9,10 +9,9 @@
  * published by the Free Software Foundation.
  */
 
-#include <linux/slab.h>
-
 #include "pablo-dvfs.h"
 #include "pablo-debug.h"
+#include "pablo-mem.h"
 
 #ifdef CONFIG_PM_DEVFREQ
 static struct is_pm_qos_request pablo_exynos_pm_qos[IS_DVFS_END];
@@ -57,7 +56,7 @@ static int is_hw_dvfs_init(struct is_dvfs_ctrl *dvfs_ctrl, struct is_dvfs_dt_t *
 
 	if (!dvfs_ctrl->scenario_idx) {
 		dvfs_ctrl->scenario_idx =
-			kvzalloc(sizeof(int) * dvfs_ctrl->dvfs_info.scenario_count, GFP_KERNEL);
+			pablo_zalloc(sizeof(int) * dvfs_ctrl->dvfs_info.scenario_count, GFP_KERNEL);
 
 		if (ZERO_OR_NULL_PTR(dvfs_ctrl->scenario_idx)) {
 			err("[DVFS] dvfs_ctrl alloc is failed!!");
@@ -141,13 +140,13 @@ int is_dvfs_init(struct is_dvfs_ctrl *dvfs_ctrl, struct is_dvfs_dt_t *dvfs_dt_ar
 	mutex_init(&dvfs_ctrl->lock);
 
 	if (!(dvfs_ctrl->static_ctrl))
-		dvfs_ctrl->static_ctrl = kvzalloc(sizeof(struct is_dvfs_scenario_ctrl), GFP_KERNEL);
+		dvfs_ctrl->static_ctrl = pablo_zalloc(sizeof(struct is_dvfs_scenario_ctrl), GFP_KERNEL);
 	if (!(dvfs_ctrl->dynamic_ctrl))
 		dvfs_ctrl->dynamic_ctrl =
-			kvzalloc(sizeof(struct is_dvfs_scenario_ctrl), GFP_KERNEL);
+			pablo_zalloc(sizeof(struct is_dvfs_scenario_ctrl), GFP_KERNEL);
 
 	if (!(dvfs_ctrl->iter_mode))
-		dvfs_ctrl->iter_mode = kzalloc(sizeof(struct is_dvfs_iteration_mode), GFP_KERNEL);
+		dvfs_ctrl->iter_mode = pablo_zalloc(sizeof(struct is_dvfs_iteration_mode), GFP_KERNEL);
 
 	if (!dvfs_ctrl->static_ctrl || !dvfs_ctrl->dynamic_ctrl || !dvfs_ctrl->iter_mode) {
 		err("[DVFS] dvfs_ctrl alloc is failed!!");

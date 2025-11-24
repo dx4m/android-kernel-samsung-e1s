@@ -71,6 +71,7 @@ struct is_vendor_private {
 	uint8_t gyro_efs_data[IS_GYRO_EFS_MAX_SIZE];
 	int cal_sensor_pos;	/* sensor position for loading cal data*/
 	int is_dualized[SENSOR_POSITION_MAX];
+	bool force_cal_reload;
 };
 
 #endif

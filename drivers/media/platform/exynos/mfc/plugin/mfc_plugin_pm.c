@@ -128,8 +128,8 @@ void mfc_plugin_pm_power_off(struct mfc_core *core)
 	mfc_core_debug(3, "[PLUGIN] ++ power off: ref(%d)\n", state);
 	ret = pm_runtime_put(core->pm.device);
 	if (ret < 0) {
+		MFC_TRACE_CORE("Failed to put power: ret(%d)\n", ret);
 		mfc_core_err("Failed to put power: ret(%d)\n", ret);
-		call_dop(core, dump_and_stop_debug_mode, core);
 	}
 
 	state = atomic_dec_return(&core->pm.pwr_ref);

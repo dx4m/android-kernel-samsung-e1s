@@ -314,7 +314,7 @@ static void pablo_i2c_sensor_write16_burst_kunit_test(struct kunit *test)
 	arr_val[2] = 0x9ABC;
 	arr_val[3] = 0xDEFF;
 
-	wbuf = kmalloc((2 + (burst_num * 2)), GFP_KERNEL);
+	wbuf = pablo_malloc((2 + (burst_num * 2)), GFP_KERNEL);
 	if (!wbuf) {
 		pr_err("failed to alloc buffer for burst i2c\n");
 		return;
@@ -329,7 +329,7 @@ static void pablo_i2c_sensor_write16_burst_kunit_test(struct kunit *test)
 		KUNIT_EXPECT_EQ(test, msg[0].buf[(i * 2) + 2], val_h);
 		KUNIT_EXPECT_EQ(test, msg[0].buf[(i * 2) + 3], val_l);
 	}
-	kfree(wbuf);
+	pablo_free(wbuf);
 
 	test_result = pkt_ctx.cis->ixc_ops->write16_burst((void *)pkt_ctx.i2c_cl, addr, arr_val, burst_num);
 	KUNIT_EXPECT_EQ(test, test_result, (int)0);
@@ -348,7 +348,7 @@ static void pablo_i2c_sensor_write8_sequential_kunit_test(struct kunit *test)
 	addr_h = (addr & 0xFF00) >> 8;
 	addr_l = (addr & 0xFF);
 
-	wbuf = kzalloc((2 + (num * 2)), GFP_KERNEL);
+	wbuf = pablo_zalloc((2 + (num * 2)), GFP_KERNEL);
 	if (!wbuf) {
 		pr_err("failed to alloc buffer for burst i2c\n");
 		return;
@@ -359,7 +359,7 @@ static void pablo_i2c_sensor_write8_sequential_kunit_test(struct kunit *test)
 	KUNIT_EXPECT_EQ(test, msg[0].buf[0], addr_h);
 	KUNIT_EXPECT_EQ(test, msg[0].buf[1], addr_l);
 
-	kfree(wbuf);
+	pablo_free(wbuf);
 
 	test_result = pkt_ctx.cis->ixc_ops->write8_sequential((void *)pkt_ctx.i2c_cl, addr, cal_data, num);
 	KUNIT_EXPECT_EQ(test, test_result, (int)0);

@@ -240,7 +240,7 @@ static int __nocfi is_hw_rgbp_open(struct is_hw_ip *hw_ip, u32 instance)
 	frame_manager_probe(hw_ip->framemgr, "HWRGBP");
 	frame_manager_open(hw_ip->framemgr, IS_MAX_HW_FRAME, false);
 
-	hw_ip->priv_info = vzalloc(sizeof(struct is_hw_rgbp));
+	hw_ip->priv_info = pablo_zalloc(sizeof(struct is_hw_rgbp), GFP_KERNEL);
 	if (!hw_ip->priv_info) {
 		mserr_hw("hw_ip->priv_info(null)", instance, hw_ip);
 		ret = -ENOMEM;
@@ -263,8 +263,10 @@ static int __nocfi is_hw_rgbp_open(struct is_hw_ip *hw_ip, u32 instance)
 	hw_rgbp->wdma_max_cnt = rgbp_hw_g_wdma_max_cnt();
 	hw_rgbp->rdma_param_max_cnt = rgbp_hw_g_rdma_cfg_max_cnt();
 	hw_rgbp->wdma_param_max_cnt = rgbp_hw_g_wdma_cfg_max_cnt();
-	hw_rgbp->rdma = vzalloc(sizeof(struct is_common_dma) * hw_rgbp->rdma_max_cnt);
-	hw_rgbp->wdma = vzalloc(sizeof(struct is_common_dma) * hw_rgbp->wdma_max_cnt);
+	hw_rgbp->rdma = pablo_zalloc(sizeof(struct is_common_dma) * hw_rgbp->rdma_max_cnt,
+			GFP_KERNEL);
+	hw_rgbp->wdma = pablo_zalloc(sizeof(struct is_common_dma) * hw_rgbp->wdma_max_cnt,
+			GFP_KERNEL);
 
 	atomic_set(&hw_ip->status.Vvalid, V_BLANK);
 
@@ -305,7 +307,7 @@ err_iqset_alloc:
 	CALL_HW_HELPER_OPS(hw_ip, close, instance, &hw_rgbp->lib[instance]);
 
 err_chain_create:
-	vfree(hw_ip->priv_info);
+	pablo_free(hw_ip->priv_info);
 	hw_ip->priv_info = NULL;
 err_alloc:
 	frame_manager_close(hw_ip->framemgr);
@@ -395,10 +397,10 @@ static int is_hw_rgbp_close(struct is_hw_ip *hw_ip, u32 instance)
 
 	CALL_HW_HELPER_OPS(hw_ip, free_iqset);
 
-	vfree(hw_rgbp->rdma);
-	vfree(hw_rgbp->wdma);
+	pablo_free(hw_rgbp->rdma);
+	pablo_free(hw_rgbp->wdma);
 
-	vfree(hw_ip->priv_info);
+	pablo_free(hw_ip->priv_info);
 	hw_ip->priv_info = NULL;
 
 	frame_manager_close(hw_ip->framemgr);

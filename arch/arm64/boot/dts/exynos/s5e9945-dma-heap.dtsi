@@ -87,6 +87,11 @@
 		dma-heap,name = "camera";
 		dma-heap,alignment = <0x10000>;
 	};
+
+	camerapool_dma_heap {
+		compatible = "samsung,dma-heap-camerapool";
+		dma-heap,name = "camerapool";
+	};
 };
 
 &reserved_memory {

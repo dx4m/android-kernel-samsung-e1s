@@ -26,5 +26,10 @@
 	repeater: repeater@0 {
 		compatible = "samsung,exynos-repeater";
 		power-domains = <&pd_mfc>;
+
+		/* cpu num | cpu clock */
+		120fps_decoder_cpu_min_clk = < 0 1344000
+					       4 1344000
+					       7 1344000 >;
 	};
 };

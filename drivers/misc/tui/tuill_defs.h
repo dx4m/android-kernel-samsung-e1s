@@ -403,11 +403,6 @@ typedef enum TUILL_CLIENT_TYPE {
 	TUILLDRV_CLIENT_IWD_CLIENT,
 } TUILL_CLIENT_TYPE_t;
 
-//typedef struct tuill_socket_params {
-//	int32_t sfd; //socket fd
-//	int32_t efd; //epoll fd
-//} tuill_socket_params_t;
-
 //common drv information
 typedef struct tuill_drv_ctx {
 	uint32_t index;          //in drv_arr

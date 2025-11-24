@@ -17,6 +17,7 @@
 
 #include "pablo-kunit-test.h"
 #include "pablo-binary.h"
+#include "pablo-mem.h"
 
 #define PKT_BIN_NAME "pablo_icpufw.bin"
 
@@ -39,6 +40,16 @@ static void pablo_binary_put_filesystem_binary_kunit_test(struct kunit *test)
 	__putname(fname);
 }
 
+static void *pablo_binary_malloc(unsigned long size)
+{
+	return pablo_malloc(size, GFP_KERNEL);
+}
+
+static void pablo_binary_free(const void *buf)
+{
+	return pablo_free(buf);
+}
+
 static void pablo_binary_setup_binary_loader_kunit_test(struct kunit *test)
 {
 	struct is_binary bin;
@@ -57,12 +68,12 @@ static void pablo_binary_setup_binary_loader_kunit_test(struct kunit *test)
 	/* TC #2. Set private alloc/free functions. */
 	retry_cnt = 5;
 	retry_err = -ENOMEM;
-	setup_binary_loader(&bin, retry_cnt, retry_err, &vzalloc, &vfree);
+	setup_binary_loader(&bin, retry_cnt, retry_err, &pablo_binary_malloc, &pablo_binary_free);
 
 	KUNIT_EXPECT_EQ(test, bin.retry_cnt, retry_cnt);
 	KUNIT_EXPECT_EQ(test, bin.retry_err, retry_err);
-	KUNIT_EXPECT_PTR_EQ(test, bin.alloc, &vzalloc);
-	KUNIT_EXPECT_PTR_EQ(test, bin.free, &vfree);
+	KUNIT_EXPECT_PTR_EQ(test, bin.alloc, &pablo_binary_malloc);
+	KUNIT_EXPECT_PTR_EQ(test, bin.free, &pablo_binary_free);
 	KUNIT_EXPECT_EQ(test, bin.customized, (unsigned long)&bin);
 }
 
@@ -146,8 +157,7 @@ static void pablo_binary_release_binary_kunit_test(struct kunit *test)
 
 	/* TC #2. With FS binary */
 	bin.fw = NULL;
-	bin.data = vmalloc(4);
-
+	bin.data = pablo_malloc(4, GFP_KERNEL);
 	release_binary(&bin);
 }
 

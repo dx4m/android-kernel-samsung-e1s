@@ -43,6 +43,10 @@ tuihw-objs += platforms/exynos8535/stui_hal_display.o
 tuihw-objs += platforms/exynos8535/stui_hal_touch.o
 endif
 
+ifdef CONFIG_EXYNOS_DPU_USE_DUAL_DRV
+ccflags-y += -DCONFIG_EXYNOS_DPU_USE_DUAL_DRV
+endif
+
 ifeq ($(CONFIG_SOC_S5E9945),y)
 ccflags-y += -DCONFIG_SOC_S5E9945
 ccflags-y += -I$(srctree)/drivers/misc/tui/platforms/exynos9945

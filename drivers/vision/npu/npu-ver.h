@@ -5,7 +5,7 @@
 #include "vs4l.h"
 
 #define NPU_DD_MAJOR_VERSION		14
-#define NPU_DD_MINOR_VERSION		4
+#define NPU_DD_MINOR_VERSION		7
 #define MAX_FW_VERSION_LEN       128
 
 struct npu_ver {

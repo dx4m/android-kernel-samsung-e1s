@@ -61,6 +61,8 @@ static int sgpu_devfreq_target(struct device *dev, unsigned long *target_freq, u
 	}
 	dev_pm_opp_put(target_opp);
 
+	trace_gpu_frequency(0, *target_freq);
+
 	if (cur_freq == *target_freq)
 		return 0;
 

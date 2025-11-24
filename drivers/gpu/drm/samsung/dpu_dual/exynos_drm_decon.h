@@ -98,6 +98,11 @@ struct decon_device {
 	struct notifier_block dpui_notif;
 #endif
 #endif
+	/*
+	 * device_orientation that was same with android-property
+	 * named screen_orientation for ddi placement physically
+	 */
+	u32 device_orientation;
 };
 
 extern struct decon_device *decon_drvdata[MAX_DECON_CNT];

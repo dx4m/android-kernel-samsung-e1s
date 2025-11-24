@@ -9,16 +9,16 @@
 #define __HCI_PKT_H__
 #include <linux/skbuff.h>
 
-/* HCI Packet type indicator */
-enum {
-	HCI_UNKNOWN_PKT	= 0,
-	HCI_COMMAND_PKT,
-	HCI_ACL_DATA_PKT,
-	HCI_SCO_DATA_PKT,
-	HCI_EVENT_PKT,
-	HCI_ISO_DATA_PKT,
-	HCI_PROPERTY_PKT = 14,
-};
+/* HCI data types */
+#ifndef HCI_COMMAND_PKT
+#define HCI_COMMAND_PKT		0x01
+#define HCI_ACLDATA_PKT		0x02
+#define HCI_SCODATA_PKT		0x03
+#define HCI_EVENT_PKT		0x04
+#define HCI_ISODATA_PKT		0x05
+#endif
+#define HCI_UNKNOWN_PKT         0x00
+#define HCI_PROPERTY_PKT        0x0E
 
 /* HCI Packet property */
 enum {
@@ -28,12 +28,20 @@ enum {
 /* using HCI Events */
 enum {
 	HCI_EVENT_HARDWARE_ERROR_EVENT  = 0x10,
+
+	HCI_EVENT_COMMAND_COMPLETE      = 0x0E,
+
 	HCI_EVENT_VENDOR_SPECIFIC_EVENT = 0xFF,
 };
 
 /* Sub code for vendor specific event of HCI */
 enum prop_hci_vse_sub_code {
 	HCI_VSE_SYSTEM_ERROR_INFO_SUB_CODE = 0x65,
+};
+
+/* Vendor specific commands of HCI */
+enum {
+	HCI_VSC_FWLOG_BTSNOOP = 0xFDF6,
 };
 
 /* HCI packet status */
@@ -47,13 +55,13 @@ enum {
 };
 
 /* HCI Context Block for socket buffer */
-struct hci_cb {
+struct slsi_hci_cb {
 	char type;
 	char trans_type;
 	char property;
 };
 
-#define GET_HCI_CB(skb)		        ((struct hci_cb *)(skb->cb))
+#define GET_HCI_CB(skb)		        ((struct slsi_hci_cb *)(skb->cb))
 
 #define GET_HCI_PKT_TYPE(skb)           (GET_HCI_CB(skb)->type)
 #define SET_HCI_PKT_TYPE(skb, _TYPE)    (GET_HCI_CB(skb)->type = _TYPE)
@@ -102,4 +110,6 @@ static inline struct sk_buff *alloc_hci_pkt_skb(unsigned int size)
 
 int hci_pkt_status(char type, char *data, size_t len);
 size_t hci_pkt_get_size(char type, char *data, size_t len);
+unsigned short hci_pkt_get_command(char* data, size_t len);
+
 #endif /* __HCI_PKT_H__ */

@@ -109,7 +109,7 @@
 #define RTC_RUDR_MASK			(1 << RTC_RUDR_SHIFT)
 #define RTC_AUDR_SHIFT_REV		4
 #define RTC_AUDR_MASK_REV		(1 << RTC_AUDR_SHIFT_REV)
-#if IS_ENABLED(CONFIG_RTC_BOOT_ALARM)
+#if IS_ENABLED(CONFIG_RTC_BOOT_ALARM) || IS_ENABLED(CONFIG_RTC_AUTO_PWRON)
 #define RTC_WAKE_SHIFT			3
 #define RTC_WAKE_MASK			(1 << RTC_WAKE_SHIFT)
 #endif
@@ -157,6 +157,11 @@ extern int secure_debug_set_config(u8 addr, u8 config);
 extern int secure_debug_read(u8 addr, u8 bit);
 extern void secure_debug_write(u8 addr, u8 bit, u8 val);
 extern void secure_debug_clear(void);
+
+#if IS_ENABLED(CONFIG_RTC_AUTO_PWRON)
+extern int pon_alarm_get_lpcharge(void);
+extern void pon_alarm_parse_data(char *alarm_data, struct rtc_wkalrm *alm);
+#endif
 
 /* RTC Counter Register offsets */
 #if IS_ENABLED(CONFIG_RTC_DRV_S2MP)

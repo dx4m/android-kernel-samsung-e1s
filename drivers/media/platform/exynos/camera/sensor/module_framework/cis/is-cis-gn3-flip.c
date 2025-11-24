@@ -381,7 +381,7 @@ int sensor_gn3_cis_write16_burst(void *vclient, u16 addr, u8 *val, u32 num, bool
 		goto p_err;
 	}
 
-	wbuf = kmalloc((2 + (num * 2)), GFP_KERNEL);
+	wbuf = pablo_malloc((2 + (num * 2)), GFP_KERNEL);
 	if (!wbuf) {
 		err("failed to alloc buffer for burst i2c");
 		ret = -ENODEV;
@@ -414,11 +414,11 @@ int sensor_gn3_cis_write16_burst(void *vclient, u16 addr, u8 *val, u32 num, bool
 		goto p_err_free;
 	}
 
-	kfree(wbuf);
+	pablo_free(wbuf);
 	return 0;
 
 p_err_free:
-	kfree(wbuf);
+	pablo_free(wbuf);
 p_err:
 	return ret;
 }
@@ -608,8 +608,8 @@ int sensor_gn3_cis_force_aeb_off(struct v4l2_subdev *subdev)
 	if (cis_data->cur_hdr_mode == SENSOR_HDR_MODE_2AEB_2VC
 		&& cis_data->pre_hdr_mode == SENSOR_HDR_MODE_2AEB_2VC) {
 		info("[%s] current AEB status is enabled. need AEB disable\n", __func__);
-		cis_data->pre_hdr_mode = cis_data->cur_hdr_mode = SENSOR_HDR_MODE_SINGLE;
 		ret |= sensor_gn3_cis_write_aeb_off(subdev);
+		cis_data->pre_hdr_mode = cis_data->cur_hdr_mode = SENSOR_HDR_MODE_SINGLE;
 		info("[%s] disable AEB\n", __func__);
 	}
 
@@ -797,6 +797,7 @@ int sensor_gn3_cis_update_seamless_mode(struct v4l2_subdev *subdev)
 	u16 next_fast_change_idx = 0;
 	u32 load_sram_idx = 0;
 	bool is_aeb_changed = false;
+	bool is_tetra_changed = false;
 	struct is_cis *cis = sensor_cis_get_cis(subdev);
 	struct sensor_gn3_private_data *priv = (struct sensor_gn3_private_data *)cis->sensor_info->priv;
 	struct sensor_gn3_private_runtime *priv_runtime = (struct sensor_gn3_private_runtime *)cis->priv_runtime;
@@ -871,7 +872,39 @@ int sensor_gn3_cis_update_seamless_mode(struct v4l2_subdev *subdev)
 		&next_fast_change_idx,
 		&load_sram_idx);
 
-	if ((mode == next_mode && cur_fast_change_idx == next_fast_change_idx)
+	if (cis->cis_data->cur_bayer_pattern != cis->cis_data->pre_bayer_pattern) {
+		ret |= cis->ixc_ops->write16(cis->client, 0xFCFC, 0x4000);
+		ret |= cis->ixc_ops->write16(cis->client, 0x6000, 0x0005);
+
+		if (mode != next_mode) {
+			ret |= cis->ixc_ops->write16(cis->client, 0x0B32, 0x0100);
+			ret |= cis->ixc_ops->write16(cis->client, 0x0B30, next_fast_change_idx);
+		}
+
+		ret |= cis->ixc_ops->write16(cis->client, 0xFCFC, 0x2000);
+		if (cis->cis_data->cur_bayer_pattern) {
+			info("[%s] Remosaic off - Tetra Pattern", __func__);
+			ret |= cis->ixc_ops->write16(cis->client, 0xEB60, 0x0000);
+		} else {
+			info("[%s] Remosaic on - Bayer Pattern", __func__);
+			ret |= cis->ixc_ops->write16(cis->client, 0xEB60, 0x0200);
+		}
+
+		ret |= cis->ixc_ops->write16(cis->client, 0xFCFC, 0x4000);
+		if (mode == next_mode) {
+			ret |= cis->ixc_ops->write16(cis->client, 0x0B32, 0x0100);
+			if (cis->cis_data->cur_bayer_pattern)
+				ret |= cis->ixc_ops->write16(cis->client, 0x0B30, 0x010A);
+			else
+				ret |= cis->ixc_ops->write16(cis->client, 0x0B30, 0x0109);
+		}
+
+		ret |= cis->ixc_ops->write16(cis->client, 0x6000, 0x0085);
+
+		is_tetra_changed = true;
+	}
+
+	if ((mode == next_mode && cur_fast_change_idx == next_fast_change_idx && !is_tetra_changed)
 		|| next_mode == MODE_GROUP_NONE)
 		goto p_i2c_unlock;
 
@@ -886,10 +919,12 @@ int sensor_gn3_cis_update_seamless_mode(struct v4l2_subdev *subdev)
 	ret |= cis->ixc_ops->write16(cis->client, 0xFCFC, 0x4000);
 	ret |= cis->ixc_ops->write16(cis->client, 0x6000, 0x0005);
 
-	if (cis->cis_data->stream_on == true)
-		ret |= cis->ixc_ops->write16(cis->client, 0x0B32, 0x0100);
+	if (!is_tetra_changed) {
+		if (cis->cis_data->stream_on == true)
+			ret |= cis->ixc_ops->write16(cis->client, 0x0B32, 0x0100);
 
-	ret |= cis->ixc_ops->write16(cis->client, 0x0B30, next_fast_change_idx);
+		ret |= cis->ixc_ops->write16(cis->client, 0x0B30, next_fast_change_idx);
+	}
 	ret |= cis->ixc_ops->write16(cis->client, 0x6000, 0x0085);
 	if (ret < 0)
 		err("sensor_gn3_set_registers fail!!");
@@ -1155,8 +1190,8 @@ int sensor_gn3_cis_mode_change(struct v4l2_subdev *subdev, u32 mode)
 	ret |= sensor_gn3_cis_write_aeb_off(subdev);
 
 #if IS_ENABLED(USE_CAMERA_SENSOR_RETENTION)
-	info("[%s] mode[%d] 12bit[%d] LN[%d] ZOOM[%d] AEB[%d] => load_sram_idx[%d] fast_change_idx[0x%x]\n",
-		__func__, mode,
+	info("[%s] [SEN_DBG] mode[%d, %s] 12bit[%d] LN[%d] ZOOM[%d] AEB[%d] => load_sram_idx[%d] fast_change_idx[0x%x]\n",
+		__func__, mode, cis->sensor_info->mode_infos[mode]->name,
 		cis_data->cur_12bit_mode,
 		cis_data->cur_lownoise_mode,
 		cis_data->cur_remosaic_zoom_ratio,
@@ -1164,8 +1199,8 @@ int sensor_gn3_cis_mode_change(struct v4l2_subdev *subdev, u32 mode)
 		load_sram_idx,
 		fast_change_idx);
 #else
-	info("[%s] mode[%d] 12bit[%d] LN[%d] ZOOM[%d] AEB[%d] => fast_change_idx[0x%x]\n",
-		__func__, mode,
+	info("[%s] [SEN_DBG] mode[%d, %s] 12bit[%d] LN[%d] ZOOM[%d] AEB[%d] => fast_change_idx[0x%x]\n",
+		__func__, mode, cis->sensor_info->mode_infos[mode]->name,
 		cis_data->cur_12bit_mode,
 		cis_data->cur_lownoise_mode,
 		cis_data->cur_remosaic_zoom_ratio,
@@ -1268,26 +1303,9 @@ int sensor_gn3_cis_retention_prepare(struct v4l2_subdev *subdev)
 	IXC_MUTEX_LOCK(cis->ixc_lock);
 	ret |= cis->ixc_ops->write16(cis->client, 0xFCFC, 0x4000);
 	ret |= cis->ixc_ops->write16(cis->client, 0x6000, 0x0005);
-	ret |= cis->ixc_ops->write16(cis->client, 0xFCFC, 0x2000);
-	ret |= cis->ixc_ops->write16(cis->client, 0x0F74, 0x0000);
-	ret |= cis->ixc_ops->write16(cis->client, 0x0F78, 0x2002);
-	ret |= cis->ixc_ops->write16(cis->client, 0x0F7A, 0x2002);
-	ret |= cis->ixc_ops->write16(cis->client, 0x0F7C, 0x2002);
-	ret |= cis->ixc_ops->write16(cis->client, 0x0F7E, 0x2002);
-	ret |= cis->ixc_ops->write16(cis->client, 0x0F80, 0x2002);
-	ret |= cis->ixc_ops->write16(cis->client, 0x0F82, 0x2002);
-	ret |= cis->ixc_ops->write16(cis->client, 0x0F84, 0x2002);
-	ret |= cis->ixc_ops->write16(cis->client, 0x0F86, 0x2002);
-	ret |= cis->ixc_ops->write16(cis->client, 0x0F88, 0x2002);
-	ret |= cis->ixc_ops->write16(cis->client, 0x0F98, 0x3120);
-	ret |= cis->ixc_ops->write16(cis->client, 0x0F9A, 0x3B1E);
-	ret |= cis->ixc_ops->write16(cis->client, 0x0F9C, 0x451C);
-	ret |= cis->ixc_ops->write16(cis->client, 0x0F9E, 0x4F1A);
-	ret |= cis->ixc_ops->write16(cis->client, 0x0FA0, 0x5918);
-	ret |= cis->ixc_ops->write16(cis->client, 0x0FA2, 0x6316);
-	ret |= cis->ixc_ops->write16(cis->client, 0x0FA4, 0x6D14);
-	ret |= cis->ixc_ops->write16(cis->client, 0x0FA6, 0xA3D0);
-	ret |= cis->ixc_ops->write16(cis->client, 0x0FA8, 0xADCE);
+
+	ret |= sensor_cis_write_registers(subdev, priv->sram_page_addr_set);
+
 	ret |= cis->ixc_ops->write16(cis->client, 0xFCFC, 0x4000);
 	ret |= cis->ixc_ops->write16(cis->client, 0x0B30, 0x01FF);
 	ret |= cis->ixc_ops->write16(cis->client, 0x6000, 0x0085);
@@ -1793,11 +1811,11 @@ int sensor_gn3_cis_stream_off(struct v4l2_subdev *subdev)
 
 	dbg_sensor(1, "[MOD:D:%d] %s\n", cis->id, __func__);
 
-	cis_data->stream_on = false;
-
 	IXC_MUTEX_LOCK(cis->ixc_lock);
 
 	sensor_gn3_cis_force_aeb_off(subdev);
+
+	cis_data->stream_on = false;
 
 	cis->ixc_ops->read8(cis->client, 0x0005, &cur_frame_count);
 	cis->ixc_ops->write16(cis->client, 0xFCFC, 0x4000);
@@ -2046,7 +2064,7 @@ static int cis_gn3_probe_i2c(struct i2c_client *client,
 	cis->bayer_order = OTF_INPUT_ORDER_BAYER_GB_RG;
 	cis->use_wb_gain = true;
 	cis->reg_addr = &sensor_gn3_reg_addr;
-	cis->priv_runtime = kzalloc(sizeof(struct sensor_gn3_private_runtime), GFP_KERNEL);
+	cis->priv_runtime = pablo_zalloc(sizeof(struct sensor_gn3_private_runtime), GFP_KERNEL);
 	if (!cis->priv_runtime) {
 		kfree(cis->cis_data);
 		kfree(cis->subdev);

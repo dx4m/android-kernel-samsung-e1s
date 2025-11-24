@@ -1803,7 +1803,7 @@ static int dsc_reg_init(u32 id, struct decon_config *config, u32 overlap_w,
 	}
 
 	dsc_enc.overlap_w = overlap_w;
-#if IS_ENABLED(CONFIG_DRM_MCD_COMMON)
+#if IS_ENABLED(CONFIG_DRM_MCD_COMMON) && !IS_ENABLED(CONFIG_EXYNOS_DPU_USE_DECODER_DSC)
 	if (config->out_type & DECON_OUT_DP)
 		dsc_reg_set_encoder(id, config, &dsc_enc, false);
 	else

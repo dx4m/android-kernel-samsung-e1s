@@ -462,7 +462,7 @@ static void tzdev_teec_prepare_connection_data(uint32_t conn_meth, void *conn_da
 		memcpy(buf, conn_data, sizeof(uint32_t));
 		break;
 	default:
-		BUG();
+		break;
 	}
 }
 

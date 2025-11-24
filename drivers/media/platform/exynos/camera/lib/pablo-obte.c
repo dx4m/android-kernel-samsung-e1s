@@ -227,7 +227,6 @@ static pablo_ssx_status_t pablo_ssx_status[TOTALCOUNT_SSX_ID];
 static lib_tuning_config_t sharebase;
 static spinlock_t slock_json;
 static spinlock_t slock_dump;
-static bool use_vmalloc_memory; /* use on memory lack */
 static bool init_alloc_memory;
 static bool init_alloc_cr_dump_memory;
 static u32 addr_conv_tbl_num;
@@ -325,10 +324,7 @@ unsigned char *pablo_obte_alloc(unsigned long size)
 {
 	unsigned char *new_addr;
 
-	if (use_vmalloc_memory)
-		new_addr = vzalloc(size);
-	else
-		new_addr = kzalloc(size, GFP_KERNEL);
+	new_addr = pablo_zalloc(size, GFP_KERNEL);
 
 	if (!new_addr) {
 		err_obte("alloc fail, size (%lu)\n", size);
@@ -363,16 +359,14 @@ bool pablo_obte_buf_alloc(unsigned int id, char *buf_name, unsigned long size)
 void pablo_obte_buf_free(unsigned int id)
 {
 	unsigned char *addr = pablo_obte_buf_getaddr(id);
-
-	if (addr) {
-		if (use_vmalloc_memory)
-			vfree(addr);
-		else
-			kfree(addr);
-
-		pablo_obte_buf_setaddr(id, NULL);
-		info_obte("free('%s')\n", pablo_obte_buf_name(id));
+	if (!addr) {
+		err_obte("failed pablo_obte_buf_free. addr is null\n");
+		return;
 	}
+	pablo_free(addr);
+
+	pablo_obte_buf_setaddr(id, NULL);
+	info_obte("free('%s')\n", pablo_obte_buf_name(id));
 }
 
 struct stripe_buf_info_t *pablo_obte_get_stripe_buf(u32 dump_id)
@@ -402,10 +396,7 @@ void pablo_obte_stripe_value_buf_free(u32 dump_id, u32 reg_value_buf_id)
 	temp_stripe_buf = pablo_obte_get_stripe_buf(dump_id);
 
 	if (temp_stripe_buf->reg_value[reg_value_buf_id]) {
-		if (use_vmalloc_memory)
-			vfree(temp_stripe_buf->reg_value[reg_value_buf_id]);
-		else
-			kfree(temp_stripe_buf->reg_value[reg_value_buf_id]);
+		pablo_free(temp_stripe_buf->reg_value[reg_value_buf_id]);
 
 		temp_stripe_buf->reg_value[reg_value_buf_id] = NULL;
 		if (temp_stripe_buf->reg_value_buf_num > 0)
@@ -1382,6 +1373,7 @@ long __nocfi pablo_obte_ioctl(struct file *filp, unsigned int cmd, unsigned long
 	char version[128];
 	u32 ssx_id;
 	int i = 0;
+	u32 conv_tbl_num = 0;
 	void __iomem *dump_address;
 	pablo_ssx_status_t curr_ssx_info;
 	pablo_debug_size_info_t curr_debug_size;
@@ -1589,16 +1581,17 @@ long __nocfi pablo_obte_ioctl(struct file *filp, unsigned int cmd, unsigned long
 				return -EFAULT;
 			}
 
-			if (addr_conv_tbl_num < MAXSIZE_CONVERSION_TABLE) {
-				for (i = 0; i <= addr_conv_tbl_num; i++) {
+			conv_tbl_num = addr_conv_tbl_num;
+			if (conv_tbl_num < MAXSIZE_CONVERSION_TABLE) {
+				for (i = 0; i <= conv_tbl_num; i++) {
 					if (base_addr_conv_tbl[i].base_address ==
 					    reg_dump_ip_info->base_address)
 						break;
 
-					if (i == addr_conv_tbl_num) {
-						base_addr_conv_tbl[addr_conv_tbl_num].base_address
+					if (i == conv_tbl_num) {
+						base_addr_conv_tbl[conv_tbl_num].base_address
 							= reg_dump_ip_info->base_address;
-						base_addr_conv_tbl[addr_conv_tbl_num].dump_address
+						base_addr_conv_tbl[conv_tbl_num].dump_address
 							= dump_address;
 						addr_conv_tbl_num++;
 						break;
@@ -1623,13 +1616,8 @@ long __nocfi pablo_obte_ioctl(struct file *filp, unsigned int cmd, unsigned long
 		}
 		break;
 	case PABLO_SET_VMALLOC_MEMORY:
-		if (get_user(data, (u32 __user *) arg)) {
-			err_obte("PABLO_SET_VMALLOC_MEMORY: get_user\n");
-			return -EFAULT;
-		}
-		use_vmalloc_memory = data ? true : false;
-		info_obte("PABLO_SET_VMALLOC_MEMORY %d\n", use_vmalloc_memory);
-		break;
+		info_obte("PABLO_SET_VMALLOC_MEMORY deprecated\n");
+		return -ENOTTY;
 	case PABLO_TUNE_SET_NFD_INFO_PARAM:
 #if IS_ENABLED(EN_VRAINFO_MEMCPY)
 		info_obte("PABLO_TUNE_SET_NFD_INFO_PARAM\n");

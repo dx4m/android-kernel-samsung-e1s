@@ -42,6 +42,7 @@
 #if IS_ENABLED(CONFIG_NPU_GOVERNOR)
 #include "npu-governor.h"
 #endif
+#include "npu-state.h"
 
 #ifdef NPU_LOG_TAG
 #undef NPU_LOG_TAG
@@ -132,17 +133,14 @@ int npu_session_save_result(struct npu_session *session, struct nw_result nw_res
 
 void npu_session_queue_done(struct npu_queue *queue, struct npu_queue_list *inclist, struct npu_queue_list *otclist, unsigned long flag)
 {
+	u32 freq_index;
+	npu_state_set_execution_time(queue);
 #if IS_ENABLED(CONFIG_NPU_GOVERNOR)
-	u32 buff_cnt, freq_index;
-
-	buff_cnt = otclist->containers[0].count;
 	freq_index = npu_update_cmdq_progress_from_done(queue);
 	npu_queue_done(queue, inclist, otclist, flag);
 	npu_update_frequency_from_done(queue, freq_index);
 #else
-	u32 buff_cnt;
-
-	buff_cnt = otclist->containers[0].count;
+	(void)freq_index; /* unused */
 	npu_queue_done(queue, inclist, otclist, flag);
 #endif
 }
@@ -692,6 +690,7 @@ int npu_session_put_frame_req(
 		session->current_frame = &frame;
 
 		mutex_lock(session->global_lock);
+		npu_state_set_start_time(session);
 #if IS_ENABLED(CONFIG_NPU_GOVERNOR)
 		npu_update_frequency_from_queue(session, 1);
 		ret = proto_drv_handler_frame_requested(&frame);
@@ -1077,6 +1076,8 @@ int npu_session_open(struct npu_session **session, void *cookie, void *memory)
 #endif
 	(*session)->is_instance_1 = false;
 
+	(*session)->is_bootup_error_handling_called = false;
+
 	ret = npu_scheduler_register_session(*session);
 	if (unlikely(ret)) {
 		npu_err("fail(%d) in register_session\n", ret);
@@ -1084,7 +1085,11 @@ int npu_session_open(struct npu_session **session, void *cookie, void *memory)
 		goto p_err;
 	}
 
-	npu_session_imb_async_init(*session);
+	ret = npu_session_imb_async_init(*session);
+	if (unlikely(ret)) {
+		npu_err("fail(%d) in npu_session_imb_async_init\n", ret);
+		goto p_err;
+	}
 
 	return ret;
 p_err:
@@ -2872,8 +2877,10 @@ p_err:
 		session->WGT_info = NULL;
 	}
 
-	if (likely(IMB_av))
+	if (likely(IMB_av)) {
 		kfree(IMB_av);
+		session->IMB_info = NULL;
+	}
 
 	return ret;
 }

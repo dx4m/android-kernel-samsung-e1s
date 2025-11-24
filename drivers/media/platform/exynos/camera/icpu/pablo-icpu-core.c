@@ -32,6 +32,7 @@
 
 #include "pablo-kernel-variant.h"
 #include "pablo-debug.h"
+#include "pablo-mem.h"
 
 static struct icpu_core *core;
 static struct icpu_logger _log = {
@@ -545,7 +546,7 @@ static void __teardown_core(struct platform_device *pdev)
 				core->tx_mboxes[i] = NULL;
 			}
 
-		kfree(core->tx_mboxes);
+		pablo_free(core->tx_mboxes);
 		core->tx_mboxes = NULL;
 	}
 
@@ -556,19 +557,19 @@ static void __teardown_core(struct platform_device *pdev)
 				core->rx_mboxes[i] = NULL;
 			}
 
-		kfree(core->rx_mboxes);
+		pablo_free(core->rx_mboxes);
 		core->rx_mboxes = NULL;
 	}
 
-	kfree(core->chans);
+	pablo_free(core->chans);
 	core->chans = NULL;
 
 	pablo_icpu_mem_remove();
 
 	pdev->dev.platform_data = NULL;
-	kfree(pdata);
+	pablo_free(pdata);
 
-	kfree(core);
+	pablo_free(core);
 	core = NULL;
 }
 
@@ -586,7 +587,7 @@ static int pablo_icpu_probe(struct platform_device *pdev)
 	u32 num_tx_mbox;
 	u32 num_rx_mbox;
 
-	core = kzalloc(sizeof(struct icpu_core), GFP_KERNEL);
+	core = pablo_zalloc(sizeof(struct icpu_core), GFP_KERNEL);
 	if (!core)
 		return -ENOMEM;
 
@@ -618,7 +619,7 @@ static int pablo_icpu_probe(struct platform_device *pdev)
 	num_tx_mbox = pablo_icpu_hw_get_num_tx_mbox(pdata);
 	num_rx_mbox = pablo_icpu_hw_get_num_rx_mbox(pdata);
 
-	core->chans = kzalloc(sizeof(struct pablo_icpu_mbox_chan) * num_chans, GFP_KERNEL);
+	core->chans = pablo_zalloc(sizeof(struct pablo_icpu_mbox_chan) * num_chans, GFP_KERNEL);
 	if (!core->chans)
 		goto probe_fail;
 
@@ -626,11 +627,11 @@ static int pablo_icpu_probe(struct platform_device *pdev)
 	for (i = 0; i < num_chans; i++)
 		spin_lock_init(&core->chans[i].lock);
 
-	core->tx_mboxes = kzalloc(sizeof(void *) * num_tx_mbox, GFP_KERNEL);
+	core->tx_mboxes = pablo_zalloc(sizeof(void *) * num_tx_mbox, GFP_KERNEL);
 	if (!core->tx_mboxes)
 		goto probe_fail;
 
-	core->rx_mboxes = kzalloc(sizeof(void *) * num_rx_mbox, GFP_KERNEL);
+	core->rx_mboxes = pablo_zalloc(sizeof(void *) * num_rx_mbox, GFP_KERNEL);
 	if (!core->rx_mboxes)
 		goto probe_fail;
 

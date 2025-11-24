@@ -26,6 +26,9 @@
 extern int sgpu_dm_freq_scaler(int dm_type, void *devdata, u32 target_freq, unsigned int relation);
 #endif /* CONFIG_EXYNOS_ESCA_DVFS_MANAGER */
 
+#include <trace/events/power.h>
+#define CREATE_TRACE_POINTS
+
 /* get frequency and delay time data from string */
 unsigned int *sgpu_get_array_data(struct devfreq_dev_profile *dp, const char *buf)
 {
@@ -227,6 +230,8 @@ static int sgpu_dvfs_governor_conservative_get_target(struct devfreq *df, uint32
 		data->expire_jiffies = jiffies +
 			msecs_to_jiffies(data->downstay_times[*level]);
 	}
+
+	trace_clock_set_rate("Gpu Utilization", utilization, 0);
 
 	return 0;
 }
@@ -548,6 +553,9 @@ static int devfreq_sgpu_func(struct devfreq *df, unsigned long *freq)
 	data->min_freq = max(df->scaling_min_freq,
 			      (unsigned long)HZ_PER_KHZ * qos_min_freq);
 	data->min_freq = min(data->max_freq, data->min_freq);
+
+	trace_clock_set_rate("Gpu Min Limit", data->min_freq, 0);
+	trace_clock_set_rate("Gpu Max Limit", data->max_freq, 0);
 
 	/* in suspend or power_off*/
 	if (atomic_read(&df->suspend_count) > 0) {

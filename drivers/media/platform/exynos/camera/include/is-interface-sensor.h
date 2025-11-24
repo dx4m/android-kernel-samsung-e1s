@@ -328,6 +328,7 @@ typedef struct {
 	unsigned int sen_vblank_count;
 	unsigned int dual_sync_count;
 	unsigned int seamless_update_vsync_cnt;
+	unsigned int last_seamless_history_vsync_cnt;
 	unsigned int remosaic_crop_update_vsync_cnt;
 	unsigned int skip_control_vsync_count;
 	unsigned int sen_frame_id;
@@ -382,6 +383,10 @@ typedef struct {
 	/* set remosaic zoom */
 	u32 cur_remosaic_zoom_ratio;
 	u32 pre_remosaic_zoom_ratio;
+
+	/* set bayer pattern - 0 : normal 1 : tetra */
+	u32 cur_bayer_pattern;
+	u32 pre_bayer_pattern;
 
 	u32 frame_length_lines_shifter;
 

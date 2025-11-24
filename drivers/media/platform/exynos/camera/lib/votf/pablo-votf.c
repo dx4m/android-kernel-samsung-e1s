@@ -1490,7 +1490,7 @@ int votf_probe(struct platform_device *pdev)
 	struct device_node *np;
 	struct votf_dev *votf;
 
-	votf = devm_kzalloc(&pdev->dev, sizeof(struct votf_dev), GFP_KERNEL);
+	votf = pablo_zalloc(sizeof(struct votf_dev), GFP_KERNEL);
 	if (!votf)
 		return -ENOMEM;
 
@@ -1572,7 +1572,7 @@ int votf_remove(struct platform_device *pdev)
 			pkv_iommu_dma_reserve_iova_unmap(&pdev->dev, addr, 0x10000);
 	}
 
-	devm_kfree(&pdev->dev, votf);
+	pablo_free(votf);
 	platform_set_drvdata(pdev, NULL);
 
 	return 0;

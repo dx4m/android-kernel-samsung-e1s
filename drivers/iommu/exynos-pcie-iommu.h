@@ -21,6 +21,9 @@
 #include <linux/irq.h>
 #include <linux/clk.h>
 #include <soc/samsung/exynos/memlogger.h>
+#if defined(CONFIG_SCSC_BB_REDWOOD)
+#include <pcie_scsc/scsc_wlbt_sysmmu.h>
+#endif
 
 typedef u64 sysmmu_iova_t;
 typedef u32 sysmmu_pte_t;
@@ -111,6 +114,7 @@ typedef u32 sysmmu_pte_t;
 #define CTRL_MMU_ENABLE			BIT(0)
 #define CTRL_INT_ENABLE 		BIT(2)
 #define CTRL_FAULT_STALL_MODE		BIT(3)
+#define CTRL_ERR_RESP_VALUE		BIT(5)
 
 #define MMU_STREAM_CFG_STLB_ID(val)		(((val) >> 24) & 0xFF)
 #define MMU_STREAM_CFG_PTLB_ID(val)		(((val) >> 16) & 0xFF)
@@ -555,6 +559,10 @@ struct sysmmu_drvdata {
 	struct stream_props *props;
 	struct memlog *log_desc;
 	struct memlog_obj *log_obj;
+	struct delayed_work sysmmu_fault_work;
+#if defined(CONFIG_SCSC_BB_REDWOOD)
+	int (*mxman_force_panic)(void);
+#endif
 };
 
 struct exynos_vm_region {
@@ -586,6 +594,9 @@ static void exynos_sysmmu_tlb_invalidate(dma_addr_t d_start, size_t size,
 					enum pcie_sysmmu_vid pcie_vid);
 int exynos_iommu_add_fault_handler(struct device *dev,
 				iommu_fault_handler_t handler, void *token);
+#if defined(CONFIG_SCSC_BB_REDWOOD)
+void register_mxman_force_panic(int (*fp)(void));
+#endif
 
 static inline bool get_sysmmu_runtime_active(struct sysmmu_drvdata *data)
 {

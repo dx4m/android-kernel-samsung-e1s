@@ -106,6 +106,7 @@ static struct boot_event boot_events[] = {
 	{"!@Boot_SVC : RIL_UNSOL_RIL_CONNECTED",},
 	{"!@Boot_SVC : setRadioPower on",},
 	{"!@Boot_SVC : setUiccSubscription",},
+	{"!@Boot_SVC : SIM fetchSimRecords",},
 	{"!@Boot_SVC : SIM onAllRecordsLoaded",},
 	{"!@Boot_SVC : RUIM onAllRecordsLoaded",},
 	{"!@Boot_SVC : setupDataCall",},
@@ -450,13 +451,13 @@ static int get_thermal_zones(void)
 	return ret;
 }
 
-static u32 get_arch_timer_start(void)
+static int get_arch_timer_start(void)
 {
 	struct device_node *np;
-	int ret = 0;
+	int ret;
 	u32 clock_frequency;
-	u64 ts_msec;
-	u64 arch_timer_start;
+	u64 ktimer_msec;
+	u64 arch_timer_msec;
 
 	clock_frequency = arch_timer_get_cntfrq();
 	if (!clock_frequency) {
@@ -476,13 +477,15 @@ static u32 get_arch_timer_start(void)
 		}
 	}
 
-	arch_timer_start = arch_timer_read_counter();
-	do_div(arch_timer_start, (clock_frequency / 1000));
-	ts_msec = local_clock();
-	do_div(ts_msec, 1000000);
-	arch_timer_start -= ts_msec;
+	arch_timer_msec = arch_timer_read_counter();
+	do_div(arch_timer_msec, (clock_frequency / 1000));
 
-	return (u32)arch_timer_start;
+	ktimer_msec = local_clock();
+	do_div(ktimer_msec, 1000000);
+
+	arch_timer_start = (u32)(arch_timer_msec - ktimer_msec);
+
+	return 0;
 }
 
 static int get_num_clusters(void)
@@ -519,8 +522,7 @@ static int __init_or_module sec_bootstat_init(void)
 		return -EINVAL;
 	}
 
-	arch_timer_start = get_arch_timer_start();
-	if (arch_timer_start < 0) {
+	if (get_arch_timer_start() < 0) {
 		pr_err("invalid arch timer start\n");
 		return -EINVAL;
 	}

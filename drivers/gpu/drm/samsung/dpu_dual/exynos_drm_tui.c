@@ -11,6 +11,7 @@
  */
 
 #include <drm/drm_drv.h>
+#include <drm/drm_managed.h>
 #include <drm/drm_modeset_lock.h>
 #include <drm/drm_atomic_uapi.h>
 #include <drm/drm_atomic_helper.h>
@@ -39,94 +40,63 @@ struct stui_buf_info *(*tui_get_buf_info)(void);
 void (*tui_free_video_space)(void);
 #endif
 
-/* only valid for LCD display crtc */
-static struct drm_crtc *primary_crtc;
-
-bool is_tui_trans(const struct drm_crtc_state *crtc_state)
-{
-	struct exynos_drm_crtc_state *exynos_crtc_state =
-					to_exynos_crtc_state(crtc_state);
-
-	if (crtc_state->crtc != primary_crtc)
-		return false;
-
-	return exynos_crtc_state->tui_changed;
-}
-
-int exynos_drm_atomic_check_tui(struct drm_atomic_state *state)
-{
+static struct dpu_tui {
+	struct drm_device *drmdev;
 	struct drm_crtc *crtc;
-	struct drm_encoder *encoder;
-	struct drm_crtc_state *old_crtc_state, *new_crtc_state;
-	struct exynos_drm_crtc_state *old_exynos_crtc_state, *new_exynos_crtc_state,
-				     *primary_exynos_crtc_state;
-	int i;
+} *tui;
 
-	for_each_oldnew_crtc_in_state(state, crtc, old_crtc_state, new_crtc_state, i) {
-		new_exynos_crtc_state = to_exynos_crtc_state(new_crtc_state);
-		old_exynos_crtc_state = to_exynos_crtc_state(old_crtc_state);
+static int tui_log_level = 6;
+module_param(tui_log_level, int, 0600);
+MODULE_PARM_DESC(tui_log_level, "log level for dpu decon [default : 6]");
 
-		if (crtc != primary_crtc) {
-			encoder = crtc_get_encoder(new_crtc_state, DRM_MODE_ENCODER_TMDS);
-			if (encoder) {
-				primary_exynos_crtc_state = to_exynos_crtc_state(primary_crtc->state);
-				if (primary_exynos_crtc_state->tui_status &&
-						primary_exynos_crtc_state->tui_changed) {
-					DRM_ERROR("reject DP connect commit(%pK)\n", state);
-					return -EPERM;
-				}
-			}
-			continue;
-		}
-
-		if (new_exynos_crtc_state->tui_status &&
-				!new_exynos_crtc_state->tui_changed) {
-			DRM_ERROR("tui enabled reject commit(%pK)\n", state);
-			return -EPERM;
-		}
-
-		if (old_exynos_crtc_state->tui_changed &&
-				!new_exynos_crtc_state->tui_changed &&
-				(new_crtc_state->plane_mask == 0)) {
-			DRM_ERROR("reject clear display commit(%pK)\n", state);
-			return -EPERM;
-		}
-	}
-
-	return 0;
-}
+#define TUI_NAME "dpu-tui"
+#define tui_info(fmt, ...)								\
+	dpu_pr_info(TUI_NAME, (tui && tui->crtc) ? drm_crtc_index((tui->crtc)) : -1,	\
+			tui_log_level, fmt, ##__VA_ARGS__)
+#define tui_warn(fmt, ...)								\
+	dpu_pr_warn(TUI_NAME, (tui && tui->crtc) ? drm_crtc_index((tui->crtc)) : -1,	\
+			tui_log_level, fmt, ##__VA_ARGS__)
+#define tui_err(fmt, ...)								\
+	dpu_pr_err(TUI_NAME, (tui && tui->crtc) ? drm_crtc_index((tui->crtc)) : -1,	\
+			tui_log_level, fmt, ##__VA_ARGS__)
+#define tui_debug(fmt, ...)								\
+	dpu_pr_debug(TUI_NAME, (tui && tui->crtc) ? drm_crtc_index((tui->crtc)) : -1,	\
+			tui_log_level, fmt, ##__VA_ARGS__)
 
 /* See also: drm_atomic_helper_duplicate_state() */
 static struct drm_atomic_state *
-exynos_drm_atomic_duplicate_state(struct drm_crtc *crtc,
-				  struct drm_modeset_acquire_ctx *ctx)
+__duplicate_atomic_state(struct drm_device *drmdev, struct drm_modeset_acquire_ctx *ctx)
 {
-	struct drm_device *dev;
 	struct drm_atomic_state *state;
+	struct drm_crtc *crtc;
 	struct drm_crtc_state *crtc_state;
 	int err = 0;
 
-	dev = crtc->dev;
-	state = drm_atomic_state_alloc(dev);
+	state = drm_atomic_state_alloc(drmdev);
 	if (!state)
 		return ERR_PTR(-ENOMEM);
 
 	state->acquire_ctx = ctx;
 	state->duplicated = true;
 
-	crtc_state = drm_atomic_get_crtc_state(state, crtc);
-	if (IS_ERR(crtc_state)) {
-		err = PTR_ERR(crtc_state);
-		goto free;
+	drm_for_each_crtc(crtc, drmdev) {
+		if (!crtc || !crtc->state->active || !crtc->state->enable)
+			continue;
+
+		crtc_state = drm_atomic_get_crtc_state(state, crtc);
+		if (IS_ERR(crtc_state)) {
+			err = PTR_ERR(crtc_state);
+			goto free;
+		}
+
+		err = drm_atomic_add_affected_planes(state, crtc);
+		if (err < 0)
+			goto free;
+
+		err = drm_atomic_add_affected_connectors(state, crtc);
+		if (err < 0)
+			goto free;
 	}
-
-	err = drm_atomic_add_affected_planes(state, crtc);
-	if (err < 0)
-		goto free;
-
-	err = drm_atomic_add_affected_connectors(state, crtc);
-	if (err < 0)
-		goto free;
 
 	/* clear the acquire context so that it isn't accidentally reused */
 	state->acquire_ctx = NULL;
@@ -137,6 +107,208 @@ free:
 	}
 
 	return state;
+}
+
+static struct drm_crtc *__get_tui_crtc(struct drm_device *drmdev)
+{
+	struct drm_crtc *crtc, *active_crtc = NULL;
+	struct exynos_drm_crtc *exynos_crtc;
+	struct exynos_drm_crtc_state *exynos_crtc_state;
+	int active_crtc_cnt;
+
+	active_crtc_cnt = 0;
+	drm_for_each_crtc(crtc, drmdev) {
+		exynos_crtc = to_exynos_crtc(crtc);
+
+		if (!(exynos_crtc->possible_type & EXYNOS_DISPLAY_TYPE_DSI))
+			continue;
+
+		if (!drm_atomic_crtc_effectively_active(crtc->state))
+			continue;
+
+		active_crtc = crtc;
+		++active_crtc_cnt;
+	}
+
+	/* TUI can only be enabled when single display */
+	if (active_crtc_cnt == 1) {
+		tui_info("tui crtc[%s]\n", active_crtc->name);
+
+		return active_crtc;
+	} else if (active_crtc_cnt == 0 && tui->crtc) {
+		/* If cnt is 0 and already tui status return the old crtc */
+		exynos_crtc_state = to_exynos_crtc_state(tui->crtc->state);
+		if (exynos_crtc_state->tui_status) {
+			tui_info("tui crtc%s]\n", tui->crtc->name);
+
+			return tui->crtc;
+		}
+	}
+
+	tui_err("can't enter TUI, active_crtc_cnt(%d) from [%ps]\n",
+			active_crtc_cnt, __builtin_return_address(0));
+	return NULL;
+}
+
+static int __set_new_state(struct drm_atomic_state *new_state)
+{
+	struct decon_device *decon;
+	struct drm_crtc *crtc;
+	struct exynos_drm_crtc *exynos_crtc;
+	struct drm_plane_state *new_plane_state;
+	struct drm_plane *plane;
+	struct exynos_drm_plane_state *new_exynos_plane_state;
+	struct drm_crtc_state *crtc_state;
+	struct exynos_drm_crtc_state *old_exynos_crtc_state, *new_exynos_crtc_state;
+	int i, j, ret = 0;
+	unsigned long op_mode = 0;
+
+	drm_for_each_crtc(crtc, new_state->dev) {
+		i = drm_crtc_index(crtc);
+		exynos_crtc = to_exynos_crtc(crtc);
+		crtc_state = drm_atomic_get_crtc_state(new_state, crtc);
+		if (IS_ERR(crtc_state))
+			return PTR_ERR(crtc_state);
+
+		new_exynos_crtc_state = to_exynos_crtc_state(crtc_state);
+		new_exynos_crtc_state->tui_status = true;
+
+		if (!drm_atomic_crtc_effectively_active(crtc_state))
+			continue;
+
+		old_exynos_crtc_state = to_exynos_crtc_state(crtc->state);
+		decon = exynos_crtc->ctx;
+		op_mode = decon->config.mode.op_mode;
+		tui_info(": Crtc-%d operation mode(%lu)\n", i, op_mode);
+
+		if (op_mode == DECON_COMMAND_MODE) {
+			crtc_state->active = false;
+			tui_info(": Set crtc_state->active to false\n");
+		}
+
+		new_exynos_crtc_state->dqe_fd = -1;
+		/* TODO: Modify the set full partial within commit code */
+		if (exynos_crtc->partial) {
+			drm_wait_one_vblank(crtc->dev, crtc->index);
+
+			exynos_partial_set_full(&new_exynos_crtc_state->base.mode,
+					&new_exynos_crtc_state->partial_region);
+			tui_info(": x1(%d) y1(%d) x2(%d) y2(%d)\n",
+					new_exynos_crtc_state->partial_region.x1,
+					new_exynos_crtc_state->partial_region.y1,
+					new_exynos_crtc_state->partial_region.x2,
+					new_exynos_crtc_state->partial_region.y2);
+			exynos_partial_update(exynos_crtc->partial, &old_exynos_crtc_state->partial_region,
+					&new_exynos_crtc_state->partial_region);
+		}
+
+		/* if need, set the default display mode for TUI */
+		for_each_new_plane_in_state(new_state, plane, new_plane_state, j) {
+			new_exynos_plane_state = to_exynos_plane_state(new_plane_state);
+			new_exynos_plane_state->hdr_fd = -1;
+			if (op_mode == DECON_COMMAND_MODE) {
+				ret = drm_atomic_set_crtc_for_plane(new_plane_state, NULL);
+				if (ret < 0)
+					return ret;
+
+				drm_atomic_set_fb_for_plane(new_plane_state, NULL);
+			}
+		}
+
+		/* shoule set the default disp clock for tui */
+		if (IS_ENABLED(CONFIG_EXYNOS_BTS) && (op_mode == DECON_COMMAND_MODE)) {
+			if (exynos_pm_qos_request_active(&exynos_crtc->bts->int_qos))
+				exynos_pm_qos_update_request(&exynos_crtc->bts->int_qos, 133 * 1000);
+			else
+				tui_err("int qos setting error\n");
+
+			if (exynos_pm_qos_request_active(&exynos_crtc->bts->disp_qos)) {
+				unsigned long disp_minlock_freq = 333 * 1000;
+				int index;
+
+				for (index = (exynos_crtc->bts->dfs_lv_cnt - 1); index >= 0; index--) {
+					if (exynos_crtc->bts->resol_clk <= exynos_crtc->bts->dfs_lv[index]) {
+						disp_minlock_freq = exynos_crtc->bts->dfs_lv[index];
+						break;
+					}
+				}
+
+				exynos_pm_qos_update_request(&exynos_crtc->bts->disp_qos, disp_minlock_freq);
+			} else {
+				tui_err("disp qos setting error\n");
+			}
+		}
+
+		DPU_EVENT_LOG("TUI_ENTER", exynos_crtc, 0, "resolution[%ux%u] mode[%s]",
+				crtc_state->adjusted_mode.hdisplay,
+				crtc_state->adjusted_mode.vdisplay,
+				(op_mode == DECON_COMMAND_MODE) ? "Command" : "Video");
+	}
+
+	return 0;
+}
+
+static void __release_suspend_state(struct drm_mode_config *mode_config)
+{
+	if (!mode_config->suspend_state)
+		return;
+
+	drm_atomic_state_put(mode_config->suspend_state);
+	mode_config->suspend_state = NULL;
+}
+
+static void all_hibernation_block_exit(void)
+{
+	struct exynos_drm_crtc *exynos_crtc;
+	struct drm_crtc *crtc;
+
+	drm_for_each_crtc(crtc, tui->drmdev) {
+			exynos_crtc = to_exynos_crtc(crtc);
+			hibernation_block_exit(exynos_crtc->hibernation);
+	}
+}
+
+static void all_hibernation_unblock(void)
+{
+	struct exynos_drm_crtc *exynos_crtc;
+	struct drm_crtc *crtc;
+
+		drm_for_each_crtc(crtc, tui->drmdev) {
+				exynos_crtc = to_exynos_crtc(crtc);
+				hibernation_unblock(exynos_crtc->hibernation);
+		}
+}
+
+int exynos_drm_atomic_check_tui(struct drm_atomic_state *state)
+{
+	struct drm_crtc *crtc;
+	struct drm_crtc_state *old_crtc_state, *new_crtc_state;
+	struct exynos_drm_crtc_state *old_exynos_crtc_state, *new_exynos_crtc_state;
+	int i;
+
+	for_each_oldnew_crtc_in_state(state, crtc, old_crtc_state, new_crtc_state, i) {
+		new_exynos_crtc_state = to_exynos_crtc_state(new_crtc_state);
+		old_exynos_crtc_state = to_exynos_crtc_state(old_crtc_state);
+
+		if (old_exynos_crtc_state->tui_status != new_exynos_crtc_state->tui_status)
+			new_exynos_crtc_state->tui_changed = true;
+
+		if (new_exynos_crtc_state->tui_status &&
+				!new_exynos_crtc_state->tui_changed) {
+			tui_debug("reject commit(%p) : display update in TUI status\n", state);
+			return -EPERM;
+		}
+
+		/* TODO: delete, HWC will skip clearDisplay for commit fail in TUI state */
+		if ((old_exynos_crtc_state->tui_changed && !new_exynos_crtc_state->tui_changed) &&
+				new_crtc_state->plane_mask == 0 &&
+				old_crtc_state->active) {
+			tui_debug("reject commit(%p) : clear display right after TUI exit\n", state);
+			return -EPERM;
+		}
+	}
+
+	return 0;
 }
 
 /**
@@ -151,174 +323,59 @@ free:
  */
 int exynos_atomic_enter_tui(void)
 {
-	struct drm_device *dev;
-	struct drm_atomic_state *old_state, *new_state;
-	struct drm_mode_config *mode_config;
+	struct drm_atomic_state *suspend_state, *new_state;
 	struct drm_modeset_acquire_ctx ctx;
-	struct drm_plane_state *new_plane_state;
-	struct drm_plane *plane;
-	struct exynos_drm_plane_state *new_exynos_plane_state;
-	struct drm_crtc_state *crtc_state;
-	struct drm_crtc *crtc;
-	struct exynos_drm_crtc_state *old_exynos_crtc_state, *new_exynos_crtc_state;
-	struct exynos_drm_crtc *exynos_crtc;
-	struct drm_connector *connector;
-	struct drm_connector_state *new_connector_state;
-	struct exynos_drm_connector_state *new_exynos_connector_state;
-	struct resolution_info res_info;
-	int i, ret = 0;
-	unsigned long op_mode = 0;
+	int ret = 0;
 
-	crtc = primary_crtc;
-	if (!crtc)
+	if (!tui->drmdev) {
+		tui_err("drmdev for TUI isn't registered");
 		return -ENODEV;
-
-	dev = crtc->dev;
-	DRM_DEV_INFO(dev->dev, "%s\n", __func__);
-	pr_info("%s +\n", __func__);
-
-	exynos_crtc = to_exynos_crtc(crtc);
-	hibernation_block_exit(exynos_crtc->hibernation);
-
-	DRM_MODESET_LOCK_ALL_BEGIN(dev, ctx, 0, ret);
-
-	mode_config = &dev->mode_config;
-
-	if (!crtc->state->active || !crtc->state->enable) {
-		pr_info("%s: DPU active(%s) enable(%s)\n", __func__,
-				(crtc->state->active) ? "TRUE" : "FALSE",
-				(crtc->state->enable) ? "TRUE" : "FALSE");
-		return -EINVAL;
 	}
 
-	old_exynos_crtc_state = to_exynos_crtc_state(crtc->state);
-	if (old_exynos_crtc_state->tui_status) {
-		pr_info("%s: already in tui state\n", __func__);
-		return -EBUSY;
+	all_hibernation_block_exit();
+
+	DRM_MODESET_LOCK_ALL_BEGIN(tui->drmdev, ctx, 0, ret);
+
+	tui->crtc = __get_tui_crtc(tui->drmdev);
+	if (!tui->crtc) {
+		ret = -ENODEV;
+		goto err_status;
 	}
 
-	old_state = exynos_drm_atomic_duplicate_state(&exynos_crtc->base, &ctx);
-	if (IS_ERR(old_state)) {
-		ret = PTR_ERR(old_state);
-		goto err_dup;
+	tui_info("+\n");
+
+	suspend_state = __duplicate_atomic_state(tui->drmdev, &ctx);
+	if (IS_ERR(suspend_state)) {
+		ret = PTR_ERR(suspend_state);
+		goto err_status;
 	}
 
-	mode_config->suspend_state = old_state;
+	tui->drmdev->mode_config.suspend_state = suspend_state;
 
-	new_state = exynos_drm_atomic_duplicate_state(&exynos_crtc->base, &ctx);
+	new_state = __duplicate_atomic_state(tui->drmdev, &ctx);
 	if (IS_ERR(new_state)) {
 		ret = PTR_ERR(new_state);
-		mode_config->suspend_state = NULL;
-		drm_atomic_state_put(old_state);
-		goto err_dup;
+		goto err_dup_new_state;
 	}
 	new_state->acquire_ctx = &ctx;
 
-	for_each_new_connector_in_state(new_state, connector, new_connector_state, i) {
-		if (connector->connector_type == DRM_MODE_CONNECTOR_DSI) {
-			new_exynos_connector_state = to_exynos_connector_state(new_connector_state);
-			op_mode = new_exynos_connector_state->exynos_mode.mode_flags;
-			pr_info("%s: Read operation mode(%lu)\n", __func__, op_mode);
-			break;
-		}
-	}
-
-	drm_wait_one_vblank(dev, crtc->index);
-
-	crtc_state = drm_atomic_get_crtc_state(new_state, crtc);
-	if (!(op_mode & MIPI_DSI_MODE_VIDEO)) {
-		crtc_state->active = false;
-		pr_info("%s: Set crtc_state->active to false\n", __func__);
-	}
-	new_exynos_crtc_state = to_exynos_crtc_state(crtc_state);
-	new_exynos_crtc_state->tui_status = true;
-	new_exynos_crtc_state->tui_changed = true;
-	new_exynos_crtc_state->dqe_fd = -1;
-	if (exynos_crtc->partial) {
-		exynos_partial_set_full(&new_exynos_crtc_state->base.mode,
-				&new_exynos_crtc_state->partial_region);
-		pr_info("%s: x1(%d) y1(%d) x2(%d) y2(%d)\n", __func__,
-				new_exynos_crtc_state->partial_region.x1,
-				new_exynos_crtc_state->partial_region.y1,
-				new_exynos_crtc_state->partial_region.x2,
-				new_exynos_crtc_state->partial_region.y2);
-		exynos_partial_update(exynos_crtc->partial, &old_exynos_crtc_state->partial_region,
-				&new_exynos_crtc_state->partial_region);
-	}
-
-	/* if need, set the default display mode for TUI */
-	if (op_mode & MIPI_DSI_MODE_VIDEO) {
-		for_each_new_plane_in_state(new_state, plane, new_plane_state, i) {
-			new_exynos_plane_state = to_exynos_plane_state(new_plane_state);
-			new_exynos_plane_state->hdr_fd = -1;
-		}
-
-		/* TODO: delete cal API */
-#if 0
-		decon_reg_set_interrupts(0, false);
-		for (id = 0; id <= REGS_DPP7_ID; id++) {
-			idma_reg_set_irq_disable(id);
-			dpp_reg_set_irq_disable(id);
-		}
-#endif
-	} else {
-		for_each_new_plane_in_state(new_state, plane, new_plane_state, i) {
-			new_exynos_plane_state = to_exynos_plane_state(new_plane_state);
-			new_exynos_plane_state->hdr_fd = -1;
-			ret = drm_atomic_set_crtc_for_plane(new_plane_state, NULL);
-			if (ret < 0)
-				goto err_new_state;
-
-			drm_atomic_set_fb_for_plane(new_plane_state, NULL);
-		}
-	}
-
-	res_info.xres = crtc_state->adjusted_mode.hdisplay;
-	res_info.yres = crtc_state->adjusted_mode.vdisplay;
-	if (op_mode & MIPI_DSI_MODE_VIDEO)
-		res_info.mode = 1; /* video mode */
-	else
-		res_info.mode = 0; /* command mode */
+	ret = __set_new_state(new_state);
+	if (ret < 0)
+		goto err;
 
 	ret = drm_atomic_commit(new_state);
 	if (ret < 0)
-		goto err_new_state;
+		goto err;
 
-	/* shoule set the default disp clock for tui */
-	if (IS_ENABLED(CONFIG_EXYNOS_BTS) && (!(op_mode & MIPI_DSI_MODE_VIDEO))) {
-		if (exynos_pm_qos_request_active(&exynos_crtc->bts->int_qos))
-			exynos_pm_qos_update_request(&exynos_crtc->bts->int_qos, 133 * 1000);
-		else
-			DRM_DEV_ERROR(dev->dev, "int qos setting error\n");
-
-		if (exynos_pm_qos_request_active(&exynos_crtc->bts->disp_qos)) {
-			unsigned long disp_minlock_freq = 333 * 1000;
-			int index;
-
-			for (index = (exynos_crtc->bts->dfs_lv_cnt - 1); index >= 0; index--) {
-				if (exynos_crtc->bts->resol_clk <= exynos_crtc->bts->dfs_lv[index]) {
-					disp_minlock_freq = exynos_crtc->bts->dfs_lv[index];
-					break;
-				}
-			}
-
-			exynos_pm_qos_update_request(&exynos_crtc->bts->disp_qos, disp_minlock_freq);
-		} else {
-			DRM_DEV_ERROR(dev->dev, "disp qos setting error\n");
-		}
-	}
-
-	DPU_EVENT_LOG("TUI_ENTER", exynos_crtc, 0, "resolution[%ux%u] mode[%s]",
-			res_info.xres, res_info.yres, res_info.mode ?
-			"Video" : "Command");
-
-err_new_state:
+err:
 	drm_atomic_state_put(new_state);
-err_dup:
-	pr_info("%s ret(%d)\n", __func__, ret);
-	hibernation_unblock(exynos_crtc->hibernation);
-	DRM_MODESET_LOCK_ALL_END(dev, ctx, ret);
-	pr_info("%s -\n", __func__);
+err_dup_new_state:
+	if (ret)
+		__release_suspend_state(&tui->drmdev->mode_config);
+err_status:
+	DRM_MODESET_LOCK_ALL_END(tui->drmdev, ctx, ret);
+	all_hibernation_unblock();
+	tui_info("ret(%d) -\n", ret);
 
 	return ret;
 }
@@ -326,151 +383,156 @@ EXPORT_SYMBOL(exynos_atomic_enter_tui);
 
 int exynos_atomic_exit_tui(void)
 {
-	struct drm_device *dev;
+	struct decon_device *decon;
 	struct drm_atomic_state *suspend_state;
-	struct drm_mode_config *mode_config;
 	struct drm_modeset_acquire_ctx ctx;
 	struct drm_plane_state *new_plane_state;
 	struct drm_plane *plane;
 	struct exynos_drm_plane_state *new_exynos_plane_state;
 	struct drm_crtc_state *new_crtc_state;
-	struct drm_crtc *crtc = primary_crtc;
+	struct drm_crtc *crtc;
 	struct exynos_drm_crtc *exynos_crtc;
-	struct exynos_drm_crtc_state *old_exynos_crtc_state, *new_exynos_crtc_state;
-	struct drm_connector *connector;
-	struct drm_connector_state *new_connector_state;
-	struct exynos_drm_connector_state *new_exynos_connector_state;
-	int ret, i;
+	struct exynos_drm_crtc_state *new_exynos_crtc_state;
+	int ret, i, j;
 	unsigned long op_mode = 0;
+	bool is_video[MAX_DECON_CNT] = { false, };
 
-	pr_info("%s +\n", __func__);
-
-	if (!crtc)
+	if (!tui->drmdev) {
+		tui_err("drmdev for TUI isn't registered");
 		return -ENODEV;
-
-	old_exynos_crtc_state = to_exynos_crtc_state(crtc->state);
-	if (!old_exynos_crtc_state->tui_status) {
-		pr_info("%s: already out tui state\n", __func__);
-		return -EBUSY;
 	}
 
-	dev = crtc->dev;
-	mode_config = &dev->mode_config;
+	DRM_MODESET_LOCK_ALL_BEGIN(tui->drmdev, ctx, 0, ret);
+
+	if (!tui->crtc) {
+		ret = -ENODEV;
+		goto out;
+	}
+
+	tui_info("+\n");
 
 	/* if necessary, fix up suspend atomic suspend_state. */
-	suspend_state = mode_config->suspend_state;
+	suspend_state = tui->drmdev->mode_config.suspend_state;
 	if (!suspend_state) {
-		pr_err("there is not suspend_state\n");
-		return -EINVAL;
+		tui_err("there is not suspend_state\n");
+		ret = -EINVAL;
+		goto out;
 	}
-
-	DRM_MODESET_LOCK_ALL_BEGIN(dev, ctx, 0, ret);
 
 	suspend_state->acquire_ctx = &ctx;
 
-	for_each_new_connector_in_state(suspend_state, connector, new_connector_state, i) {
-		if (connector->connector_type == DRM_MODE_CONNECTOR_DSI) {
-			new_exynos_connector_state = to_exynos_connector_state(new_connector_state);
-			op_mode = new_exynos_connector_state->exynos_mode.mode_flags;
-			pr_info("%s: Read operation mode(%lu)\n", __func__, op_mode);
-			break;
+	drm_for_each_crtc(crtc, tui->drmdev) {
+		i = drm_crtc_index(crtc);
+		exynos_crtc = to_exynos_crtc(crtc);
+		new_crtc_state = drm_atomic_get_crtc_state(suspend_state, crtc);
+		if (IS_ERR(new_crtc_state)) {
+			ret = PTR_ERR(new_crtc_state);
+			goto err;
+		}
+		new_exynos_crtc_state = to_exynos_crtc_state(new_crtc_state);
+		new_exynos_crtc_state->tui_status = false;
+
+		if (!drm_atomic_crtc_effectively_active(crtc->state))
+			continue;
+
+		decon = exynos_crtc->ctx;
+		op_mode = decon->config.mode.op_mode;
+		is_video[i] = (op_mode == DECON_VIDEO_MODE);
+		tui_info(": Crtc-%d operation mode(%lu)\n", i, op_mode);
+
+		new_exynos_crtc_state->dqe_fd = -1;
+		if (!is_video[i]) {
+			new_exynos_crtc_state->reserved_win_mask = 0;
+			new_exynos_crtc_state->freed_win_mask = 0;
+			new_exynos_crtc_state->visible_win_mask = 0;
+		}
+
+		for_each_new_plane_in_state(suspend_state, plane, new_plane_state, j) {
+			new_exynos_plane_state = to_exynos_plane_state(new_plane_state);
+			new_exynos_plane_state->hdr_fd = -1;
+		}
+
+		if (exynos_crtc->partial) {
+			exynos_partial_set_full(&new_exynos_crtc_state->base.mode,
+					&new_exynos_crtc_state->partial_region);
 		}
 	}
 
-	new_crtc_state = drm_atomic_get_crtc_state(suspend_state, crtc);
-	if (IS_ERR(new_crtc_state)) {
-		ret = PTR_ERR(new_crtc_state);
-		goto err;
-	}
-	new_exynos_crtc_state = to_exynos_crtc_state(new_crtc_state);
-	new_exynos_crtc_state->tui_status = false;
-	new_exynos_crtc_state->tui_changed = true;
-	new_exynos_crtc_state->dqe_fd = -1;
-	if (!(op_mode & MIPI_DSI_MODE_VIDEO)) {
-		new_exynos_crtc_state->reserved_win_mask = 0;
-		new_exynos_crtc_state->freed_win_mask = 0;
-		new_exynos_crtc_state->visible_win_mask = 0;
-	}
-
-	for_each_new_plane_in_state(suspend_state, plane, new_plane_state, i) {
-		new_exynos_plane_state = to_exynos_plane_state(new_plane_state);
-		new_exynos_plane_state->hdr_fd = -1;
-	}
-
-	exynos_crtc = to_exynos_crtc(crtc);
-	if (exynos_crtc->partial) {
-		exynos_partial_set_full(&new_exynos_crtc_state->base.mode,
-				&new_exynos_crtc_state->partial_region);
-	}
-
-	/* TODO: delete cal API */
-#if 0
-	decon_reg_set_interrupts(0, true);
-	for (id = 0; id <= REGS_DPP7_ID; id++) {
-		idma_reg_set_irq_enable(id);
-		dpp_reg_set_irq_enable(id);
-	}
-#endif
-
 	ret = drm_atomic_helper_commit_duplicated_state(suspend_state, &ctx);
 	if (ret < 0) {
-		pr_err("failed to atomic commit suspend_state(0x%x)\n", ret);
+		tui_err("failed to atomic commit suspend_state(0x%x)\n", ret);
 		goto err;
 	}
-
-	mode_config->suspend_state = NULL;
 
 	DPU_EVENT_LOG("TUI_EXIT", exynos_crtc, 0, NULL);
 err:
-	drm_atomic_state_put(suspend_state);
-	DRM_MODESET_LOCK_ALL_END(dev, ctx, ret);
-
-	pr_info("%s ret(%d) -\n", __func__, ret);
+	__release_suspend_state(&tui->drmdev->mode_config);
+out:
+	tui_info("ret(%d) -\n", ret);
+	tui->crtc = NULL;
+	DRM_MODESET_LOCK_ALL_END(tui->drmdev, ctx, ret);
 
 	return ret;
 }
 EXPORT_SYMBOL(exynos_atomic_exit_tui);
 
-void exynos_tui_register(struct drm_crtc *crtc)
+int exynos_tui_register(struct drm_device *drmdev)
 {
-	if (crtc->index == 0)
-		primary_crtc = crtc;
+	tui = drmm_kzalloc(drmdev, sizeof(*tui), GFP_KERNEL);
+	if (!tui)
+		return -ENOMEM;
 
-	return;
+	tui->drmdev = drmdev;
+
+	return 0;
 }
 
 void exynos_tui_get_resolution(struct resolution_info *res_info)
 {
-	struct drm_device *dev;
 	struct drm_modeset_acquire_ctx ctx;
-	struct drm_connector *conn;
-	struct exynos_drm_connector_state *exynos_conn_state;
+	struct exynos_drm_crtc_state *exynos_crtc_state;
+	struct decon_device *decon;
 	unsigned long op_mode = 0;
 	int ret = 0;
 
-	res_info->mode = 0;
-	res_info->xres = 0;
-	res_info->yres = 0;
-
-	dev = primary_crtc->dev;
-
-	DRM_MODESET_LOCK_ALL_BEGIN(dev, ctx, 0, ret);
-
-	conn = crtc_get_conn(primary_crtc->state, DRM_MODE_CONNECTOR_DSI);
-	if (!conn)
+	if (!tui->drmdev)
 		return;
 
-	exynos_conn_state = to_exynos_connector_state(conn->state);
-	op_mode = exynos_conn_state->exynos_mode.mode_flags;
-	if (op_mode & MIPI_DSI_MODE_VIDEO)
+	memset(res_info, 0, sizeof(res_info));
+
+	DRM_MODESET_LOCK_ALL_BEGIN(tui->drmdev, ctx, 0, ret);
+
+	tui->crtc = __get_tui_crtc(tui->drmdev);
+	if (!tui->crtc)
+		goto out;
+
+	tui_info("+\n");
+
+	res_info->xres = tui->crtc->state->adjusted_mode.hdisplay;
+	res_info->yres = tui->crtc->state->adjusted_mode.vdisplay;
+	exynos_crtc_state = to_exynos_crtc_state(tui->crtc->state);
+
+	decon = to_exynos_crtc(tui->crtc)->ctx;
+	op_mode = decon->config.mode.op_mode;
+	if (op_mode == DECON_VIDEO_MODE) {
 		res_info->mode = 1; /* video mode */
-	else
+		res_info->disp_flag |= DISP_MODE_VIDEO;
+	} else {
 		res_info->mode = 0; /* command mode */
+		res_info->disp_flag |= DISP_MODE_COMMAND;
+	}
 
-	res_info->xres = primary_crtc->state->adjusted_mode.hdisplay;
-	res_info->yres = primary_crtc->state->adjusted_mode.vdisplay;
+	res_info->disp_flag |= drm_crtc_index(tui->crtc) & DISP_ID_MASK;
 
-	DRM_MODESET_LOCK_ALL_END(dev, ctx, ret);
+	res_info->disp_flag |= DISP_TYPE_SINGLE;
+	if (decon->config.mode.dsi_mode == DSI_MODE_DUAL_DISPLAY)
+		res_info->disp_flag |= DISP_TYPE_DUAL;
+
+out:
+	DRM_MODESET_LOCK_ALL_END(tui->drmdev, ctx, ret);
+
+	tui_info("width(%d) height(%d) mode(%#x) disp_flag(%#x) -\n",
+			res_info->xres, res_info->yres, res_info->mode, res_info->disp_flag);
 }
 EXPORT_SYMBOL(exynos_tui_get_resolution);
 
@@ -503,10 +565,10 @@ void exynos_tui_sec_win_shadow_update_req(struct decon_device *decon,
 		cfg = &decon->config;
 
 		if (cfg->mode.op_mode == DECON_VIDEO_MODE) {
-			pr_info("SMC_DPU_SEC_SHADOW_UPDATE_REQ called\n");
+			tui_info("SMC_DPU_SEC_SHADOW_UPDATE_REQ called\n");
 			ret = exynos_smc(SMC_DPU_SEC_SHADOW_UPDATE_REQ, 0, 0, 0);
 			if (ret)
-				pr_err("%s shadow_update_req smc_call error\n", __func__);
+				tui_err("shadow_update_req smc_call error\n");
 		}
 	}
 }
@@ -532,7 +594,7 @@ void exynos_tui_release_sec_buf(struct decon_device *decon,
 			ret = exynos_smc(SMC_DRM_TUI_UNPROT, tui_buf_info->pa[0],
 					tui_buf_info->size[0] + tui_buf_info->size[1], DEV_VIDEO_MODE);
 			if (ret)
-				pr_err("%s release_buf smc_call error\n", __func__);
+				tui_err("release_buf smc_call error\n");
 
 			tui_free_video_space();
 		}
@@ -554,17 +616,33 @@ void exynos_tui_release_sec_buf(struct decon_device *decon,
 #define MIN_BUF_SIZE 10
 int exynos_tui_get_panel_info(u64 *buf, int size)
 {
-	struct dsim_device *dsim_dev = get_dsim_drvdata(0);
-	struct dsim_reg_config *dsim_config = &dsim_dev->config;
-	struct dpu_panel_timing *timing = &dsim_config->p_timing;
-	struct exynos_dsc *dsc = &dsim_config->dsc;
-	struct dsim_clks *clks = &dsim_dev->clk_param;
-	struct stdphy_pms *pms = &dsim_config->dphy_pms;
+	struct dsim_device *dsim_dev;
+	struct dsim_reg_config *dsim_config;
+	struct dpu_panel_timing *timing;
+	struct exynos_dsc *dsc;
+	struct dsim_clks *clks;
+	struct stdphy_pms *pms;
+	int dsim_id;
 	int idx = 0;
 	u64 data, max;
 
+	if (!tui->drmdev)
+		return -EINVAL;
+
+	tui->crtc = __get_tui_crtc(tui->drmdev);
+	if (!tui->crtc)
+		return -EINVAL;
+
+	dsim_id = (drm_crtc_index(tui->crtc) == 0) ? 0 : 1;
+	dsim_dev = get_dsim_drvdata(dsim_id);
+	dsim_config = &dsim_dev->config;
+	timing = &dsim_config->p_timing;
+	dsc = &dsim_config->dsc;
+	clks = &dsim_dev->clk_param;
+	pms = &dsim_config->dphy_pms;
+
 	if (size < MIN_BUF_SIZE) {
-		pr_err("%s Buffer size is too small!\n", __func__);
+		tui_err("Buffer size is too small!\n");
 		return -EINVAL;
 	}
 

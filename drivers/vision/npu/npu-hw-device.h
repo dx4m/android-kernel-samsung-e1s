@@ -86,6 +86,11 @@ static inline int npu_hw_ref_get(
 	if (!hw_ref->first)
 		return 0;
 
+	if (atomic_read(&hw_ref->refcount) < 0) {
+		npu_err("invalid refcount %d\n", atomic_read(&hw_ref->refcount));
+		return -EINVAL;
+	}
+
 	return (atomic_inc_return(&hw_ref->refcount) == 1) ?
 		hw_ref->first(device, hw_ref->hdev) : 0;
 }
@@ -94,6 +99,9 @@ static inline int npu_hw_ref_put(
 		struct npu_device *device, struct npu_hw_refcount *hw_ref)
 {
 	if (!hw_ref->final)
+		return 0;
+
+	if (atomic_read(&hw_ref->refcount) == 0)
 		return 0;
 
 	return (atomic_dec_return(&hw_ref->refcount) == 0) ?
@@ -113,7 +121,11 @@ static inline int npu_hw_ref_open(
 			ret = -ENODEV;
 			goto error_hwref;
 		}
-		npu_hw_ref_get(device, &phdev->boot_cnt);
+		ret = npu_hw_ref_get(device, &phdev->boot_cnt);
+		if (ret) {
+			npu_err("fail npu_hw_ref_get (%s) as ret(%d)\n", hdev->parent, ret);
+			goto error_hwref;
+		}
 	}
 
 	if (hdev->ops.boot)
@@ -141,7 +153,11 @@ static inline int npu_hw_ref_close(
 			ret = -ENODEV;
 			goto error_hwref;
 		}
-		npu_hw_ref_put(device, &phdev->boot_cnt);
+		ret = npu_hw_ref_put(device, &phdev->boot_cnt);
+		if (ret) {
+			npu_err("fail npu_hw_ref_put (%s) as ret(%d)\n", hdev->parent, ret);
+			goto error_hwref;
+		}
 	}
 error_hwref:
 	return ret;
@@ -160,7 +176,11 @@ static inline int npu_hw_ref_init(
 			ret = -ENODEV;
 			goto error_hwref;
 		}
-		npu_hw_ref_get(device, &phdev->init_cnt);
+		ret = npu_hw_ref_get(device, &phdev->init_cnt);
+		if (ret) {
+			npu_err("fail npu_hw_ref_get (%s) as ret(%d)\n", hdev->parent, ret);
+			goto error_hwref;
+		}
 	}
 
 	if (hdev->ops.init)
@@ -188,7 +208,11 @@ static inline int npu_hw_ref_deinit(
 			ret = -ENODEV;
 			goto error_hwref;
 		}
-		npu_hw_ref_put(device, &phdev->init_cnt);
+		ret = npu_hw_ref_put(device, &phdev->init_cnt);
+		if (ret) {
+			npu_err("fail npu_hw_ref_put (%s) as ret(%d)\n", hdev->parent, ret);
+			goto error_hwref;
+		}
 	}
 error_hwref:
 	return ret;
@@ -211,7 +235,7 @@ static inline void npu_hw_ref_setup(
 }
 
 int npu_hwdev_register_hwdevs(struct npu_device *device, struct npu_system *system);
-int npu_hwdev_bootup(struct npu_device *device, __u32 hids);
+int npu_hwdev_bootup(struct npu_device *device, struct npu_session *session, __u32 hids);
 int npu_hwdev_shutdown(struct npu_device *device, __u32 hids);
 int npu_hwdev_recovery_shutdown(struct npu_device *device);
 int npu_hwdev_hwacg(struct npu_system *system, u32 hids, bool on);

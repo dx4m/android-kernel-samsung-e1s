@@ -538,9 +538,8 @@ EXPORT_SYMBOL_GPL(dbg_snapshot_kick_watchdog);
 static unsigned long dbg_snapshot_get_wchan(struct task_struct *p)
 {
 	unsigned long entry = 0;
-	unsigned int skip = 0;
 
-	stack_trace_save_tsk(p, &entry, 1, skip);
+	stack_trace_save_tsk(p, &entry, 1, 0);
 
 	return entry;
 }

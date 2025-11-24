@@ -14,5 +14,7 @@ obj-				:=
 obj-$(CONFIG_SEC_PM_DEBUG)		+= sec_pm_debug.o
 obj-$(CONFIG_SEC_PM_THERMISTOR)		+= sec_thermistor.o
 obj-$(CONFIG_SEC_PM_SMPL_WARN)		+= sec_pm_smpl_warn.o
+obj-$(CONFIG_SEC_WAKEUP_CPU_ALLOCATOR)		+= sec_wakeup_cpu_allocator.o
+obj-$(CONFIG_RTC_AUTO_PWRON)	+= sec_pon_alarm.o
 
 ccflags-y := -Wformat

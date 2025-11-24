@@ -531,7 +531,7 @@ static bool dp_mode_is_optimizable(struct drm_display_mode *mode, u64 max_pclk)
 	if (fps > 110 && resolution >= (1920 * 1080) && max_pclk > 250000000U)
 		return false;
 
-	if (fps > 75 && resolution >= (2560 * 1440)  && max_pclk > 300000000U)
+	if (fps >= 75 && resolution >= (2560 * 1440)  && max_pclk > 290000000U)
 		return false;
 
 	return true;
@@ -2121,6 +2121,9 @@ static void _dp_enable(struct exynos_drm_encoder *exynos_encoder)
 				drm_mode_vrefresh(&dp->cur_mode));
 	}
 #endif
+#ifdef FEATURE_DEX_SUPPORT
+	dp->dex.reconnecting = false;
+#endif
 
 	dp_debug(dp, "%s-, state: %d\n", __func__, dp->state);
 }
@@ -2862,6 +2865,13 @@ static void dp_hpd_irq_work(struct work_struct *work)
 		return;
 	}
 
+#ifdef FEATURE_DEX_SUPPORT
+	if (dp->dex.reconnecting) {
+		dp_info(dp, "HPD IRQ work: ignore during reconecting to dex/mirror\n");
+		return;
+	}
+#endif
+
 	dp_debug(dp, "detect HPD_IRQ\n");
 
 	if (dp->hdcp_ver == HDCP_VERSION_2_2) {
@@ -3123,12 +3133,14 @@ void dp_audio_dma_trigger(struct dp_audio_config_data *audio_config_data)
 	} else if (audio_config_data->audio_enable == AUDIO_DISABLE) {
 		dp_reg_audio_disable();
 		dp_set_audio_infoframe(dp, audio_config_data);
-	} else if (audio_config_data->audio_enable == AUDIO_WAIT_BUF_FULL)
+	} else if (audio_config_data->audio_enable == AUDIO_WAIT_BUF_FULL) {
 		dp_reg_audio_wait_buf_full();
-	else if (audio_config_data->audio_enable == AUDIO_DMA_REQ_HIGH)
+	} else if (audio_config_data->audio_enable == AUDIO_DMA_REQ_HIGH) {
 		dp_reg_set_dma_req_gen(1);
-	else
+		dp_reg_check_audio_dma_state();
+	} else {
 		dp_info(dp, "Not support audio_enable = %d\n", audio_config_data->audio_enable);
+	}
 
 }
 EXPORT_SYMBOL(dp_audio_dma_trigger);
@@ -3374,6 +3386,9 @@ static int dp_usb_typec_notification_proceed(struct dp_device *dp,
 			dp->sink_info.ven_id = usb_typec_info->sub2;
 			dp->sink_info.prod_id = usb_typec_info->sub3;
 			dp->poor_connect_count = 0;
+#ifdef FEATURE_DEX_SUPPORT
+			dp->dex.reconnecting = false;
+#endif
 			dp_info(dp, "VID:0x%04X, PID:0x%04X\n", dp->sink_info.ven_id, dp->sink_info.prod_id);
 #ifdef CONFIG_SEC_DISPLAYPORT_BIGDATA
 			secdp_bigdata_connection();
@@ -4338,6 +4353,7 @@ static ssize_t dex_store(struct class *dev,
 	if (dp_get_hpd_state(dp) && need_reconnect) {
 		dp_info(dp, "reconnect to %s mode\n", dp->dex.ui_setting ? "dex":"mirroring");
 		dp->dex.cur_state = DEX_RECONNECTING;
+		dp->dex.reconnecting = true;
 		dp_hpd_changed(dp, EXYNOS_HPD_UNPLUG);
 		msleep(500);
 		if (dp->pdic_cable_state == PDIC_NOTIFY_ATTACH &&

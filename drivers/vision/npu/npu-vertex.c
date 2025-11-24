@@ -273,6 +273,7 @@ int npu_vertex_close(struct file *file)
 	enum npu_vertex_state done_state;
 	int id = vctx->id;
 	int hids = session->hids;
+	bool is_bootup_error_handling_called = session->is_bootup_error_handling_called;
 
 	if (mutex_lock_interruptible(lock)) {
 		npu_ierr("mutex_lock_interruptible is fail\n", vctx);
@@ -343,7 +344,7 @@ session_free:
 	}
 #endif
 
-	if (!check_emergency(device)) {
+	if (!check_emergency(device) && !is_bootup_error_handling_called) {
 		ret = npu_hwdev_shutdown(device, hids);
 		if (ret) {
 			npu_ierr("fail(%d) in npu_vertex_shutdown\n", vctx,
@@ -359,8 +360,8 @@ session_free:
 	}
 
 p_err:
-	npu_info("id(%d), open_ref(%d)\n", id,
-		atomic_read(&vertex->open_cnt.refcount));
+	npu_info("id(%d), open_ref(%d), is_bootup_error_handling_called : %d\n", id,
+		atomic_read(&vertex->open_cnt.refcount), is_bootup_error_handling_called);
 	mutex_unlock(lock);
 	return ret;
 }
@@ -849,7 +850,6 @@ static int __npu_vertex_bootup(struct file *file, struct vs4l_ctrl *ctrl)
 	}
 #endif
 
-	session->hids = ctrl->value;
 	/* check npu_device emergency error */
 	ret = check_emergency_vctx(vctx);
 	if (ret)
@@ -860,10 +860,13 @@ static int __npu_vertex_bootup(struct file *file, struct vs4l_ctrl *ctrl)
 		return -ERESTARTSYS;
 	}
 
+	session->hids = ctrl->value;
+
 	mutex_lock(&device->sessionmgr.freq_set_lock);
-	ret = npu_hwdev_bootup(device, ctrl->value);
+	ret = npu_hwdev_bootup(device, session, ctrl->value);
 	if (ret) {
 		npu_ierr("fail(%d): hids %x\n", vctx, ret, ctrl->value);
+		mutex_unlock(&device->sessionmgr.freq_set_lock);
 		goto p_err;
 	}
 	mutex_unlock(&device->sessionmgr.freq_set_lock);

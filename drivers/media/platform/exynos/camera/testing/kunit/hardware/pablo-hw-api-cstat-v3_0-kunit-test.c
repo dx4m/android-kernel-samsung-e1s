@@ -1699,6 +1699,8 @@ static void pablo_hw_api_cstat_hw_g_stat_size_kunit_test(struct kunit *test)
 		case IS_CSTAT_AWB_THUMB:
 		case IS_CSTAT_RGBY_HIST:
 		case IS_CSTAT_CDAF_MW:
+		case IS_CSTAT_DRC:
+		case IS_CSTAT_LMEDS0:
 			/* normal test */
 			KUNIT_EXPECT_EQ(test, ret, 0);
 			break;

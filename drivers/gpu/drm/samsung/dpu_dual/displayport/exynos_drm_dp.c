@@ -531,7 +531,7 @@ static bool dp_mode_is_optimizable(struct drm_display_mode *mode, u64 max_pclk)
 	if (fps > 110 && resolution >= (1920 * 1080) && max_pclk > 250000000U)
 		return false;
 
-	if (fps > 75 && resolution >= (2560 * 1440)  && max_pclk > 300000000U)
+	if (fps >= 75 && resolution >= (2560 * 1440)  && max_pclk > 290000000U)
 		return false;
 
 	return true;
@@ -3123,12 +3123,14 @@ void dp_audio_dma_trigger(struct dp_audio_config_data *audio_config_data)
 	} else if (audio_config_data->audio_enable == AUDIO_DISABLE) {
 		dp_reg_audio_disable();
 		dp_set_audio_infoframe(dp, audio_config_data);
-	} else if (audio_config_data->audio_enable == AUDIO_WAIT_BUF_FULL)
+	} else if (audio_config_data->audio_enable == AUDIO_WAIT_BUF_FULL) {
 		dp_reg_audio_wait_buf_full();
-	else if (audio_config_data->audio_enable == AUDIO_DMA_REQ_HIGH)
+	} else if (audio_config_data->audio_enable == AUDIO_DMA_REQ_HIGH) {
 		dp_reg_set_dma_req_gen(1);
-	else
+		dp_reg_check_audio_dma_state();
+	} else {
 		dp_info(dp, "Not support audio_enable = %d\n", audio_config_data->audio_enable);
+	}
 
 }
 EXPORT_SYMBOL(dp_audio_dma_trigger);

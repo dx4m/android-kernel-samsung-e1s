@@ -501,6 +501,13 @@ config CAMERA_CIS_IMX586_OBJ
 	help
 	  Use to build IMX586 camera sensor.
 
+config CAMERA_CIS_IMX825_OBJ
+	tristate "Use IMX825 camera cis"
+	depends on CAMERA_CIS_SELECT
+	default n
+	help
+	  Use to build IMX825 camera sensor.
+
 config CAMERA_CIS_GW1_OBJ
 	tristate "Use GW1 camera cis"
 	depends on CAMERA_CIS_SELECT

@@ -454,7 +454,7 @@ int sensor_hm3_cis_write16_burst(void *vclient, u16 addr, u8 *val, u32 num, bool
 		goto p_err;
 	}
 
-	wbuf = kmalloc((2 + (num * 2)), GFP_KERNEL);
+	wbuf = pablo_malloc((2 + (num * 2)), GFP_KERNEL);
 	if (!wbuf) {
 		err("failed to alloc buffer for burst i2c");
 		ret = -ENODEV;
@@ -487,11 +487,11 @@ int sensor_hm3_cis_write16_burst(void *vclient, u16 addr, u8 *val, u32 num, bool
 		goto p_err_free;
 	}
 
-	kfree(wbuf);
+	pablo_free(wbuf);
 	return 0;
 
 p_err_free:
-	kfree(wbuf);
+	pablo_free(wbuf);
 p_err:
 	return ret;
 }
@@ -1838,7 +1838,7 @@ static int cis_hm3_probe_i2c(struct i2c_client *client,
 	cis->bayer_order = OTF_INPUT_ORDER_BAYER_GR_BG;
 	cis->use_wb_gain = true;
 	cis->reg_addr = &sensor_hm3_reg_addr;
-	cis->priv_runtime = kzalloc(sizeof(struct sensor_hm3_private_runtime), GFP_KERNEL);
+	cis->priv_runtime = pablo_zalloc(sizeof(struct sensor_hm3_private_runtime), GFP_KERNEL);
 	if (!cis->priv_runtime) {
 		kfree(cis->cis_data);
 		kfree(cis->subdev);

@@ -77,8 +77,14 @@ static volatile unsigned char aw36518_reg_enable;
 static int aw36518_i2c_write(struct i2c_client *client, unsigned char reg,
 				unsigned char val)
 {
-	int ret;
+	int ret = 0;
 	unsigned char cnt = 0;
+	struct aw36518_chip_data *pdata = aw36518_i2c_client->dev.driver_data;
+
+	if (pdata->disable_i2c_ctrl) {
+		pr_info("%s disable_i2c_ctrl(%d)\n", __func__, pdata->disable_i2c_ctrl);
+		return ret;
+	}
 
 	pr_debug("%s, 0x%x, 0x%x\n", __func__, reg, val);
 
@@ -100,8 +106,14 @@ static int aw36518_i2c_write(struct i2c_client *client, unsigned char reg,
 static int aw36518_i2c_read(struct i2c_client *client, unsigned char reg,
 				unsigned char *val)
 {
-	int ret;
+	int ret = 0;
 	unsigned char cnt = 0;
+	struct aw36518_chip_data *pdata = aw36518_i2c_client->dev.driver_data;
+
+	if (pdata->disable_i2c_ctrl) {
+		pr_info("%s disable_i2c_ctrl(%d)\n", __func__, pdata->disable_i2c_ctrl);
+		return ret;
+	}
 
 	while (cnt < AW_I2C_RETRIES) {
 		ret = i2c_smbus_read_byte_data(client, reg);
@@ -294,15 +306,18 @@ static void aw36518_set_torch_cur(int cur)
 			 val);
 }
 
-extern void aw36518_set_torch_current(enum aw36518_torch_mode torch_mode);
+extern void aw36518_set_torch_current(enum aw36518_torch_mode torch_mode, uint32_t brightness);
 
-void aw36518_set_torch_current(enum aw36518_torch_mode torch_mode)
+void aw36518_set_torch_current(enum aw36518_torch_mode torch_mode, uint32_t brightness)
 {
 	struct aw36518_chip_data *pdata = g_chip_data;
 
 	switch (torch_mode) {
 	case AW36518_TORCH_RECORDING:
-		aw36518_set_torch_cur(pdata->video_torch_cur);
+		if (brightness)
+			aw36518_set_torch_cur(brightness);
+		else
+			aw36518_set_torch_cur(pdata->video_torch_cur);
 		break;
 	case AW36518_TORCH_PREFLASH:
 	case AW36518_TORCH_NORMAL:
@@ -343,6 +358,7 @@ void aw36518_enable_flicker(int curr, bool is_enable)
 {
 	unsigned char reg = AW36518_REG_ENABLE, val = 0;
 	struct aw36518_chip_data *pdata = g_chip_data;
+	unsigned char timing_val;
 
 	if (pdata == NULL) {
 		pr_err("aw36518_fled: %s: g_aw36518_fled is not initialized.\n",
@@ -351,23 +367,42 @@ void aw36518_enable_flicker(int curr, bool is_enable)
 	}
 
 	mutex_lock(&pdata->lock);
+	aw36518_i2c_read(aw36518_i2c_client, AW36518_REG_TIMING_CONF, &timing_val);
 	if (is_enable) {
 		/* torch mode */
 		val = 0x13;
 		aw36518_set_torch_cur(curr);
+		timing_val &= 0x0f;
 	} else {
 		/* standby mode */
 		aw36518_reg_enable &= AW36518_LED_STANDBY_MODE_MASK;
 		val = aw36518_reg_enable;
+		timing_val &= 0x0f;
+		timing_val |= AW36518_TORCH_RAMP_TIME; // default value
 	}
 	aw36518_pre_enable_cfg_by_vendor();
 
+	aw36518_i2c_write(aw36518_i2c_client, AW36518_REG_TIMING_CONF, timing_val);
 	aw36518_i2c_write(aw36518_i2c_client, reg, val);
 
 	mutex_unlock(&pdata->lock);
 	pr_info("%s reg = 0x%x;val = 0x%x;\n", __func__, reg, val);
 }
 EXPORT_SYMBOL(aw36518_enable_flicker);
+
+void aw36518_update_flicker_state(bool success)
+{
+	struct aw36518_chip_data *pdata = aw36518_i2c_client->dev.driver_data;
+
+	pdata->disable_i2c_ctrl = false;
+
+	if (!success) {
+		pdata->disable_i2c_ctrl = true;
+		pr_info("%s disable_i2c_ctrl(%d)\n", __func__, pdata->disable_i2c_ctrl);
+	}
+
+}
+EXPORT_SYMBOL(aw36518_update_flicker_state);
 
 /* set flash bright cur , unit mA unit mA range 0 - 1500 */
 static int aw36518_get_flash_time_out(void)
@@ -872,6 +907,7 @@ static int aw36518_i2c_probe(struct i2c_client *client,
 		goto err_free;
 
 	chip->flash_time_out_ms = aw36518_get_flash_time_out();
+	chip->disable_i2c_ctrl = false;
 
 	INIT_DELAYED_WORK(&chip->delay_work, aw36518_delay_work_routine);
 

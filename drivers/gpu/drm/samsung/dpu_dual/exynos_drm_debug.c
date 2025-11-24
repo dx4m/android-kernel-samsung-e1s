@@ -27,6 +27,7 @@
 #include <exynos_drm_gem.h>
 #include <exynos_drm_decon.h>
 #include <exynos_drm_recovery.h>
+#include <exynos_drm_tui.h>
 #include <decon_cal.h>
 #include <soc/samsung/exynos/memlogger.h>
 #if IS_ENABLED(CONFIG_EXYNOS_ITMON) || IS_ENABLED(CONFIG_EXYNOS_ITMON_V2)
@@ -538,6 +539,71 @@ static const struct file_operations dpu_profile_hiber_fops = {
 	.release = seq_release,
 };
 
+static int tui_status_show(struct seq_file *s, void *unused)
+{
+	struct exynos_drm_crtc *exynos_crtc = s->private;
+	struct exynos_drm_crtc_state *exynos_crtc_state;
+
+	drm_modeset_lock(&exynos_crtc->base.mutex, NULL);
+	exynos_crtc_state = to_exynos_crtc_state(exynos_crtc->base.state);
+	seq_printf(s, "tui_status(%d) tui_changed(%d)\n",
+			exynos_crtc_state->tui_status,
+			exynos_crtc_state->tui_changed);
+	drm_modeset_unlock(&exynos_crtc->base.mutex);
+	return 0;
+}
+
+static int tui_status_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, tui_status_show, inode->i_private);
+}
+
+static ssize_t tui_status_write(struct file *file, const char *user_buf,
+			      size_t count, loff_t *f_pos)
+{
+	char local_buf[256];
+	size_t size;
+	u32 req;
+
+	size = min(sizeof(local_buf) - 1, count);
+	if (copy_from_user(local_buf, user_buf, size)) {
+		pr_warn("failed to copy from userbuf\n");
+		return count;
+	}
+
+	local_buf[size] = '\0';
+
+	if (kstrtou32(local_buf, 0, &req) != 0)
+		return count;
+
+	switch (req) {
+		case 0:
+			exynos_atomic_exit_tui();
+			break;
+		case 1:
+			exynos_atomic_enter_tui();
+			break;
+		case 2:
+			msleep(MSEC_PER_SEC*30);
+			exynos_atomic_enter_tui();
+			msleep(MSEC_PER_SEC*10);
+			exynos_atomic_exit_tui();
+			break;
+		default:
+			break;
+	}
+
+	return count;
+}
+
+static const struct file_operations tui_status_fops = {
+	.open = tui_status_open,
+	.read = seq_read,
+	.write = tui_status_write,
+	.llseek = seq_lseek,
+	.release = seq_release,
+};
+
 void dpu_print_eint_state(struct drm_crtc *crtc)
 {
 	struct exynos_drm_crtc *exynos_crtc = to_exynos_crtc(crtc);
@@ -784,7 +850,6 @@ static void dpu_init_memlogger(struct exynos_drm_crtc *exynos_crtc)
 	}
 
 	memlog->desc->ops = dpu_memlog_ops;
-	memlog->desc->log_level_all = MEMLOG_LEVEL_INFO;
 
 	if (!g_log_obj) {
 		g_log_obj = memlog_alloc_printf(memlog->desc, DPU_MEMLOG_SIZE,
@@ -1014,6 +1079,9 @@ int dpu_init_debug(struct exynos_drm_crtc *exynos_crtc)
 
 	debugfs_create_file("sfr_dma_en", 0644, crtc->debugfs_entry, exynos_crtc,
 			&sfr_mode_fops);
+
+	debugfs_create_file("tui_status", 0644, crtc->debugfs_entry, exynos_crtc,
+			&tui_status_fops);
 
 	d->df_mif_idx = exynos_crtc->bts->df_mif_idx;
 	d->df_int_idx = exynos_crtc->bts->df_int_idx;

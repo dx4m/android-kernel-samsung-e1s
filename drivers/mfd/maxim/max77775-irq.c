@@ -265,8 +265,10 @@ static irqreturn_t max77775_irq_thread(int irq, void *data)
 			max77775_read_reg(max77775->charger,
 				MAX77775_CHG_REG_INT_MASK, &reg_data);
 			reg_data |= (1 << 6);
+			/*
 			max77775_write_reg(max77775->charger,
 				MAX77775_CHG_REG_INT_MASK, reg_data);
+			*/
 		}
 	}
 

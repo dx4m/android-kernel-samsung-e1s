@@ -690,6 +690,7 @@ static int mfc_dec_g_fmt_vid_cap_mplane(struct file *file, void *priv,
 		mfc_debug(2, "clear WAIT_G_FMT %d\n", ctx->wait_state);
 		MFC_TRACE_CTX("** DEC clear WAIT_G_FMT(wait_state %d)\n", ctx->wait_state);
 	}
+	ctx->handle_drc_multi_mode = 0;
 	mutex_unlock(&ctx->drc_wait_mutex);
 
 	mfc_ctx_debug_leave();
@@ -936,6 +937,11 @@ static int mfc_dec_reqbufs(struct file *file, void *priv,
 
 		if (ctx->plugin_type) {
 			__mfc_dec_set_internal_format(ctx);
+			if (dec->internal_dpb[0].dma_buf) {
+				mfc_ctx_info("[PLUGIN] Free the previously allocated internal buffer");
+				mfc_release_internal_dpb(ctx);
+				mfc_init_dpb_table(ctx);
+			}
 			ret = mfc_alloc_internal_dpb(ctx);
 			if (ret) {
 				mfc_ctx_err("Failed to allocate internal DPB\n");

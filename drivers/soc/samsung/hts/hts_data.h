@@ -76,6 +76,7 @@ struct hts_data {
 	int				total_threshold;
 
 	spinlock_t			app_event_lock;
+	struct mutex			ioctl_lock;
 
 #if IS_ENABLED(CONFIG_HTS_DEBUG)
 	struct hts_debug_data		debug_data;

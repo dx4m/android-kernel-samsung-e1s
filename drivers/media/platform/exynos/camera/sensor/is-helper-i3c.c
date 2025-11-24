@@ -498,7 +498,7 @@ static int is_i3c_sensor_write16_burst(void *device,
 		goto p_err;
 	}
 
-	wbuf = kmalloc((2 + (num * 2)), GFP_KERNEL);
+	wbuf = pablo_malloc((2 + (num * 2)), GFP_KERNEL);
 	if (!wbuf) {
 		pr_err("failed to alloc buffer for burst i3c\n");
 		ret = -ENODEV;
@@ -511,11 +511,11 @@ static int is_i3c_sensor_write16_burst(void *device,
 		goto p_err_free;
 
 	ixc_info("i3cW16 [0x%04x] : 0x%04x\n", addr, *val);
-	kfree(wbuf);
+	pablo_free(wbuf);
 	return 0;
 
 p_err_free:
-	kfree(wbuf);
+	pablo_free(wbuf);
 p_err:
 	return ret;
 }
@@ -556,7 +556,7 @@ static int is_i3c_sensor_write8_sequential(void *device,
 		goto p_err;
 	}
 
-	wbuf = kzalloc((2 + (num * 2)), GFP_KERNEL);
+	wbuf = pablo_zalloc((2 + (num * 2)), GFP_KERNEL);
 	if (!wbuf) {
 		pr_err("failed to alloc buffer for burst i3c\n");
 		ret = -ENODEV;
@@ -569,11 +569,11 @@ static int is_i3c_sensor_write8_sequential(void *device,
 		goto p_err_free;
 
 	ixc_info("i3cW08 [0x%04x] : 0x%04x\n", addr, *val);
-	kfree(wbuf);
+	pablo_free(wbuf);
 	return 0;
 
 p_err_free:
-	kfree(wbuf);
+	pablo_free(wbuf);
 p_err:
 	return ret;
 }

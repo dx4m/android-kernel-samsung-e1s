@@ -26,14 +26,23 @@ enum {
 	SLSI_BT_ERR_MX_RESET,
 };
 
+enum {
+	SLSI_BT_RECOVERY_ST_NONE,
+	SLSI_BT_RECOVERY_ST_HW_INPROGRESS,
+	SLSI_BT_RECOVERY_ST_HW_RESET,
+	SLSI_BT_RECOVERY_ST_USER_NOTIFIED,
+};
+
 #define SLSI_BT_ERR_HISTORY_SIZE        (8)
 
+void slsi_bt_err_reset(void);
 void slsi_bt_err(int reason);
 int slsi_bt_err_status(void);
+bool slsi_bt_in_recovery_progress(void);
 
 int slsi_bt_err_proc_show(struct seq_file *m, void *v);
 
-int slsi_bt_err_init(void (*callback)(int reason, bool lazy));
+int slsi_bt_err_init(void (*callback)(int reason, bool req_restart));
 void slsi_bt_err_deinit(void);
 
 #endif /* __SLSI_BT_ERRH__ */

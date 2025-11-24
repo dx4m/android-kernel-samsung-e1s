@@ -89,7 +89,8 @@ void mfc_butler_worker(struct work_struct *work)
 		 * Because op_mode is maintained as MFC_OP_SWITCH_TO_SINGLE before subcore_deinit.
 		 * And, subcore_deinit can be started by MFC_WORK_TRY.
 		 */
-		if (!(IS_MULTI_MODE(ctx) || ctx->op_mode == MFC_OP_SWITCH_TO_SINGLE))
+		if (!(IS_MULTI_MODE(ctx) ||
+			((ctx->op_mode == MFC_OP_SWITCH_TO_SINGLE) && ctx->handle_drc_multi_mode)))
 			return;
 
 		mfc_rm_request_work(dev, MFC_WORK_TRY, ctx);
@@ -653,6 +654,11 @@ static int mfc_release(struct file *file)
 
 #if IS_ENABLED(CONFIG_VIDEO_EXYNOS_REPEATER)
 	if (ctx->otf_handle) {
+		if (mfc_core_otf_get_lock(dev)) {
+			call_dop(dev, dump_and_stop_debug_mode, dev);
+			ret = -EINVAL;
+			goto end_release;
+		}
 		mfc_core_otf_unregister_cb(ctx);
 		clear_bit(ctx->num, &dev->otf_inst_bits);
 	}
@@ -708,6 +714,7 @@ static int mfc_release(struct file *file)
 	if (ctx->otf_handle) {
 		mfc_core_otf_deinit(ctx);
 		mfc_core_otf_destroy(ctx);
+		mfc_core_otf_release_lock(dev);
 	}
 #endif
 
@@ -1198,6 +1205,8 @@ static int mfc_probe(struct platform_device *pdev)
 
 	mfc_dev_init_memlog(pdev);
 	mfc_init_debugfs(dev);
+
+	atomic_set(&dev->otf_run, 0);
 
 	atomic_set(&dev->trace_ref, 0);
 	atomic_set(&dev->trace_ref_longterm, 0);

@@ -17,6 +17,7 @@
 #include "pablo-icpu.h"
 #include "pablo-icpu-msg-queue.h"
 #include "pablo-icpu-itf.h"
+#include "pablo-mem.h"
 
 static struct icpu_logger _log = {
 	.level = LOGLEVEL_INFO,
@@ -42,7 +43,7 @@ int icpu_msg_queue_init(struct icpu_msg_queue *queue, u32 num_prio)
 	if (!queue || !num_prio)
 		return -EINVAL;
 
-	queue->msg_list = vmalloc(sizeof(struct list_head) * num_prio);
+	queue->msg_list = pablo_malloc(sizeof(struct list_head) * num_prio, GFP_KERNEL);
 	if (!queue->msg_list)
 		return -ENOMEM;
 
@@ -70,7 +71,7 @@ void icpu_msg_queue_deinit(struct icpu_msg_queue *queue)
 	if (!queue)
 		return;
 
-	vfree(queue->msg_list);
+	pablo_free(queue->msg_list);
 	queue->msg_list = NULL;
 	queue->num_priority = 0;
 	queue->msg_cnt = 0;

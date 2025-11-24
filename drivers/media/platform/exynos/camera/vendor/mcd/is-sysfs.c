@@ -408,7 +408,7 @@ static int is_sysfs_get_dualcal_param_from_file(int offset, char **buf, int posi
 
 	fsize = fp->f_path.dentry->d_inode->i_size;
 
-	temp_buf = vmalloc(fsize);
+	temp_buf = pablo_malloc(fsize, GFP_KERNEL);
 	if (!temp_buf) {
 		err("failed to allocate memory");
 		ret = -ENOMEM;
@@ -425,7 +425,7 @@ static int is_sysfs_get_dualcal_param_from_file(int offset, char **buf, int posi
 
 p_err:
 	if (temp_buf)
-		vfree(temp_buf);
+		pablo_free(temp_buf);
 
 	if (!IS_ERR_OR_NULL(fp))
 		filp_close(fp, NULL);

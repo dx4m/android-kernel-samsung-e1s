@@ -823,6 +823,9 @@ enum {
 	OPT_ROOT_BPF,
 	OPT_ROOT_DIR,
 	OPT_NO_DAEMON,
+#ifdef CONFIG_FUSE_PERF
+	OPT_PERF,
+#endif
 	OPT_ERR
 };
 
@@ -840,6 +843,9 @@ static const struct fs_parameter_spec fuse_fs_parameters[] = {
 	fsparam_u32	("root_bpf",		OPT_ROOT_BPF),
 	fsparam_u32	("root_dir",		OPT_ROOT_DIR),
 	fsparam_flag	("no_daemon",		OPT_NO_DAEMON),
+#ifdef CONFIG_FUSE_PERF
+	fsparam_string	("perf",		OPT_PERF),
+#endif
 	{}
 };
 
@@ -848,6 +854,8 @@ static int fuse_parse_param(struct fs_context *fsc, struct fs_parameter *param)
 	struct fs_parse_result result;
 	struct fuse_fs_context *ctx = fsc->fs_private;
 	int opt;
+	kuid_t kuid;
+	kgid_t kgid;
 
 	if (fsc->purpose == FS_CONTEXT_FOR_RECONFIGURE) {
 		/*
@@ -892,16 +900,30 @@ static int fuse_parse_param(struct fs_context *fsc, struct fs_parameter *param)
 		break;
 
 	case OPT_USER_ID:
-		ctx->user_id = make_kuid(fsc->user_ns, result.uint_32);
-		if (!uid_valid(ctx->user_id))
+		kuid =  make_kuid(fsc->user_ns, result.uint_32);
+		if (!uid_valid(kuid))
 			return invalfc(fsc, "Invalid user_id");
+		/*
+		 * The requested uid must be representable in the
+		 * filesystem's idmapping.
+		 */
+		if (!kuid_has_mapping(fsc->user_ns, kuid))
+			return invalfc(fsc, "Invalid user_id");
+		ctx->user_id = kuid;
 		ctx->user_id_present = true;
 		break;
 
 	case OPT_GROUP_ID:
-		ctx->group_id = make_kgid(fsc->user_ns, result.uint_32);
-		if (!gid_valid(ctx->group_id))
+		kgid = make_kgid(fsc->user_ns, result.uint_32);;
+		if (!gid_valid(kgid))
 			return invalfc(fsc, "Invalid group_id");
+		/*
+		 * The requested gid must be representable in the
+		 * filesystem's idmapping.
+		 */
+		if (!kgid_has_mapping(fsc->user_ns, kgid))
+			return invalfc(fsc, "Invalid group_id");
+		ctx->group_id = kgid;
 		ctx->group_id_present = true;
 		break;
 
@@ -942,6 +964,15 @@ static int fuse_parse_param(struct fs_context *fsc, struct fs_parameter *param)
 		ctx->no_daemon = true;
 		ctx->fd_present = true;
 		break;
+
+#ifdef CONFIG_FUSE_PERF
+	case OPT_PERF:
+		if (ctx->perf_node_name)
+			return invalfc(fsc, "Multiple perf node name specified");
+		ctx->perf_node_name = param->string;
+		param->string = NULL;
+		break;
+#endif
 
 	default:
 		return -EINVAL;
@@ -1059,24 +1090,38 @@ void fuse_conn_init(struct fuse_conn *fc, struct fuse_mount *fm,
 }
 EXPORT_SYMBOL_GPL(fuse_conn_init);
 
+static void delayed_release(struct rcu_head *p)
+{
+	struct fuse_conn *fc = container_of(p, struct fuse_conn, rcu);
+
+	put_user_ns(fc->user_ns);
+	fc->release(fc);
+}
+
 void fuse_conn_put(struct fuse_conn *fc)
 {
 	if (refcount_dec_and_test(&fc->count)) {
 		struct fuse_iqueue *fiq = &fc->iq;
 		struct fuse_sync_bucket *bucket;
 
+		fuse_perf_destroy(fc);
+#ifdef CONFIG_FUSE_WATCHDOG
+		if (fc->watchdog_thread) {
+			kthread_stop(fc->watchdog_thread);
+			put_task_struct(fc->watchdog_thread);
+		}
+#endif
 		if (IS_ENABLED(CONFIG_FUSE_DAX))
 			fuse_dax_conn_free(fc);
 		if (fiq->ops->release)
 			fiq->ops->release(fiq);
 		put_pid_ns(fc->pid_ns);
-		put_user_ns(fc->user_ns);
 		bucket = rcu_dereference_protected(fc->curr_bucket, 1);
 		if (bucket) {
 			WARN_ON(atomic_read(&bucket->count) != 1);
 			kfree(bucket);
 		}
-		fc->release(fc);
+		call_rcu(&fc->rcu, delayed_release);
 	}
 }
 EXPORT_SYMBOL_GPL(fuse_conn_put);
@@ -1461,6 +1506,7 @@ static void process_init_reply(struct fuse_mount *fm, struct fuse_args *args,
 #ifdef CONFIG_FUSE_WATCHDOG
 	fuse_daemon_watchdog_start(fc);
 #endif
+	fuse_perf_init(fc);
 
 	ST_LOG("<%s> dev = %u:%u  fuse Initialized",
 			__func__, MAJOR(fc->dev), MINOR(fc->dev));
@@ -1489,7 +1535,8 @@ void fuse_send_init(struct fuse_mount *fm)
 		FUSE_ABORT_ERROR | FUSE_MAX_PAGES | FUSE_CACHE_SYMLINKS |
 		FUSE_NO_OPENDIR_SUPPORT | FUSE_EXPLICIT_INVAL_DATA |
 		FUSE_HANDLE_KILLPRIV_V2 | FUSE_SETXATTR_EXT | FUSE_INIT_EXT |
-		FUSE_SECURITY_CTX;
+		FUSE_SECURITY_CTX |
+		FUSE_HAS_EXPIRE_ONLY;
 #ifdef CONFIG_FUSE_DAX
 	if (fm->fc->dax)
 		flags |= FUSE_MAP_ALIGNMENT;
@@ -1542,13 +1589,7 @@ void fuse_free_conn(struct fuse_conn *fc)
 	WARN_ON(!list_empty(&fc->devices));
 	idr_for_each(&fc->passthrough_req, free_fuse_passthrough, NULL);
 	idr_destroy(&fc->passthrough_req);
-#ifdef CONFIG_FUSE_WATCHDOG
-	if (fc->watchdog_thread) {
-		kthread_stop(fc->watchdog_thread);
-		put_task_struct(fc->watchdog_thread);
-	}
-#endif
-	kfree_rcu(fc, rcu);
+	kfree(fc);
 }
 EXPORT_SYMBOL_GPL(fuse_free_conn);
 
@@ -1661,6 +1702,9 @@ static void fuse_sb_defaults(struct super_block *sb)
 	sb->s_time_gran = 1;
 	sb->s_export_op = &fuse_export_operations;
 	sb->s_iflags |= SB_I_IMA_UNVERIFIABLE_SIGNATURE;
+#ifdef CONFIG_FREEZABLE_IN_LOOKUP
+	sb->s_iflags |= SB_I_FREEZABLE_IN_LOOKUP;
+#endif
 	if (sb->s_user_ns != &init_user_ns)
 		sb->s_iflags |= SB_I_UNTRUSTED_MOUNTER;
 	sb->s_flags &= ~(SB_NOSEC | SB_I_VERSION);
@@ -1840,6 +1884,9 @@ int fuse_fill_super_common(struct super_block *sb, struct fuse_fs_context *ctx)
 	fc->no_control = ctx->no_control;
 	fc->no_force_umount = ctx->no_force_umount;
 	fc->no_daemon = ctx->no_daemon;
+#ifdef CONFIG_FUSE_PERF
+	fc->perf_node_name = ctx->perf_node_name;
+#endif
 
 	err = -ENOMEM;
 	root = fuse_get_root_inode(sb, ctx->rootmode, ctx->root_bpf,
@@ -2070,7 +2117,7 @@ static void fuse_sb_destroy(struct super_block *sb)
 void fuse_mount_destroy(struct fuse_mount *fm)
 {
 	fuse_conn_put(fm->fc);
-	kfree(fm);
+	kfree_rcu(fm, rcu);
 }
 EXPORT_SYMBOL(fuse_mount_destroy);
 
@@ -2288,9 +2335,13 @@ static int __init fuse_init(void)
 	if (res)
 		goto err_dev_cleanup;
 
-	res = fuse_ctl_init();
+	res = fuse_perf_proc_init();
 	if (res)
 		goto err_sysfs_cleanup;
+
+	res = fuse_ctl_init();
+	if (res)
+		goto err_perf_cleanup;
 
 #ifdef CONFIG_FUSE_BPF
 	res = fuse_bpf_init();
@@ -2307,6 +2358,8 @@ static int __init fuse_init(void)
  err_ctl_cleanup:
 	fuse_ctl_cleanup();
 #endif
+ err_perf_cleanup:
+	fuse_perf_proc_cleanup();
  err_sysfs_cleanup:
 	fuse_sysfs_cleanup();
  err_dev_cleanup:
@@ -2322,6 +2375,7 @@ static void __exit fuse_exit(void)
 	pr_debug("exit\n");
 
 	fuse_ctl_cleanup();
+	fuse_perf_proc_cleanup();
 	fuse_sysfs_cleanup();
 	fuse_fs_cleanup();
 #ifdef CONFIG_FUSE_BPF

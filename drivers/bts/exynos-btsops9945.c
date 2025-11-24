@@ -971,6 +971,9 @@ EXPORT_SYMBOL(register_btsops);
 
 static void bts_bw_recalc(struct bts_device *data, u32 index)
 {
+	unsigned int i = 0;
+	unsigned int total_read = 0;
+	unsigned int total_write = 0;
 	unsigned int layer = 0;
 	unsigned int bwops_val = 0;
 	unsigned int bw_sum = data->bts_bw[index].read + data->bts_bw[index].write;
@@ -984,6 +987,28 @@ static void bts_bw_recalc(struct bts_device *data, u32 index)
 	if (layer) {
 		if (data->bts_bw[index].read >= READHD && data->bts_bw[index].read <= MAX_BW)
 			data->bts_bw[index].read = MAX_BW;
+	}
+
+	if (!strcmp(data->bts_bw[index].name, "mfc")) {
+		data->total_bw = 0;
+
+		for (i = 0; i < data->num_bts; i++) {
+			total_read += data->bts_bw[i].read;
+			total_write += data->bts_bw[i].write;
+		}
+
+		data->total_bw = total_read + total_write;
+		data->total_bw += data->bts_bw[index].read *
+					(AVGBW_TO_ACTBW - 1);
+		data->total_bw += data->bts_bw[index].write *
+					(AVGBW_TO_ACTBW - 1);
+
+		if (data->total_bw < MAX_BW) {
+			data->bts_bw[index].read *=AVGBW_TO_ACTBW;
+			data->bts_bw[index].write *=AVGBW_TO_ACTBW;
+		}
+
+		data->total_bw = 0;
 	}
 }
 

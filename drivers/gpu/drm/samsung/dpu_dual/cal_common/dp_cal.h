@@ -576,6 +576,7 @@ void dp_reg_audio_disable(void);
 void dp_reg_audio_wait_buf_full(void);
 void dp_reg_audio_bist_enable(struct dp_cal_res *cal_res, struct dp_audio_config_data audio_config_data);
 void dp_reg_audio_init_config(struct dp_cal_res *cal_res);
+void dp_reg_check_audio_dma_state(void);
 void dp_reg_print_audio_state(void);
 void dp_reg_set_dma_req_gen(u32 en);
 

@@ -385,7 +385,7 @@ int sensor_gh1_write16_burst(struct i2c_client *client,
 		goto p_err;
 	}
 
-	wbuf = kmalloc((2 + (num * 2)), GFP_KERNEL);
+	wbuf = pablo_malloc((2 + (num * 2)), GFP_KERNEL);
 	if (!wbuf) {
 		pr_err("failed to alloc buffer for burst i2c\n");
 		ret = -ENODEV;
@@ -416,11 +416,11 @@ int sensor_gh1_write16_burst(struct i2c_client *client,
 		goto p_err_free;
 	}
 
-	kfree(wbuf);
+	pablo_free(wbuf);
 	return 0;
 
 p_err_free:
-	kfree(wbuf);
+	pablo_free(wbuf);
 p_err:
 	return ret;
 }

@@ -252,6 +252,7 @@
   dma_fence_signal
   dma_fence_wait_timeout
   dma_free_attrs
+  dma_get_sgtable_attrs
   dma_heap_buffer_alloc
   dma_heap_buffer_free
   dma_heap_find
@@ -277,6 +278,7 @@
   dma_unmap_sg_attrs
   do_trace_netlink_extack
   down_read
+  down_read_trylock
   down_write
   d_path
   drain_workqueue
@@ -382,6 +384,7 @@
   freq_qos_add_request
   freq_qos_remove_request
   freq_qos_update_request
+  fwnode_property_read_u32_array
   gcd
   generic_file_llseek
   generic_handle_irq
@@ -600,6 +603,7 @@
   __memcpy_fromio
   __memcpy_toio
   memdup_user
+  memmove
   memory_read_from_buffer
   mem_section
   memset
@@ -623,6 +627,7 @@
   mutex_trylock
   mutex_unlock
   names_cachep
+  napi_build_skb
   napi_complete_done
   napi_enable
   napi_gro_flush
@@ -635,6 +640,8 @@
   netif_rx
   netif_tx_wake_queue
   netlink_broadcast
+  netlink_register_notifier
+  netlink_unregister_notifier
   nla_memcpy
   __nla_parse
   nla_put
@@ -656,6 +663,7 @@
   of_find_device_by_node
   of_find_matching_node_and_match
   of_find_node_by_name
+  of_find_node_by_phandle
   of_find_node_opts_by_path
   of_find_node_with_property
   of_find_property
@@ -1131,6 +1139,7 @@
   usb_interface_id
   usb_put_function_instance
   usb_register_notify
+  usb_set_device_state
   usb_string_id
   usb_unregister_notify
   __usecs_to_jiffies
@@ -1185,6 +1194,7 @@
   video_unregister_device
   vmalloc
   vmap
+  vm_node_stat
   vscnprintf
   vsnprintf
   vunmap
@@ -1207,7 +1217,6 @@
   work_busy
   ww_mutex_lock
   ww_mutex_unlock
-  xa_destroy
   xa_erase
   xa_find
   xa_find_after
@@ -1239,9 +1248,7 @@
   key_put
   keyring_alloc
   netdev_err
-  netlink_register_notifier
   netlink_unicast
-  netlink_unregister_notifier
   net_ns_type_operations
   nla_find
   nla_reserve
@@ -1306,7 +1313,6 @@
   csum_ipv6_magic
   dev_get_by_name
   __napi_alloc_skb
-  napi_build_skb
   rps_needed
   skb_dequeue_tail
   softnet_data
@@ -1817,7 +1823,6 @@
   down_interruptible
   i3c_device_do_priv_xfers
   of_alias_get_highest_id
-  of_find_node_by_phandle
   phy_configure
   phy_reset
   pinctrl_pm_select_default_state
@@ -1844,6 +1849,7 @@
 # required by gpu-sched.ko
   sched_set_fifo_low
   __xa_alloc
+  xa_destroy
 
 # required by hardlockup-watchdog.ko
   smp_call_on_cpu
@@ -1902,7 +1908,6 @@
   device_get_child_node_count
   devm_regmap_add_irq_chip
   fwnode_get_name
-  fwnode_property_read_u32_array
   regmap_irq_get_virq
 
 # required by irq-gic-v3-vh.ko
@@ -1933,7 +1938,6 @@
   dev_addr_mod
   dev_alloc_name
   dev_pm_qos_remove_notifier
-  dma_get_sgtable_attrs
   ether_setup
   hex2bin
   hex_to_bin
@@ -1943,7 +1947,6 @@
   kstrtos8
   __local_bh_enable_ip
   mac_pton
-  memmove
   napi_disable
   netdev_update_features
   netif_carrier_off
@@ -1960,6 +1963,10 @@
   page_frag_alloc_align
   __page_frag_cache_drain
   page_frag_free
+  page_pool_alloc_pages
+  page_pool_create
+  page_pool_destroy
+  page_pool_put_defragged_page
   param_get_int
   param_get_string
   param_set_copystring
@@ -1992,6 +1999,18 @@
 # required by leds-s2mpb02.ko
   led_classdev_register_ext
   led_classdev_unregister
+
+# required by lvstest.ko
+  usb_alloc_dev
+  usb_alloc_urb
+  usb_control_msg
+  usb_deregister
+  usb_find_common_endpoints
+  usb_free_urb
+  usb_poison_urb
+  usb_put_dev
+  usb_register_driver
+  usb_submit_urb
 
 # required by mcd-panel-samsung-drv.ko
   devm_backlight_device_unregister
@@ -2056,6 +2075,7 @@
   vsprintf
 
 # required by pablo-icpu.ko
+  debugfs_lookup
   strreplace
 
 # required by pablo-libs.ko
@@ -2138,8 +2158,6 @@
   sock_no_accept
   sock_no_listen
   sock_no_mmap
-  sock_no_sendpage
-  sock_no_shutdown
   sock_no_socketpair
   sock_queue_rcv_skb_reason
   sock_register
@@ -2195,6 +2213,7 @@
 # required by samsung_dma_heap.ko
   anon_inode_getfile
   cleancache_register_ops
+  contig_page_data
   copy_page
   deferred_free
   dma_buf_get_flags
@@ -2209,6 +2228,7 @@
   dma_heap_get_name
   flush_dcache_page
   is_dma_buf_file
+  mod_node_page_state
   radix_tree_delete
   __traceiter_android_vh_meminfo_cache_adjust
   __traceiter_android_vh_si_mem_available_adjust
@@ -2390,7 +2410,6 @@
   dma_resv_wait_timeout
   do_wait_intr
   down_read_killable
-  down_read_trylock
   drm_connector_attach_dp_subconnector_property
   drm_connector_init_with_ddc
   drm_crtc_cleanup
@@ -2423,8 +2442,6 @@
   drm_helper_hpd_irq_event
   drm_is_current_master
   drm_kms_helper_is_poll_worker
-  drm_kms_helper_poll_disable
-  drm_kms_helper_poll_enable
   drm_mm_init
   drm_mm_insert_node_in_range
   drm_mm_print
@@ -2695,7 +2712,6 @@
   sbitmap_queue_min_shallow_depth
   __traceiter_block_rq_insert
   __tracepoint_block_rq_insert
-  vm_node_stat
 
 # required by sysevent.ko
   bus_find_device
@@ -2704,6 +2720,9 @@
 
 # required by sysevent_notif.ko
   srcu_init_notifier_head
+
+# required by tsmux.ko
+  fget
 
 # required by tzdev.ko
   add_wait_queue
@@ -2778,7 +2797,6 @@
 # required by usb_notify_layer.ko
   device_attach
   usb_driver_release_interface
-  usb_set_device_state
   usb_speed_string
 
 # required by xhci-exynos-audio.ko
@@ -2838,7 +2856,6 @@
   crypto_shash_finup
   __crypto_xor
   debugfs_create_x64
-  debugfs_lookup
   desc_to_gpio
   dev_change_flags
   dev_fetch_sw_netstats
@@ -2859,13 +2876,14 @@
   dql_completed
   dql_reset
   drm_dev_has_vblank
+  drm_kms_helper_poll_disable
+  drm_kms_helper_poll_enable
   drm_mode_debug_printmodeline
   dst_release
   eth_mac_addr
   ethtool_op_get_link
   extcon_get_state
   extcon_set_state_sync
-  fget
   __find_nth_bit
   for_each_kernel_tracepoint
   freezer_active

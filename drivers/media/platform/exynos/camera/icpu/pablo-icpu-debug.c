@@ -21,6 +21,7 @@
 #include "pablo-icpu-debug.h"
 
 #include "pablo-debug.h"
+#include "pablo-mem.h"
 
 enum icpu_debug_status {
 	ICPU_DEBUG_STATUS_INIT,
@@ -430,7 +431,7 @@ static int __pablo_icpu_debug_probe(void)
 	for (type = 0; type < ICPU_DEBUG_MAX; type++) {
 		__debug[type].type = type;
 
-		__debug[type].priv_buf = vzalloc(DEBUG_BUF_LEN);
+		__debug[type].priv_buf = pablo_zalloc(DEBUG_BUF_LEN, GFP_KERNEL);
 		ICPU_ERR_IF(IS_ERR_OR_NULL(__debug[type].priv_buf), "Fail to alloc debug priv_buf");
 
 		atomic_set(&__debug[type].state, ICPU_DEBUG_STATUS_INIT);
@@ -452,7 +453,7 @@ void pablo_icpu_debug_remove(void)
 	debugfs_remove(__debug[ICPU_DEBUG_MEM].root_dir);
 
 	for (type = 0; type < ICPU_DEBUG_MAX; type++) {
-		vfree(__debug[type].priv_buf);
+		pablo_free(__debug[type].priv_buf);
 		__debug[type].priv_buf = NULL;
 
 		memset(&__debug[type], 0, sizeof(struct icpu_debug));

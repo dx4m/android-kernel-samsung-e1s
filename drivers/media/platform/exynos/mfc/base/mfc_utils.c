@@ -918,7 +918,7 @@ void mfc_core_idle_checker(struct timer_list *t)
 	struct mfc_core *core = from_timer(core, t, mfc_idle_timer);
 	struct mfc_dev *dev = core->dev;
 
-	mfc_core_debug(5, "[MFCIDLE] MFC HW idle checker is ticking!\n");
+	mfc_core_debug(3, "[MFCIDLE] MFC HW idle checker is ticking!\n");
 
 	if (dev->debugfs.perf_boost_mode) {
 		mfc_core_info("[QoS][BOOST][MFCIDLE] skip control\n");
@@ -927,19 +927,20 @@ void mfc_core_idle_checker(struct timer_list *t)
 
 	if (dev->move_ctx_cnt) {
 		MFC_TRACE_RM("[MFCIDLE] migration working\n");
+		mfc_core_debug(3, "[MFCIDLE] migration working\n");
 		mfc_core_idle_checker_start_tick(core);
 		return;
 	}
 
 	if (atomic_read(&core->qos_req_cur) == 0) {
-		mfc_core_debug(6, "[MFCIDLE] MFC QoS not started yet\n");
+		mfc_core_debug(3, "[MFCIDLE] MFC QoS not started yet\n");
 		mfc_core_idle_checker_start_tick(core);
 		return;
 	}
 
 	if (core->sched->is_work(core)) {
 		MFC_TRACE_CORE("[MFCIDLE] there is work to do\n");
-		mfc_core_debug(6, "[MFCIDLE] there is work to do\n");
+		mfc_core_debug(3, "[MFCIDLE] there is work to do\n");
 		core->sched->queue_work(core);
 		mfc_core_idle_checker_start_tick(core);
 		return;

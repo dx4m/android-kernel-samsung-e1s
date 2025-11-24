@@ -790,9 +790,11 @@ callback:
 
 static int __pablo_sensor_adt_create_ktherad(struct pablo_sensor_adt_v1 *sensor_adt)
 {
+	int ret;
 	ulong flag;
 	u32 instance, work_idx;
 	struct pablo_sensor_task *sensor_task;
+	struct sched_param param = {.sched_priority = TASK_SENSOR_WORK_PRIO};
 
 	instance = sensor_adt->instance;
 	/* create kthread worker */
@@ -804,6 +806,10 @@ static int __pablo_sensor_adt_create_ktherad(struct pablo_sensor_adt_v1 *sensor_
 		sensor_task->worker = NULL;
 		return PTR_ERR(sensor_task->worker);
 	}
+
+	ret = sched_setscheduler_nocheck(sensor_task->worker->task, SCHED_FIFO, &param);
+	if (ret)
+		merr_adt("sched_setscheduler_nocheck is fail(%d)", instance, ret);
 
 	/* init spin lock */
 	spin_lock_init(&sensor_task->work_lock);
@@ -880,7 +886,7 @@ static int pablo_sensor_adt_open(struct pablo_sensor_adt *adt, u32 instance,
 
 	if (atomic_inc_return(&adt->rsccount) == 1) {
 		/* alloc priv */
-		sensor_adt = vzalloc(sizeof(struct pablo_sensor_adt_v1));
+		sensor_adt = pablo_zalloc(sizeof(struct pablo_sensor_adt_v1), GFP_KERNEL);
 		if (!sensor_adt) {
 			merr_adt("failed to alloc pablo_sensor_adt_v1", instance);
 			ret = -ENOMEM;
@@ -908,7 +914,7 @@ static int pablo_sensor_adt_open(struct pablo_sensor_adt *adt, u32 instance,
 	return 0;
 
 err_kthread:
-	vfree(adt->priv);
+	pablo_free(adt->priv);
 	adt->priv = NULL;
 err_alloc:
 	atomic_dec(&adt->rsccount);
@@ -954,7 +960,7 @@ static int pablo_sensor_adt_close(struct pablo_sensor_adt *adt)
 
 		clear_bit(IS_SENSOR_ADT_OPEN, &sensor_adt->state);
 
-		vfree(adt->priv);
+		pablo_free(adt->priv);
 		adt->priv = NULL;
 	}
 

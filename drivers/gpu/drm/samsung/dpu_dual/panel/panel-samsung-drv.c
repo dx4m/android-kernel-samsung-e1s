@@ -1250,15 +1250,32 @@ static void exynos_panel_bridge_post_disable(struct exynos_drm_bridge *exynos_br
 	mutex_unlock(&ctx->mode_lock);
 }
 
-static void exynos_panel_bridge_lastclose(struct exynos_drm_bridge *exynos_bridge)
+static bool exynos_panel_bridge_earlyopen(struct exynos_drm_bridge *exynos_bridge)
 {
 	struct exynos_panel *ctx = exynos_bridge_to_exynos_panel(exynos_bridge);
 	const struct exynos_panel_funcs *funcs = ctx->func_set->exynos_panel_func;
+	bool updated = false;
+
+	mutex_lock(&ctx->mode_lock);
+	if (ctx->lastclosed && funcs && funcs->lastclose)
+		updated = funcs->lastclose(ctx, false);
+	mutex_unlock(&ctx->mode_lock);
+
+	return updated;
+}
+
+static bool exynos_panel_bridge_lastclose(struct exynos_drm_bridge *exynos_bridge)
+{
+	struct exynos_panel *ctx = exynos_bridge_to_exynos_panel(exynos_bridge);
+	const struct exynos_panel_funcs *funcs = ctx->func_set->exynos_panel_func;
+	bool updated = false;
 
 	mutex_lock(&ctx->mode_lock);
 	if (!ctx->lastclosed && funcs && funcs->lastclose)
-		funcs->lastclose(ctx, true);
+		updated = funcs->lastclose(ctx, true);
 	mutex_unlock(&ctx->mode_lock);
+
+	return updated;
 }
 
 static void exynos_panel_bridge_mode_set(struct exynos_drm_bridge *exynos_bridge,
@@ -1286,9 +1303,6 @@ static void exynos_panel_bridge_mode_set(struct exynos_drm_bridge *exynos_bridge
 		const struct drm_connector *conn = &ctx->exynos_connector.base;
 		struct exynos_drm_connector_state *exynos_state =
 			to_exynos_connector_state(conn->state);
-
-		if (ctx->lastclosed && funcs->lastclose)
-			funcs->lastclose(ctx, false);
 
 		if (is_lp_mode && funcs->set_lp_mode)
 			funcs->set_lp_mode(ctx, pmode);
@@ -1378,6 +1392,7 @@ static const struct exynos_drm_bridge_funcs exynos_panel_bridge_funcs = {
 	.reset = exynos_panel_bridge_reset,
 	.psr_stop = exynos_panel_bridge_psr_stop,
 	.psr_start = exynos_panel_bridge_psr_start,
+	.earlyopen = exynos_panel_bridge_earlyopen,
 	.lastclose = exynos_panel_bridge_lastclose,
 };
 
@@ -1600,7 +1615,6 @@ int drm_mipi_fcmd_write(void *_ctx, const u8 *payload, int size, u32 align)
 	struct dsim_device *dsim;
 	struct dsim_fcmd *fcmd;
 	int ret = 0;
-	static DEFINE_MUTEX(lock);
 
 	if (!ctx || !ctx->dev) {
 		pr_err("%s: invalid ctx\n", __func__);
@@ -1624,7 +1638,7 @@ int drm_mipi_fcmd_write(void *_ctx, const u8 *payload, int size, u32 align)
 		return -ENOMEM;
 	}
 
-	mutex_lock(&lock);
+	mutex_lock(&ctx->fcmd_lock);
 	fcmd = create_dsim_fast_cmd(dsim->fcmd_buf_vaddr, payload, size, align);
 	if (IS_ERR(fcmd)) {
 		panel_err(ctx, "failed to create fast-command\n");
@@ -1637,7 +1651,7 @@ int drm_mipi_fcmd_write(void *_ctx, const u8 *payload, int size, u32 align)
 		panel_err(ctx, "failed to transfer fast-command\n");
 
 out:
-	mutex_unlock(&lock);
+	mutex_unlock(&ctx->fcmd_lock);
 	destroy_dsim_fast_cmd(fcmd);
 
 	return ret;
@@ -2449,6 +2463,7 @@ int exynos_panel_probe(struct mipi_dsi_device *dsi)
 	ctx->func_set = of_device_get_match_data(dev);
 
 	mutex_init(&ctx->mode_lock);
+	mutex_init(&ctx->fcmd_lock);
 	ret = exynos_panel_parse_dt(ctx);
 	if (ret)
 		return ret;

@@ -50,21 +50,16 @@ static char *status = "NONE";
 module_param(status, charp, 0444);
 MODULE_PARM_DESC(status, "HDM status");
 
-int hdm_wifi_support;
-EXPORT_SYMBOL(hdm_wifi_support);
-static int hdm_cp_support;
+static uint32_t hdm_blocked_bit;
 
-int hdm_is_wlan_enabled(void)
+bool hdm_is_applied(uint32_t bit)
 {
-	return hdm_wifi_support;
+	if ((hdm_blocked_bit & bit) != 0)
+		return true;
+	else
+		return false;
 }
-EXPORT_SYMBOL(hdm_is_wlan_enabled);
-
-int hdm_is_cp_enabled(void)
-{
-	return hdm_cp_support;
-}
-EXPORT_SYMBOL(hdm_is_cp_enabled);
+EXPORT_SYMBOL(hdm_is_applied);
 
 void hdm_printk(int level, const char *fmt, ...)
 {
@@ -94,8 +89,7 @@ static int __init hdm_flag_setup(void)
 	long val = 0;
 	int err = 0;
 
-	hdm_wifi_support = 0;
-	hdm_cp_support = 0;
+	hdm_blocked_bit = 0;
 
 	hdm_info("%s hdm.status = %s\n", __func__, status);
 
@@ -112,20 +106,13 @@ static int __init hdm_flag_setup(void)
 				err = kstrtol(token, 16, &val);
 				if (err)
 					return err;
-				if (val & HDM_WIFI_SUPPORT_BIT && hdm_wifi_support == 0) {
-					hdm_info("%s wifi bit set\n", __func__);
-					hdm_wifi_support = 1;
-				}
-				if (val & HDM_CP_SUPPORT_BIT && hdm_cp_support == 0) {
-					hdm_info("%s cp bit set\n", __func__);
-					hdm_cp_support = 1;
-				}
+				hdm_blocked_bit = hdm_blocked_bit | val;
 			}
 			token = strsep(&tmp_p, "&|");
 		}
 	}
 
-	hdm_info("%s hdm_wifi_support = %d, hdm_cp_support = %d\n", __func__, hdm_wifi_support, hdm_cp_support);
+	hdm_info("%s hdm_blocked_status = 0x%x\n", __func__, hdm_blocked_bit);
 
 	return 0;
 }
@@ -157,19 +144,10 @@ static ssize_t hdm_policy_store(struct device *dev,
 
 	hdm_info("%s m:0x%x c:0x%x p:0x%x\n", __func__, (int)mode, c, p);
 	switch (c) {
-	case HDM_FLAG_SET:
-		hdm_info("%s HDM_FLAG_SET\n", __func__);
-		if ((p & HDM_WIFI_SUPPORT_BIT) == HDM_WIFI_SUPPORT_BIT) {
-			hdm_info("%s wifi bit set\n", __func__);
-			hdm_wifi_support = 1;
-		}
-		break;
-	case HDM_FLAG_UNSET:
-		hdm_info("%s HDM_FLAG_UNSET\n", __func__);
-		if ((p & HDM_WIFI_SUPPORT_BIT) == HDM_WIFI_SUPPORT_BIT) {
-			hdm_info("%s wifi bit unset\n", __func__);
-			hdm_wifi_support = 0;
-		}
+	case HDM_FLAG_UPDATE:
+		hdm_info("%s HDM_FLAG_UPDATE 0x%x\n", __func__, p);
+		hdm_blocked_bit = p;
+		hdm_info("hdm_blocked_status = 0x%x\n", hdm_blocked_bit);
 		break;
 #if defined(CONFIG_HDM_QCOM)
 #ifdef CONFIG_HDM_UH

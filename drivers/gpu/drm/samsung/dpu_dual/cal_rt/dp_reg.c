@@ -12,6 +12,7 @@
 #include <cal_config.h>
 #include <dp_cal.h>
 #include <exynos_drm_dp.h>
+#include <linux/dma/samsung-pdma.h>
 
 void dp_hex_dump(void __iomem *base_addr, int size)
 {
@@ -3239,6 +3240,32 @@ void dp_reg_print_audio_state(void)
 	val5 = dp_read(SST1_AUDIO_CONTROL);
 	cal_log_info(0, "audio state: func_en=0x%x, aud_en=0x%x, master_t_gen=0x%x, dma_req=0x%x, aud_con=0x%X\n",
 			val1, val2, val3, val4, val5);
+}
+
+void dp_reg_check_audio_dma_state(void)
+{
+	u32 state = 0;
+	u32 val = 0;
+	u32 cnt = 0;
+
+	val = (dp_read(SST1_AUDIO_DMA_REQUEST_LATENCY_CONFIG) & AUD_DMA_REQ_STATUS) >> 18;
+
+	if (val) {
+		cal_log_err(0, "%s aud_dma_req_status = %d.\n", __func__, val);
+		do {
+			state = (dp_read(SST1_AUDIO_BUFFER_CONTROL) & MASTER_AUDIO_BUFFER_LEVEL) >> MASTER_AUDIO_BUFFER_LEVEL_BIT_POS;
+			if (state)
+				break;
+			cnt++;
+			cal_log_err(0, "%s state = %d cnt = %d.\n", __func__, state, cnt);
+			udelay(1);
+
+		} while (cnt < 3);
+
+		if (cnt == 3)
+			pl330_dma_debug(0);
+	}
+
 }
 
 void dp_reg_set_dma_req_gen(u32 en)

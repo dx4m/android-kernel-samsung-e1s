@@ -198,6 +198,16 @@ obj-${CONFIG_SEC_STI}           += sti/
 obj-${CONFIG_EXYNOS_BTS}        += bts/
 obj-$(CONFIG_UH)		+= uh/
 
+obj-y += wlan/platform/
+#obj-$(CONFIG_CNSS2) += wlan/platform/cnss2
+#obj-$(CONFIG_CNSS_GENL) += wlan/platform/cnss_genl
+#obj-$(CONFIG_WCNSS_MEM_PRE_ALLOC) += wlan/platform/cnss_prealloc
+#obj-y += wlan/platform/cnss_utils
+
+obj-$(CONFIG_QCA_CLD_WLAN) += wlan/qcacld-3.0/
+obj-y += wlan/kernel_modules/
+
+
 obj-y += samsung/
 obj-y				+= knox/
 obj-y += sec_panel_notifier_v2/ # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT

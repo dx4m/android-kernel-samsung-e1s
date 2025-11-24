@@ -3,8 +3,8 @@
 	set5_2: set@502 {
 		/* Ontime Migration */
 		ontime {
-			foreground 	= <1>;
-			top-app		= <1>;
+			top-app			= <1>;
+			camera-daemon	= <1>;
 
 			domain0 {
 				cpus = "0-3";
@@ -32,12 +32,12 @@
 
 		tex {
 			top-app = <110>;
-			foreground = <110>;
+			camera-daemon = <110>;
 		};
 
 		cgroup_boost {
 			top-app = <1>;
-			foreground = <1>;
+			camera-daemon = <1>;
 		};
 	};
 };

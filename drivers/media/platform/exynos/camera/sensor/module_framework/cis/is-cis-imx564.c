@@ -925,11 +925,25 @@ int sensor_imx564_cis_set_frame_duration(struct v4l2_subdev *subdev, u32 frame_d
 	return ret;
 }
 
+int sensor_imx564_cis_set_group_param_hold(struct v4l2_subdev *subdev, bool hold)
+{
+	int ret = 0;
+	struct is_cis *cis = sensor_cis_get_cis(subdev);
+	cis_shared_data *cis_data = cis->cis_data;
+
+	if (cis_data->cur_hdr_mode != SENSOR_HDR_MODE_2AEB_2VC
+		&& cis_data->pre_hdr_mode != SENSOR_HDR_MODE_2AEB_2VC) {
+		ret = sensor_cis_set_group_param_hold(subdev, hold);
+	}
+
+	return ret;
+}
+
 static struct is_cis_ops cis_ops_imx564 = {
 	.cis_init = sensor_imx564_cis_init,
 	.cis_deinit = sensor_imx564_cis_deinit,
 	.cis_log_status = sensor_imx564_cis_log_status,
-	.cis_group_param_hold = sensor_cis_set_group_param_hold,
+	.cis_group_param_hold = sensor_imx564_cis_set_group_param_hold,
 	.cis_set_global_setting = sensor_imx564_cis_set_global_setting,
 	.cis_init_state = sensor_cis_init_state,
 	.cis_mode_change = sensor_imx564_cis_mode_change,
@@ -996,7 +1010,7 @@ static int cis_imx564_probe_i2c(struct i2c_client *client,
 	/* belows are depend on sensor cis. MUST check sensor spec */
 	cis->bayer_order = OTF_INPUT_ORDER_BAYER_RG_GB;
 	cis->reg_addr = &sensor_imx564_reg_addr;
-	cis->priv_runtime = kzalloc(sizeof(struct sensor_imx564_private_runtime), GFP_KERNEL);
+	cis->priv_runtime = pablo_zalloc(sizeof(struct sensor_imx564_private_runtime), GFP_KERNEL);
 	if (!cis->priv_runtime) {
 		kfree(cis->cis_data);
 		kfree(cis->subdev);

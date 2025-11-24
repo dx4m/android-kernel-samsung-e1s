@@ -98,7 +98,8 @@ enum sensor_gn3_mode_enum {
 	SENSOR_GN3_3840X2160_60FPS_CROP_R12,
 	SENSOR_GN3_4080X2296_30FPS_CROP_R12_BDS,
 	SENSOR_GN3_4080X2296_60FPS_CROP_R10,
-
+	SENSOR_GN3_5824X4368_30FPS_R10,
+	SENSOR_GN3_5824X4368_30FPS_R12,
 	SENSOR_GN3_MODE_MAX,
 };
 
@@ -140,7 +141,8 @@ enum sensor_gn3_load_sram_mode {
 	SENSOR_GN3_4080X2296_60FPS_IDCG_R12_LOAD_SRAM,
 	SENSOR_GN3_4080X2720_60FPS_IDCG_R12_LOAD_SRAM,
 	SENSOR_GN3_3840X2160_60FPS_IDCG_R12_LOAD_SRAM,
-
+	SENSOR_GN3_5824X4368_30FPS_R10_LOAD_SRAM,
+	SENSOR_GN3_5824X4368_30FPS_R12_LOAD_SRAM,
 	SENSOR_GN3_LOAD_SRAM_MAX,
 };
 #endif
@@ -426,6 +428,7 @@ struct sensor_gn3_private_data {
 	const struct sensor_regs aeb_12bit_image_dt;
 	const struct sensor_regs aeb_init_perframe_normal;
 	const struct sensor_regs aeb_init_perframe_idcg;
+	const struct sensor_regs sram_page_addr_set;
 };
 
 struct sensor_gn3_private_runtime {

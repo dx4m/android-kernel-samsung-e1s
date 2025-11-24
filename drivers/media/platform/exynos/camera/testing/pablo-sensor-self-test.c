@@ -89,7 +89,7 @@ static int sensor_self_stop(void)
 	if (ret)
 		err("failed to csi%d power off", csi->otf_info.csi_ch);
 
-	vfree(queue);
+	pablo_free(queue);
 
 	sensor = NULL;
 
@@ -141,7 +141,7 @@ static int sensor_self_start(void)
 	vctx.instance = 0;
 	vctx.device = &sensor;
 	vctx.video = video;
-	vctx.queue = vzalloc(sizeof(struct is_queue));
+	vctx.queue = pablo_zalloc(sizeof(struct is_queue), GFP_KERNEL);
 	if (!vctx.queue) {
 		err("is_queue alloc fail");
 		return -ENOMEM;
@@ -209,7 +209,7 @@ static int sensor_self_start(void)
 	return ret;
 
 p_err:
-	vfree(vctx.queue);
+	pablo_free(vctx.queue);
 	vctx.queue = NULL;
 
 	return ret;

@@ -215,7 +215,7 @@ static void pablo_i3c_sensor_write16_burst_kunit_test(struct kunit *test)
 	arr_val[2] = 0x9ABC;
 	arr_val[3] = 0xDEFF;
 
-	wbuf = kmalloc((2 + (burst_num * 2)), GFP_KERNEL);
+	wbuf = pablo_malloc((2 + (burst_num * 2)), GFP_KERNEL);
 	if (!wbuf) {
 		pr_err("failed to alloc buffer for burst i3c\n");
 		return;
@@ -229,7 +229,7 @@ static void pablo_i3c_sensor_write16_burst_kunit_test(struct kunit *test)
 		KUNIT_EXPECT_EQ(test, *((u8 *)&(xfers[0].data.out[(i * 2) + 2])), val_h);
 		KUNIT_EXPECT_EQ(test, *((u8 *)&(xfers[0].data.out[(i * 2) + 3])), val_l);
 	}
-	kfree(wbuf);
+	pablo_free(wbuf);
 }
 
 static void pablo_i3c_sensor_write8_sequential_kunit_test(struct kunit *test)
@@ -244,7 +244,7 @@ static void pablo_i3c_sensor_write8_sequential_kunit_test(struct kunit *test)
 	addr_h = (addr & 0xFF00) >> 8;
 	addr_l = (addr & 0xFF);
 
-	wbuf = kzalloc((2 + (num * 2)), GFP_KERNEL);
+	wbuf = pablo_zalloc((2 + (num * 2)), GFP_KERNEL);
 	if (!wbuf) {
 		pr_err("failed to alloc buffer for burst i3c\n");
 		return;
@@ -254,7 +254,7 @@ static void pablo_i3c_sensor_write8_sequential_kunit_test(struct kunit *test)
 	KUNIT_EXPECT_EQ(test, *((u8 *)&(xfers[0].data.out[0])), addr_h);
 	KUNIT_EXPECT_EQ(test, *((u8 *)&(xfers[0].data.out[1])), addr_l);
 
-	kfree(wbuf);
+	pablo_free(wbuf);
 }
 
 static int pablo_i3c_sensor_kunit_test_init(struct kunit *test)

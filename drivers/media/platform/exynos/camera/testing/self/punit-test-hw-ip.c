@@ -235,15 +235,15 @@ static int pst_start_hw_group(struct is_frame *frame)
 static void pst_deinit_frame(struct is_frame **frame)
 {
 	if (*frame) {
-		vfree((*frame)->shot_ext);
+		pablo_free((*frame)->shot_ext);
 		(*frame)->shot_ext = NULL;
 		(*frame)->shot = NULL;
 
-		vfree((*frame)->parameter);
+		pablo_free((*frame)->parameter);
 		(*frame)->parameter = NULL;
 	}
 
-	vfree(*frame);
+	pablo_free(*frame);
 	*frame = NULL;
 }
 
@@ -252,20 +252,20 @@ static int pst_init_frame(struct is_frame **frame)
 	int ret;
 	struct frame_param *fp = (struct frame_param *)pst_fparam;
 
-	*frame = vzalloc(sizeof(struct is_frame));
+	*frame = pablo_zalloc(sizeof(struct is_frame), GFP_KERNEL);
 	if (!(*frame)) {
 		pr_err("failed to allocate frame");
 		return -ENOMEM;
 	}
 
-	(*frame)->parameter = vzalloc(sizeof(struct is_param_region));
+	(*frame)->parameter = pablo_zalloc(sizeof(struct is_param_region), GFP_KERNEL);
 	if (!(*frame)->parameter) {
 		pr_err("failed to allocate parameter");
 		ret = -ENOMEM;
 		goto err_alloc_parameter;
 	}
 
-	(*frame)->shot_ext = vzalloc(sizeof(struct camera2_shot_ext));
+	(*frame)->shot_ext = pablo_zalloc(sizeof(struct camera2_shot_ext), GFP_KERNEL);
 	if (!(*frame)->shot_ext) {
 		pr_err("failed to allocate shot");
 		ret = -ENOMEM;
@@ -282,10 +282,10 @@ static int pst_init_frame(struct is_frame **frame)
 	return 0;
 
 err_alloc_shot_ext:
-	vfree((*frame)->parameter);
+	pablo_free((*frame)->parameter);
 
 err_alloc_parameter:
-	vfree(*frame);
+	pablo_free(*frame);
 
 	return ret;
 }
@@ -296,10 +296,10 @@ static void pst_deinit_hw_ip(struct is_hw_ip **hw_ip)
 	struct is_hardware *hardware = &core->hardware;
 
 	if (*hw_ip) {
-		vfree((*hw_ip)->framemgr);
+		pablo_free((*hw_ip)->framemgr);
 		(*hw_ip)->framemgr = NULL;
 
-		vfree((*hw_ip)->hardware);
+		pablo_free((*hw_ip)->hardware);
 		(*hw_ip)->hardware = hardware;
 
 		*hw_ip = NULL;
@@ -321,7 +321,7 @@ static int pst_init_hw_ip(struct is_hw_ip **hw_ip, enum is_hardware_id hw_id)
 
 	*hw_ip = &hardware->hw_ip[hw_slot];
 
-	(*hw_ip)->hardware = vzalloc(sizeof(struct is_hardware));
+	(*hw_ip)->hardware = pablo_zalloc(sizeof(struct is_hardware), GFP_KERNEL);
 	if (!(*hw_ip)->hardware) {
 		pr_err("failed to allocate hardware");
 		return -ENOMEM;
@@ -330,7 +330,7 @@ static int pst_init_hw_ip(struct is_hw_ip **hw_ip, enum is_hardware_id hw_id)
 	(*hw_ip)->hw_ops = &pst_is_hardware_ops;
 	pablo_hw_chain_info_probe((*hw_ip)->hardware);
 
-	(*hw_ip)->framemgr = vzalloc(sizeof(struct is_framemgr));
+	(*hw_ip)->framemgr = pablo_zalloc(sizeof(struct is_framemgr), GFP_KERNEL);
 	if (!(*hw_ip)->framemgr) {
 		pr_err("failed to allocate framemgr");
 		ret = -ENOMEM;
@@ -340,7 +340,7 @@ static int pst_init_hw_ip(struct is_hw_ip **hw_ip, enum is_hardware_id hw_id)
 	return 0;
 
 err_alloc_framemgr:
-	vfree((*hw_ip)->hardware);
+	pablo_free((*hw_ip)->hardware);
 	*hw_ip = NULL;
 
 	return ret;

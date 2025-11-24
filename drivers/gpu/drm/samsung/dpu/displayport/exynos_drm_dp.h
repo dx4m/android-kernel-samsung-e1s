@@ -557,6 +557,7 @@ struct dex_data {
 	enum dex_support_type adapter_type;
 	struct drm_display_mode best_mode;
 	bool skip_adapter_check;
+	bool reconnecting;
 };
 #endif
 

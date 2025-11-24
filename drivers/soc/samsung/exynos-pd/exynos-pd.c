@@ -355,6 +355,12 @@ static int exynos_pd_suspend_late(struct device *dev)
 		data->genpd.flags = 0;
 		dev_info(dev, EXYNOS_PD_PREFIX "    %-9s flag set to 0\n", data->genpd.name);
 	}
+
+	if (data->active_wakeup && (!cal_pd_status(data->cal_pdid))) {
+		data->genpd.flags |= GENPD_FLAG_ACTIVE_WAKEUP;
+		dev_info(dev, EXYNOS_PD_PREFIX "    %-9s - set active wakeup flag\n", data->genpd.name);
+	}
+
 	return 0;
 }
 
@@ -380,6 +386,11 @@ static int exynos_pd_resume_early(struct device *dev)
 				cal_pd_status(data->cal_pdid) ? "on" : "off");
 		}
 #endif
+	}
+
+	if ((data->genpd.flags & GENPD_FLAG_ACTIVE_WAKEUP) && data->active_wakeup) {
+		data->genpd.flags &= ~GENPD_FLAG_ACTIVE_WAKEUP;
+		dev_info(dev, EXYNOS_PD_PREFIX "    %-9s - clr active wakeup flag\n", data->genpd.name);
 	}
 
 	return 0;
@@ -503,6 +514,11 @@ static int exynos_pd_probe(struct platform_device *pdev)
 				cal_pd_status(pd->cal_pdid) ? "on" : "off");
 	}
 #endif
+
+	if (of_property_read_bool(np, "pd-active-wakeup")) {
+		pd->active_wakeup = true;
+		dev_info(dev, EXYNOS_PD_PREFIX "    %-9s - set active wakeup\n", pd->genpd.name);
+	}
 
 	parent = of_parse_phandle(np, "parent", index);
 	if (parent) {

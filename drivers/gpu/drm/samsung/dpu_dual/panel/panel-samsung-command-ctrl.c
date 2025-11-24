@@ -251,19 +251,20 @@ static int panel_command_ctrl_enable(struct drm_panel *panel)
 	return 0;
 }
 
-static int panel_command_ctrl_lastclose(struct exynos_panel *ctx, bool close)
+static bool panel_command_ctrl_lastclose(struct exynos_panel *ctx, bool close)
 {
 	const struct exynos_panel_mode *pmode = ctx->current_mode;
+	bool updated = false;
 	int ret = 0;
 
 	WARN_ON(!mutex_is_locked(&ctx->mode_lock));
 
 	if (!is_panel_active(ctx) && !is_panel_idle(ctx))
-		return 0;
+		goto exit;
 
 	if (!pmode) {
 		panel_err(ctx, "no current mode set\n");
-		return -EINVAL;
+		goto exit;
 	}
 
 	if (close)
@@ -271,12 +272,15 @@ static int panel_command_ctrl_lastclose(struct exynos_panel *ctx, bool close)
 	else
 		ret = exynos_panel_send_generic_command(ctx, pmode, PANEL_OPEN_CMDS);
 
-	panel_info(ctx, "- : (%s) -> (%s)\n", ctx->lastclosed ? "close" : "open",
-					      close ? "close" : "open");;
-	if (!ret)
+	if (!ret) {
+		panel_info(ctx, "- : (%s) -> (%s)\n", ctx->lastclosed ? "close" : "open",
+				close ? "close" : "open");;
 		ctx->lastclosed = close;
+		updated = true;
+	}
 
-	return 0;
+exit:
+	return updated;
 }
 
 static const struct drm_panel_funcs panel_command_ctrl_drm_funcs = {

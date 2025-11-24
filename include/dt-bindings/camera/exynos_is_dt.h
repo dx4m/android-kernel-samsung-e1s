@@ -242,6 +242,8 @@
 #define	EX_NIGHT		13
 #define	EX_AI_REMOSAIC		14
 #define	EX_LIVE_FOCUS_AEB	15
+#define	EX_DCG			16
+#define	EX_LN			17
 
 #define	EX_OBTE_TUNE		98
 #define	EX_PHY_TUNE			99
@@ -378,6 +380,10 @@
 #define SENSOR_NAME_IMX766		130
 #define SENSOR_NAME_IMX663		131
 #define SENSOR_NAME_IMX906		132
+#define SENSOR_NAME_IMX882		133
+#define SENSOR_NAME_IMX874		134
+#define SENSOR_NAME_IMX823		135
+#define SENSOR_NAME_IMX825		136
 
 /* 201~255: Other vendor sensors */
 #define SENSOR_NAME_SR261		201

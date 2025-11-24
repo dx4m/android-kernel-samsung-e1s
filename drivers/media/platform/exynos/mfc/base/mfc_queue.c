@@ -975,6 +975,12 @@ int __mfc_update_dpb_fd(struct mfc_ctx *ctx, struct vb2_buffer *vb, int index)
 	if (dec->dpb[index].fd[0] == vb->planes[0].m.fd)
 		mfc_ctx_debug(3, "[REFINFO] same dma_buf has same fd\n");
 
+	if (dec->dpb[index].new_fd != -1) {
+		dec->ref_buf[dec->refcnt].fd[0] = dec->dpb[index].fd[0];
+		dec->refcnt++;
+		dec->dpb[index].fd[0] = dec->dpb[index].new_fd;
+	}
+
 	dec->dpb[index].new_fd = vb->planes[0].m.fd;
 	mfc_ctx_debug(3, "[REFINFO] index %d update fd: %d -> %d after release\n",
 			vb->index, dec->dpb[index].fd[0],
@@ -1079,7 +1085,6 @@ void __mfc_store_plugin_dpb(struct mfc_ctx *ctx, struct mfc_dec *dec, struct vb2
 	unsigned long flags;
 
 	mfc_buf = vb_to_mfc_buf(vb);
-	mfc_buf->used = 0;
 
 	spin_lock_irqsave(&ctx->buf_queue_lock, flags);
 
@@ -1106,6 +1111,8 @@ void __mfc_store_plugin_dpb(struct mfc_ctx *ctx, struct mfc_dec *dec, struct vb2
 		return;
 	}
 
+	mfc_buf->used = 0;
+	mfc_buf->dpb_index = 0;
 	list_add_tail(&mfc_buf->list, &ctx->dst_buf_queue.head);
 	ctx->dst_buf_queue.count++;
 	set_bit(vb->index, &dec->queued_dpb);

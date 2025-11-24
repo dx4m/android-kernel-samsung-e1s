@@ -83,6 +83,11 @@
 #define TMU_IPC_GET_CUR_FREQ		0x2B
 #define TMU_IPC_SET_TMU_MODE		0x2E
 #define TMU_IPC_GET_TMU_MODE		0x2F
+#define TMU_IPC_SET_USE_COLD		0x30
+#define TMU_IPC_GET_USE_COLD		0x31
+
+#define DISABLE_USE_COLD		false
+#define ENABLE_USE_COLD			true
 
 /*
  * 16-byte TMU IPC message format (REQ)
@@ -208,6 +213,8 @@ void exynos_acpm_tmu_stop_pi_polling(int tz);
 int exynos_acpm_tmu_cdev_get_cur_freq(int cdev_id, unsigned long *freq);
 void exynos_acpm_tmu_set_tmu_mode(int tz, unsigned int mode);
 void exynos_acpm_tmu_get_tmu_mode(int tz, unsigned int *mode);
+void exynos_acpm_tmu_set_use_cold(unsigned int mode);
+void exynos_acpm_tmu_get_use_cold(unsigned int *mode);
 
 int exynos_acpm_tmu_init(ipc_callback handler);
 

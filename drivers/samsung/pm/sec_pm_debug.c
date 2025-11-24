@@ -19,6 +19,7 @@
 #if IS_ENABLED(CONFIG_DRV_SAMSUNG)
 #include <linux/sec_class.h>
 #endif
+#include <soc/samsung/mif_requester.h> 
 
 struct sec_pm_debug_info {
 	struct device		*dev;
@@ -65,6 +66,35 @@ static void pm_suspend_marker(char *annotation)
 }
 
 #if IS_ENABLED(CONFIG_DRV_SAMSUNG)
+#if IS_ENABLED(CONFIG_EXYNOS_MIF_REQUEST_PROFILER)
+static ssize_t mif_req_info_show(struct device *dev,
+			struct device_attribute *attr, char *buf)
+{
+	struct mif_requester *mif_req_info;
+	int i, ret;
+	ssize_t len = 0;
+
+	ret = get_mif_requester_info(&mif_req_info);
+	if (ret < 0)
+		return ret; 
+
+	for (i = 0; i < mif_req_info->mif_master_num; i++) {
+		len += sprintf(buf + len, "\"TYPE\":\"%s\",\"DUR\":\"%u.%03u\",",
+			mif_req_info->mif_requester_names[i],
+			mif_req_info->mif_requester_durations[i] / 1000,
+			mif_req_info->mif_requester_durations[i] % 1000);
+	}
+
+	buf[--len] = '\0';
+
+	ret = reset_mif_requester_duration();
+	if (ret < 0)
+		return ret;
+
+	return len;
+}
+#endif /* CONFIG_EXYNOS_MIF_REQUEST_PROFILER */
+
 static ssize_t sleep_time_sec_show(struct device *dev,
 				struct device_attribute *attr, char *buf)
 {
@@ -79,10 +109,16 @@ static ssize_t sleep_count_show(struct device *dev,
 
 static DEVICE_ATTR_RO(sleep_time_sec);
 static DEVICE_ATTR_RO(sleep_count);
+#if IS_ENABLED(CONFIG_EXYNOS_MIF_REQUEST_PROFILER)
+static DEVICE_ATTR_RO(mif_req_info);
+#endif /* CONFIG_EXYNOS_MIF_REQUEST_PROFILER */
 
 static struct attribute *sec_pm_debug_attrs[] = {
 	&dev_attr_sleep_time_sec.attr,
 	&dev_attr_sleep_count.attr,
+#if IS_ENABLED(CONFIG_EXYNOS_MIF_REQUEST_PROFILER)
+	&dev_attr_mif_req_info.attr,
+#endif /* CONFIG_EXYNOS_MIF_REQUEST_PROFILER */
 	NULL
 };
 ATTRIBUTE_GROUPS(sec_pm_debug);

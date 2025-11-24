@@ -74,7 +74,6 @@ obj-$(CONFIG_NET_NSH)		+= nsh/
 obj-$(CONFIG_HSR)		+= hsr/
 obj-$(CONFIG_NET_SWITCHDEV)	+= switchdev/
 obj-$(CONFIG_NET_L3_MASTER_DEV)	+= l3mdev/
-obj-$(CONFIG_QRTR)		+= qrtr/
 obj-$(CONFIG_NET_NCSI)		+= ncsi/
 # SEC_PRODUCT_FEATURE_KNOX_SUPPORT_NPA {
 obj-$(CONFIG_KNOX_NCM)		+= ncm/

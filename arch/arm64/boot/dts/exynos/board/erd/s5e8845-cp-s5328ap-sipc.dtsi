@@ -700,6 +700,8 @@
 				port-name = "CPIF";
 				#iommu-cells = <0>;
 
+				memory-region = <&sysmmu_rmem>;
+
 				default_stream =
 					<STREAM_CFG(PTLB_ID(0x0), STLB_ID(0x0), FETCH_SIZE(SIZE2), PTLB_EN, STLB_EN)>;
 				stream_property =

@@ -110,7 +110,7 @@ static int pst_set_blob(const char *val, const struct kernel_param *kp)
 	switch (act) {
 	case PST_BLOB_BUF_FREE:
 		for (i = 0; i < PST_BLOB_NODE_MAX; i++) {
-			vfree(pst_fio.blob[i].data);
+			pablo_free(pst_fio.blob[i].data);
 			pst_fio.blob[i].data = NULL;
 			pst_fio.blob[i].size = 0;
 		}
@@ -134,11 +134,11 @@ static int pst_set_blob(const char *val, const struct kernel_param *kp)
 			goto func_exit;
 		}
 
-		vfree(pst_fio.blob[node].data);
+		pablo_free(pst_fio.blob[node].data);
 		pst_fio.blob[node].size = 0;
 
 		if (size) {
-			pst_fio.blob[node].data = vmalloc(size);
+			pst_fio.blob[node].data = pablo_malloc(size, GFP_KERNEL);
 			if (!pst_fio.blob[node].data) {
 				pr_err("[BLBO %d] failed to alloc size(%d)\n", node, size);
 				ret = -ENOMEM;

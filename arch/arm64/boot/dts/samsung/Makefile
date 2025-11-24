@@ -8,3 +8,4 @@ subdir-y += mu3s
 subdir-y += b6s
 subdir-y += r12s
 subdir-y += b7r
+subdir-y += r13s

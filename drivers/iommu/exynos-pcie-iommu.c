@@ -157,6 +157,23 @@ void exynos_sysmmu_memlog_init(struct sysmmu_drvdata *data)
 	return;
 }
 
+void pcie_iommu_tlb_invalidate_all(int pcie_channel)
+{
+	enum pcie_sysmmu_vid pcie_vid = pcie_channel + SYSMMU_PCIE_VID_OFFSET;
+
+	if (g_sysmmu_drvdata == NULL) {
+		pr_err("[%s] PCIe SysMMU feature is disabled!!!\n", __func__);
+		return ;
+	}
+
+	if (!is_sysmmu_active(g_sysmmu_drvdata)) /* SKIP invalidation */
+		return;
+
+	writel(0x1, g_sysmmu_drvdata->sfrbase + REG_MMU_FLUSH_VID(pcie_vid));
+}
+
+EXPORT_SYMBOL_GPL(pcie_iommu_tlb_invalidate_all);
+
 /* For ARM64 only */
 static inline void pgtable_flush(void *vastart, void *vaend)
 {
@@ -254,7 +271,8 @@ static void __sysmmu_enable_nocount(struct sysmmu_drvdata *drvdata,
 
 	/* Set VID0 MMU_CTRL (Stall mode is default) */
 	ctrl_val = readl_relaxed(drvdata->sfrbase + REG_MMU_CTRL_VID(pcie_vid));
-	writel(ctrl_val | CTRL_MMU_ENABLE | CTRL_INT_ENABLE | CTRL_FAULT_STALL_MODE,
+	ctrl_val &= ~(CTRL_FAULT_STALL_MODE | CTRL_ERR_RESP_VALUE);
+	writel(ctrl_val | CTRL_MMU_ENABLE | CTRL_INT_ENABLE,
 				drvdata->sfrbase + REG_MMU_CTRL_VID(pcie_vid));
 }
 
@@ -768,6 +786,15 @@ void print_pcie_sysmmu_tlb(enum pcie_sysmmu_vid pcie_vid)
 }
 EXPORT_SYMBOL(print_pcie_sysmmu_tlb);
 
+static void pcie_sysmmu_fault_delayed_work(struct work_struct *work)
+{
+	struct sysmmu_drvdata *data =
+		container_of(work, struct sysmmu_drvdata, sysmmu_fault_work.work);
+
+	dev_err(data->dev, "%s\n", __func__);
+	WARN_ON(1);
+}
+
 static int show_fault_information(struct sysmmu_drvdata *drvdata, int flags,
 		unsigned long fault_addr, enum pcie_sysmmu_vid pcie_vid)
 {
@@ -917,6 +944,15 @@ static char *sysmmu_fault_vid[PCIE_SYSMMU_VID_MAX] = {
 	"PCIE_SYSMMU_VID_CH1",
 };
 
+#if defined(CONFIG_SCSC_BB_REDWOOD)
+void register_mxman_force_panic(int (*fp)(void))
+{
+	g_sysmmu_drvdata->mxman_force_panic = fp;
+}
+
+EXPORT_SYMBOL(register_mxman_force_panic);
+#endif
+
 static irqreturn_t exynos_sysmmu_irq(int irq, void *dev_id)
 {
 	struct sysmmu_drvdata *drvdata = dev_id;
@@ -985,7 +1021,12 @@ static irqreturn_t exynos_sysmmu_irq(int irq, void *dev_id)
 		(flags & IOMMU_FAULT_WRITE) ? "WRITE" : "READ",
 		sysmmu_fault_name[fault_id], addr);
 
-	dbg_snapshot_expire_watchdog();
+#if !defined(CONFIG_SCSC_BB_REDWOOD)
+	schedule_delayed_work(&drvdata->sysmmu_fault_work,
+				msecs_to_jiffies(3000));
+#else
+	drvdata->mxman_force_panic();
+#endif
 
 	return IRQ_HANDLED;
 }
@@ -1866,6 +1907,9 @@ static int exynos_sysmmu_probe(struct platform_device *pdev)
 		dev_info(dev, "L1Page Table Address for PCIe Ch1 : 0x%llx(phys)\n",
 			 data->pgtable[SYSMMU_PCIE_CH1]);
 	}
+
+	INIT_DELAYED_WORK(&data->sysmmu_fault_work,
+				pcie_sysmmu_fault_delayed_work);
 
 	dev_info(data->dev, "is probed. Version %d.%d.%d - MAX VM : %d, 36bit addr : %d\n",
 			MMU_MAJ_VER(data->version),

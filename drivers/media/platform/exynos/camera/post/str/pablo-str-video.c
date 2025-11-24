@@ -259,7 +259,7 @@ static int str_video_open(struct file *file)
 
 	pr_info("[STR][%s:%d]Open. open_cnt(%d)\n", __func__, __LINE__, atomic_read(&video->open_cnt));
 
-	ctx = kzalloc(sizeof(struct str_ctx), GFP_KERNEL);
+	ctx = pablo_zalloc(sizeof(struct str_ctx), GFP_KERNEL);
 	if (!ctx)
 		return -ENOMEM;
 
@@ -285,7 +285,7 @@ static int str_video_open(struct file *file)
 err_exit:
 	file->private_data = NULL;
 	atomic_dec(&video->open_cnt);
-	kfree(ctx);
+	pablo_free(ctx);
 
 	return ret;
 }
@@ -313,7 +313,7 @@ static int str_video_release(struct file *file)
 		ctx->buf_c = NULL;
 	}
 
-	kfree(ctx);
+	pablo_free(ctx);
 
 	return 0;
 }

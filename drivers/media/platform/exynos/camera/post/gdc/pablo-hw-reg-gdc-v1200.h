@@ -8822,8 +8822,8 @@ static const struct pmio_range gdc_volatile_ranges[] = {
 	pmio_reg_range(GDC_R_CMDQ_QUE_CMD_H, GDC_R_CMDQ_INT_CLEAR),
 	pmio_reg_range(GDC_R_C_LOADER_ENABLE, GDC_R_C_LOADER_ENABLE),
 	pmio_reg_range(GDC_R_INT_REQ_INT0, GDC_R_INT_REQ_INT1_CLEAR),
-	pmio_reg_range(GDC_R_IP_VERSION	, GDC_R_IP_VERSION),
-	pmio_reg_range(GDC_R_STAT_RDMACLOADER_EN , GDC_R_STAT_RDMACLOADER_EN),
+	pmio_reg_range(GDC_R_IP_VERSION, GDC_R_IP_VERSION),
+	pmio_reg_range(GDC_R_STAT_RDMACLOADER_EN, GDC_R_STAT_RDMACLOADER_EN),
 };
 
 static const struct pmio_range gdc_wr_ranges[] = {

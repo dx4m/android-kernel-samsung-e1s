@@ -56,6 +56,8 @@
 #define MFC_BW_TIMEOUT		500
 /* MMCache invalidation timeout */
 #define MMCACHE_INVAL_TIMEOUT	1000
+/* LPWFD lock timeout */
+#define MFC_OTF_TIMEOUT		5000
 /* Interrupt timeout count*/
 #define MFC_INT_TIMEOUT_CNT	2
 /* The number of deferred decoding frame */

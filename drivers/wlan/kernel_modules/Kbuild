@@ -1,0 +1,37 @@
+ifeq ($(CONFIG_CNSS_EXYNOS), y)
+ifeq ($(CONFIG_SOC_S5E9945),y)
+subdir-ccflags-y += -I$(srctree)/drivers/wlan/kernel_modules/include/
+subdir-ccflags-y += -iquote$(srctree)/drivers/wlan/kernel_modules/include/
+else
+
+
+subdir-ccflags-y += -I$(KERNEL_SRC)/$(KCONFIG_EXT_PREFIX)drivers/wlan/kernel_modules/include/
+subdir-ccflags-y += -iquote$(KERNEL_SRC)/$(KCONFIG_EXT_PREFIX)drivers/wlan/kernel_modules/include/
+KBUILD_CPPFLAGS += -DCONFIG_QRTR_NODE_ID=20
+KBUILD_CPPFLAGS += -DCONFIG_QRTR_WAKEUP_MS=500
+endif
+
+MAKEFLAGS  += CONFIG_MHI_BUS=m
+MAKEFLAGS  += CONFIG_MHI_BUS_DEBUG=y
+MAKEFLAGS  += CONFIG_QRTR_MHI=m
+MAKEFLAGS  += CONFIG_QRTR=m
+MAKEFLAGS  += CONFIG_QCOM_QMI_HELPERS=m
+MAKEFLAGS  += CONFIG_MHI_BUS_MISC=y
+MAKEFLAGS  += CONFIG_MHI_OUT_OF_TREE=y
+
+
+KBUILD_CPPFLAGS += -DCONFIG_MHI_BUS
+KBUILD_CPPFLAGS += -DCONFIG_MHI_BUS_DEBUG
+KBUILD_CPPFLAGS += -DCONFIG_MHI_BUS_MISC
+KBUILD_CPPFLAGS += -DCONFIG_MHI_OUT_OF_TREE
+KBUILD_CPPFLAGS += -DCONFIG_QRTR_MHI
+KBUILD_CPPFLAGS += -DCONFIG_QRTR
+KBUILD_CPPFLAGS += -DCONFIG_QCOM_QMI_HELPERS
+
+#GKI kernel
+obj-y += mhi/
+obj-y += qrtr/
+obj-y += qmi_helpers/
+obj-y += ipc_logging/
+endif
+

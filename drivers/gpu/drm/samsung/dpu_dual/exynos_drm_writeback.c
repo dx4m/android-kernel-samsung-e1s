@@ -341,6 +341,8 @@ static void wb_convert_connector_state_to_config(struct dpp_params_info *config,
 	case EXYNOS_WB_SWB:
 		config->src.w = fb->width;
 		config->src.h = fb->height;
+		if (exynos_crtc_state->need_colormap)
+			wb_err(wb, "colormap is requested but SWB!\n");
 		break;
 	default:
 		config->src.w = fb->width;

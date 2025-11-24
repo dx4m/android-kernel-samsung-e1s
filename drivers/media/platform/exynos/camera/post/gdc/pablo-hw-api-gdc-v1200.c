@@ -192,6 +192,17 @@ static void camerapp_hw_gdc_set_wdma_sbwc_64b_align(struct pablo_mmio *pmio, u32
 		GDC_F_YUV_WDMA_SBWC_64B_ALIGN, align_64b);
 }
 
+static void camerapp_hw_gdc_set_rdma_sbwc_128b_align(struct pablo_mmio *pmio, u32 align_128b)
+{
+	GDC_SET_F(pmio, GDC_R_YUV_RDMAY_COMP_CONTROL, GDC_F_YUV_RDMAY_SBWC_128B_ALIGN, align_128b);
+	GDC_SET_F(pmio, GDC_R_YUV_RDMAUV_COMP_CONTROL, GDC_F_YUV_RDMAUV_SBWC_128B_ALIGN, align_128b);
+}
+
+static void camerapp_hw_gdc_set_wdma_sbwc_128b_align(struct pablo_mmio *pmio, u32 align_128b)
+{
+	GDC_SET_F(pmio, GDC_R_YUV_WDMA_COMP_CONTROL, GDC_F_YUV_WDMA_SBWC_128B_ALIGN, align_128b);
+}
+
 static void camerapp_hw_gdc_set_rdma_data_format(struct pablo_mmio *pmio, u32 yuv_format)
 {
 	GDC_SET_F(pmio, GDC_R_YUV_RDMAY_DATA_FORMAT,
@@ -658,6 +669,24 @@ int camerapp_hw_get_comp_buf_size(struct gdc_dev *gdc, struct gdc_frame *frame,
 			header_size = SBWCL_Y_HEADER_SIZE(width, height);
 		}
 		break;
+	case V4L2_PIX_FMT_NV12N_SBWC_256_8B:
+		if (plane) {
+			payload_size = SBWC_256_8B_CBCR_SIZE(width, height);
+			header_size = SBWC_256_8B_CBCR_HEADER_SIZE(width, height);
+		} else {
+			payload_size = SBWC_256_8B_Y_SIZE(width, height);
+			header_size = SBWC_256_8B_Y_HEADER_SIZE(width, height);
+		}
+		break;
+	case V4L2_PIX_FMT_NV12N_SBWC_256_10B:
+		if (plane) {
+			payload_size = SBWC_256_10B_CBCR_SIZE(width, height);
+			header_size = SBWC_256_10B_CBCR_HEADER_SIZE(width, height);
+		} else {
+			payload_size = SBWC_256_10B_Y_SIZE(width, height);
+			header_size = SBWC_256_10B_Y_HEADER_SIZE(width, height);
+		}
+		break;
 	default:
 		gdc_info("not supported format values\n");
 		return -EINVAL;
@@ -695,6 +724,18 @@ static void camerapp_hw_gdc_calculate_stride(struct gdc_frame *frame, u32 dma_wi
 		*chroma_w = (u32)(SBWCL_64_STRIDE_FR(dma_width));
 		*lum_w_header = (u32)(SBWCL_HEADER_STRIDE(dma_width));
 		*chroma_w_header = (u32)(SBWCL_HEADER_STRIDE(dma_width));
+		break;
+	case V4L2_PIX_FMT_NV12N_SBWC_256_8B:
+		*lum_w = (u32)(SBWC_256_8B_STRIDE(dma_width));
+		*chroma_w = *lum_w;		/* for single-fd format */
+		*lum_w_header = (u32)(SBWC_HEADER_STRIDE(dma_width));
+		*chroma_w_header = *lum_w_header;	/* for single-fd format */
+		break;
+	case V4L2_PIX_FMT_NV12N_SBWC_256_10B:
+		*lum_w = (u32)(SBWC_256_10B_STRIDE(dma_width));
+		*chroma_w = *lum_w;		/* for single-fd format */
+		*lum_w_header = (u32)(SBWC_HEADER_STRIDE(dma_width));
+		*chroma_w_header = *lum_w_header;	/* for single-fd format */
 		break;
 	case V4L2_PIX_FMT_NV12M_P010:
 	case V4L2_PIX_FMT_NV21M_P010:
@@ -820,6 +861,7 @@ static int camerapp_hw_gdc_adjust_fmt(u32 pixelformat,
 	case V4L2_PIX_FMT_NV12M_SBWCL_32_8B:
 	case V4L2_PIX_FMT_NV12M_SBWCL_64_8B:
 	case V4L2_PIX_FMT_NV12M_SBWCL_64_8B_FR:
+	case V4L2_PIX_FMT_NV12N_SBWC_256_8B:
 	case V4L2_PIX_FMT_GREY:
 		*yuv_format = GDC_YUV420;
 		*dma_format = GDC_YUV420_2P_UFIRST;
@@ -836,6 +878,7 @@ static int camerapp_hw_gdc_adjust_fmt(u32 pixelformat,
 	case V4L2_PIX_FMT_NV12M_SBWCL_32_10B:
 	case V4L2_PIX_FMT_NV12M_SBWCL_64_10B:
 	case V4L2_PIX_FMT_NV12M_SBWCL_64_10B_FR:
+	case V4L2_PIX_FMT_NV12N_SBWC_256_10B:
 		*yuv_format = GDC_YUV420;
 		*dma_format = GDC_YUV420_2P_UFIRST_P010;
 		*bit_depth_format = CAMERA_PIXEL_SIZE_10BIT;
@@ -1007,15 +1050,21 @@ static void camerapp_hw_gdc_set_core_param(struct pablo_mmio *pmio,
 }
 
 static void camerapp_hw_gdc_get_sbwc_type(struct gdc_frame *frame,
-	u32 *comp_type, u32 *align_64b, u32 *fr)
+	u32 *comp_type, u32 *align_64b, u32 *align_128b, u32 *fr)
 {
 	switch (frame->extra) {
 	case COMP:
 		*comp_type = COMP;
 		*align_64b = 0;
+		if (frame->pixelformat == V4L2_PIX_FMT_NV12N_SBWC_256_8B ||
+			frame->pixelformat == V4L2_PIX_FMT_NV12N_SBWC_256_10B)
+			*align_128b = 1;
+		else
+			*align_128b = 0;
 		break;
 	case COMP_LOSS:
 		*comp_type = COMP_LOSS;
+		*align_128b = 0;
 		if (frame->pixelformat == V4L2_PIX_FMT_NV12M_SBWCL_64_8B ||
 			frame->pixelformat == V4L2_PIX_FMT_NV12M_SBWCL_64_10B ||
 			frame->pixelformat == V4L2_PIX_FMT_NV12M_SBWCL_64_8B_FR ||
@@ -1027,6 +1076,7 @@ static void camerapp_hw_gdc_get_sbwc_type(struct gdc_frame *frame,
 	default:
 		*comp_type = NONE;
 		*align_64b = 0;
+		*align_128b = 0;
 		break;
 	}
 
@@ -1042,10 +1092,11 @@ static void camerapp_hw_gdc_set_compressor(struct pablo_mmio *pmio,
 {
 	u32 s_comp_type, d_comp_type;
 	u32 s_comp_64b_align, d_comp_64b_align;
+	u32 s_comp_128b_align, d_comp_128b_align;
 	u32 s_comp_fr, d_comp_fr;
 
-	camerapp_hw_gdc_get_sbwc_type(s_frame, &s_comp_type, &s_comp_64b_align, &s_comp_fr);
-	camerapp_hw_gdc_get_sbwc_type(d_frame, &d_comp_type, &d_comp_64b_align, &d_comp_fr);
+	camerapp_hw_gdc_get_sbwc_type(s_frame, &s_comp_type, &s_comp_64b_align, &s_comp_128b_align, &s_comp_fr);
+	camerapp_hw_gdc_get_sbwc_type(d_frame, &d_comp_type, &d_comp_64b_align, &d_comp_128b_align, &d_comp_fr);
 
 	gdc_dbg("src_comp_type(%d) src_comp_fr(%d) dst_comp_type(%d) dst_comp_fr(%d)\n",
 		s_comp_type, s_comp_fr, d_comp_type, d_comp_fr);
@@ -1055,6 +1106,7 @@ static void camerapp_hw_gdc_set_compressor(struct pablo_mmio *pmio,
 			GDC_F_YUV_GDC_SRC_COMPRESSOR, s_comp_type);
 		camerapp_hw_gdc_set_rdma_sbwc_enable(pmio, s_comp_type);
 		camerapp_hw_gdc_set_rdma_sbwc_64b_align(pmio, s_comp_64b_align);
+		camerapp_hw_gdc_set_rdma_sbwc_128b_align(pmio, s_comp_128b_align);
 		if (s_comp_type == COMP_LOSS)
 			camerapp_hw_gdc_set_rdma_comp_control(pmio, s_comp_fr);
 
@@ -1066,6 +1118,7 @@ static void camerapp_hw_gdc_set_compressor(struct pablo_mmio *pmio,
 			GDC_F_YUV_GDC_DST_COMPRESSOR, d_comp_type);
 		camerapp_hw_gdc_set_wdma_sbwc_enable(pmio, d_comp_type);
 		camerapp_hw_gdc_set_wdma_sbwc_64b_align(pmio, d_comp_64b_align);
+		camerapp_hw_gdc_set_wdma_sbwc_128b_align(pmio, d_comp_128b_align);
 		if (d_comp_type == COMP_LOSS)
 			camerapp_hw_gdc_set_wdma_comp_control(pmio, d_comp_fr);
 	}
@@ -1078,7 +1131,9 @@ int camerapp_hw_check_sbwc_fmt(u32 pixelformat)
 		(pixelformat != V4L2_PIX_FMT_NV12M_SBWCL_64_8B) &&
 		(pixelformat != V4L2_PIX_FMT_NV12M_SBWCL_64_10B) &&
 		(pixelformat != V4L2_PIX_FMT_NV12M_SBWCL_64_8B_FR) &&
-		(pixelformat != V4L2_PIX_FMT_NV12M_SBWCL_64_10B_FR))
+		(pixelformat != V4L2_PIX_FMT_NV12M_SBWCL_64_10B_FR) &&
+		(pixelformat != V4L2_PIX_FMT_NV12N_SBWC_256_8B) &&
+		(pixelformat != V4L2_PIX_FMT_NV12N_SBWC_256_10B))
 		return -EINVAL;
 
 	return 0;

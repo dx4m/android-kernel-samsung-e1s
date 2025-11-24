@@ -70,6 +70,7 @@ long stui_process_cmd(struct file *f, unsigned int cmd, unsigned long arg)
 			goto lbl_rollback_touch;
 		}
 
+		g_stui_disp_if = 0;
 		ret = stui_open_display(&buffer);
 		if (ret < 0) {
 			pr_err(TUIHW_LOG_TAG " stui_open_display failed\n");
@@ -77,15 +78,19 @@ long stui_process_cmd(struct file *f, unsigned int cmd, unsigned long arg)
 		}
 
 		buffer.touch_type = stui_get_touch_type();
-		pr_info(TUIHW_LOG_TAG "stui tsp_type %d\n", buffer.touch_type);
-
+		pr_debug(TUIHW_LOG_TAG "stui tsp_type=%d, buffer.disp_if=%x\n",
+			buffer.touch_type, buffer.disp_if);
+#ifdef CONFIG_EXYNOS_DPU_USE_DUAL_DRV
+		pr_debug(TUIHW_LOG_TAG "stui disp_flag=%08x\n",
+			DISP_FLAG_GET(buffer.disp_if));
+#endif //CONFIG_EXYNOS_DPU_USE_DUAL_DRV
 		ret = stui_get_lcd_info(buffer.lcd_info, STUI_DISPLAY_INFO_SIZE);
 		if (ret < 0) {
 			pr_err(TUIHW_LOG_TAG " failed to get lcd info\n");
 			goto lbl_rollback_display;
 		}
 
-		g_stui_disp_if = buffer.disp_if;
+		g_stui_disp_if = buffer.disp_if & DISP_IF_MASK;
 
 		if (copy_to_user(argp, &buffer, sizeof(struct tui_hw_buffer))) {
 			pr_err(TUIHW_LOG_TAG " copy_to_user failed\n");
@@ -139,6 +144,12 @@ lbl_rollback_touch:
 
 		buffer.touch_type = stui_get_touch_type();
 
+#ifdef CONFIG_EXYNOS_DPU_USE_DUAL_DRV
+		pr_debug(TUIHW_LOG_TAG " width=%d, height=%d, touch_type=%d, disp_flag=%08x\n",
+			buffer.width, buffer.height, buffer.touch_type,
+			DISP_FLAG_GET(buffer.disp_if));
+#endif //CONFIG_EXYNOS_DPU_USE_DUAL_DRV
+
 		if (copy_to_user(argp, &buffer, sizeof(struct tui_hw_buffer))) {
 			pr_err(TUIHW_LOG_TAG " copy_to_user failed\n");
 			ret = -EFAULT;
@@ -176,7 +187,6 @@ int stui_open_touch(void)
 int stui_open_display(struct tui_hw_buffer *buffer)
 {
 	pr_debug(TUIHW_LOG_TAG " %s >>\n", __func__);
-	g_stui_disp_if = 0;
 
 	if (stui_get_mode() & STUI_MODE_DISPLAY_SEC) {
 		pr_err(TUIHW_LOG_TAG " already in TUI mode.\n");
@@ -191,6 +201,11 @@ int stui_open_display(struct tui_hw_buffer *buffer)
 		return -EPERM;
 	}
 
+#ifdef CONFIG_EXYNOS_DPU_USE_DUAL_DRV
+	pr_debug(TUIHW_LOG_TAG " disp_flag=%08x, disp_if=%08x\n",
+		DISP_FLAG_GET(buffer->disp_if),
+		buffer->disp_if & DISP_IF_MASK);
+#endif //CONFIG_EXYNOS_DPU_USE_DUAL_DRV
 #ifdef SAMSUNG_TUI_TEST
 	g_fb_pa = buffer.fb_physical;
 	stui_write_signature();

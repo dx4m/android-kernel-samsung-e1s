@@ -1143,8 +1143,12 @@ static bool is_boosted_task(struct task_struct *p)
 	if (is_render_tex_task(p))
 		return true;
 
-	if (is_prio_tex_task(p))
+	if (is_prio_tex_task(p)) {
+		if (emstune_get_cur_level() == EMS_LEVEL_NORMAL 
+				&& (cpuctl_task_group_idx(p) == CGROUP_FOREGROUND))
+			return false;
 		return true;
+	}
 
 	if (emstune_support_uclamp()) {
 		if (ml_uclamp_boosted(p) && !is_small_task(p))

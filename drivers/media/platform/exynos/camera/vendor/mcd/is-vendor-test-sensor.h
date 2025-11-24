@@ -12,6 +12,15 @@
 #ifndef IS_VENDOR_TEST_SENSOR_H
 #define IS_VENDOR_TEST_SENSOR_H
 
+#include <exynos-is-sensor.h>
+
+enum is_vendor_device_type {
+	SENSOR_TYPE = 0,
+	ACTUATOR_TYPE,
+	EEPROM_TYPE,
+	DEVICE_TYPE_MAX,
+};
+
 static const struct cam_cp_cell_info test_cp_cell_infos[] = {
 	DEFINE_TEST_BAND_INFO(CAM_RAT_3_LTE, CAM_BAND_091_LTE_LB01, 300, 1, 20000, -10),
 	DEFINE_TEST_BAND_INFO(CAM_RAT_3_LTE, CAM_BAND_092_LTE_LB02, 900, 1, 20000, -10),

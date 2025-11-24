@@ -168,6 +168,8 @@ enum is_cstat_subdev_id {
 	IS_CSTAT_AWB_THUMB,
 	IS_CSTAT_RGBY_HIST,
 	IS_CSTAT_CDAF_MW,
+	IS_CSTAT_DRC,
+	IS_CSTAT_LMEDS0,
 	IS_CSTAT_SUBDEV_NUM
 };
 
@@ -304,6 +306,9 @@ int cstat_hw_s_rdma_cfg(struct is_common_dma *dma,
 		struct cstat_param_set *param, u32 num_buffers);
 int cstat_hw_s_wdma_cfg(void __iomem *base, struct is_common_dma *dma,
 		struct cstat_param_set *param, u32 num_buffers, int disable);
+void cstat_hw_config_lock_delay_handler(void __iomem *base,
+		u32 hw_id, u32 num_buffers);
+void cstat_hw_internal_buf_alloc(u32 hw_id);
 
 /*
  * LIC

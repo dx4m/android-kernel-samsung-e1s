@@ -13,7 +13,7 @@
 
 #define PID_BUFFER_LENGTH                       (128)
 #define MAX_TARGET_CGROUP                       (20)
-#define MAX_MASK_BUFFER				(5)
+#define MAX_MASK_BUFFER				(4)
 #define MAX_PREDEFINED_BUFFER			(5) 
 
 void hts_add_target_cgroup(char *cgroup_name);

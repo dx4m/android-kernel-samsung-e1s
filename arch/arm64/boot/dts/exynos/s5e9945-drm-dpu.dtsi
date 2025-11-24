@@ -998,6 +998,7 @@
 		ppc = <2>;		/* pixel per clock */
 		ppc_rotator = <8>;		/* rotator ppc */
 		ppc_scaler = <4>;		/* scaler ppc */
+		ppc_scaler_comp = <310>;	/* compressed + scaler, multipled by 100 */
 		delay_comp = <4>;		/* line delay for sajc or sbwc : DMA */
 		delay_scaler = <3>;		/* line delay for scaler : DPP */
 		inner_width = <32>;		/* internal processing width */

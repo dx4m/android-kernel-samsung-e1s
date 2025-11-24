@@ -94,6 +94,7 @@ struct exynos_drm_properties {
 	struct drm_property *dqe_fd;
 	struct drm_property *bts_fps;
 	struct drm_property *expected_present_time;
+	struct drm_property *out_fence_ptr;
 
 	/* properties for plane */
 	struct drm_property *standard;

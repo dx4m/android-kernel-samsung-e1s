@@ -10,6 +10,7 @@
 #include <linux/skbuff.h>
 #include <linux/mutex.h>
 #include <linux/tty.h>
+#include <linux/delay.h>
 
 #include "hci_trans.h"
 #include "hci_pkt.h"
@@ -25,6 +26,9 @@ struct {
 	struct tty_struct              *tty;
 	struct hci_trans               *trans;
 	unsigned int                   baud;
+
+	bool                           suspended;
+	bool                           first_packet_after_resume;
 } bt_tty;
 
 struct {
@@ -61,9 +65,12 @@ static void slsi_bt_ldisc_close(struct tty_struct *tty)
 #if (LINUX_VERSION_CODE <= KERNEL_VERSION(5, 11, 0))
 static void slsi_bt_ldisc_receive(struct tty_struct *tty,
 		const unsigned char *data, char *fp, int count)
-#else
+#elif (LINUX_VERSION_CODE <= KERNEL_VERSION(6, 6, 0))
 static void slsi_bt_ldisc_receive(struct tty_struct *tty,
 		const unsigned char *data, const char *fp, int count)
+#else
+static void slsi_bt_ldisc_receive(struct tty_struct *tty,
+		const u8 *data, const u8 *fp, size_t count)
 #endif
 {
 	struct hci_trans *upper = NULL;
@@ -73,12 +80,12 @@ static void slsi_bt_ldisc_receive(struct tty_struct *tty,
 	if (bt_tty.tty == NULL)
 		return;
 
-	TR_DBG("count: %d bytes\n", count);
+	TR_DBG("count: %zu bytes\n", (size_t)count);
 	mutex_lock(&bt_ldisc.lock);
 	upper = hci_trans_get_prev(bt_tty.trans);
 	if (upper != NULL && upper->recv != NULL) {
 		while (count > 0) {
-			ret = upper->recv(upper, data + offset, count, 0);
+			ret = upper->recv(upper, data + offset, (int)count, 0);
 
 			/* In the case of 1byte (c0), ret can be 0. In this
 			 * case, it has already been copied */
@@ -125,6 +132,19 @@ static int slsi_bt_tty_send_skb(struct hci_trans *htr, struct sk_buff *skb)
 		return -EINVAL;
 
 	mutex_lock(&bt_tty.lock);
+
+	if (bt_tty.suspended) {
+		/* Ignore, upper layer(bcsp) will resend the ignored packet */
+		TR_DBG("It's suspended!\n");
+		ret = 0;
+		goto out;
+	}
+
+	if (bt_tty.first_packet_after_resume) {
+		msleep(10);
+		bt_tty.first_packet_after_resume = false;
+	}
+
 	if (!bt_tty.tty || !bt_tty.tty->ops->write) {
 		TR_ERR("TTY is not initialized.\n");
 		ret = -EINVAL;
@@ -135,8 +155,7 @@ static int slsi_bt_tty_send_skb(struct hci_trans *htr, struct sk_buff *skb)
 		ret = bt_tty.tty->ops->write(bt_tty.tty, skb->data, skb->len);
 		if (ret < 0) {
 			TR_ERR("tty write failed: %d\n", ret);
-			kfree_skb(skb);
-			goto out;
+			break;
 		} else if (ret == 0)
 			retry++;
 
@@ -151,8 +170,8 @@ static int slsi_bt_tty_send_skb(struct hci_trans *htr, struct sk_buff *skb)
 	} else if (retry > 0)
 		TR_WARNING("retried %d/%d\n", retry, max_retry);
 
-	kfree_skb(skb);
 out:
+	kfree_skb(skb);
 	mutex_unlock(&bt_tty.lock);
 	return ret;
 }
@@ -176,6 +195,32 @@ static void slsi_bt_tty_set_baudrate(unsigned int baud)
 	tty_set_termios(bt_tty.tty, &ti);
 }
 
+static char dev_tty_name[256] = SLSI_BT_TTY_DEV_NAME;
+static int slsi_bt_set_tty_dev(const char *name, const struct kernel_param *kp)
+{
+	dev_t dev;
+	int ret = 0;
+
+	ret = tty_dev_name_to_number(name, &dev);
+	if (ret == 0)
+		strncpy(dev_tty_name, name, sizeof(dev_tty_name));
+	return ret;
+}
+
+static int slsi_bt_get_tty_dev(char *buffer, const struct kernel_param *kp)
+{
+	return sprintf(buffer, "%s\n", dev_tty_name);
+}
+
+static struct kernel_param_ops slsi_bt_tty_dev_ops = {
+	.set = slsi_bt_set_tty_dev,
+	.get = slsi_bt_get_tty_dev,
+};
+static struct kernel_param_ops slsi_bt_tty_dev_ops;
+module_param_cb(slsi_bt_tty_dev, &slsi_bt_tty_dev_ops, NULL, S_IRUGO | S_IWUSR);
+MODULE_PARM_DESC(slsi_bt_tty_dev, "tty device name in dev directory");
+
+
 unsigned int dev_host_uart_baudrate = SLSI_BT_TTY_BAUD;
 module_param(dev_host_uart_baudrate, int, S_IRUGO | S_IWUSR);
 MODULE_PARM_DESC(dev_host_uart_baudrate, "UART baud rate");
@@ -186,11 +231,11 @@ int slsi_bt_tty_open(void)
 	struct tty_struct *tty;
 	int ret = 0;
 
-	BT_INFO("dev_name: %s\n", SLSI_BT_TTY_DEV_NAME);
+	BT_INFO("dev_name: %s\n", dev_tty_name);
 
-	ret = tty_dev_name_to_number(SLSI_BT_TTY_DEV_NAME, &dev);
+	ret = tty_dev_name_to_number(dev_tty_name, &dev);
 	if (ret) {
-		BT_ERR("ttydev_name_to_number failed (%d\n)", ret);
+		BT_ERR("ttydev_name_to_number failed (%d)\n", ret);
 		return ret;
 	}
 
@@ -220,8 +265,8 @@ int slsi_bt_tty_open(void)
 		tty_kclose(tty);
 		return ret;
 	}
-	tty->ops->flush_chars(tty);
-
+	if (tty->ops->flush_chars)
+		tty->ops->flush_chars(tty);
 	mutex_lock(&bt_tty.lock);
 	bt_tty.tty = tty;
 	slsi_bt_tty_set_baudrate(dev_host_uart_baudrate);
@@ -246,8 +291,8 @@ void slsi_bt_tty_close(void)
 	hci_trans_deinit(bt_tty.trans);
 	bt_tty.trans = NULL;
 	mutex_unlock(&bt_ldisc.lock);
-
-	closer->ops->flush_chars(closer);
+	if (closer->ops->flush_chars)
+		closer->ops->flush_chars(closer);
 	if (closer->ops->close)
 		closer->ops->close(closer, NULL);
 	tty_kclose(closer);
@@ -255,10 +300,33 @@ void slsi_bt_tty_close(void)
 	BT_DBG("done\n");
 }
 
+int slsi_bt_tty_suspend(struct hci_trans *htr)
+{
+	mutex_lock(&bt_tty.lock);
+	bt_tty.suspended = true;
+	if (bt_tty.tty && bt_tty.tty->ops && bt_tty.tty->ops->flush_chars)
+		bt_tty.tty->ops->flush_chars(bt_tty.tty);
+	mutex_unlock(&bt_tty.lock);
+	return 0;
+}
+
+int slsi_bt_tty_resume(struct hci_trans *htr)
+{
+	mutex_lock(&bt_tty.lock);
+	bt_tty.suspended = false;
+	bt_tty.first_packet_after_resume = true;
+	if (bt_tty.tty && bt_tty.tty->ops && bt_tty.tty->ops->flush_chars)
+		bt_tty.tty->ops->flush_chars(bt_tty.tty);
+	mutex_unlock(&bt_tty.lock);
+	return 0;
+}
+
 int slsi_bt_tty_transport_configure(struct hci_trans *htr)
 {
 	if (htr) {
 		htr->send_skb = slsi_bt_tty_send_skb;
+		htr->suspend = slsi_bt_tty_suspend;
+		htr->resume = slsi_bt_tty_resume;
 		bt_tty.trans = htr;
 		return 0;
 	}

@@ -8,8 +8,8 @@
 
 		/* Ontime Migration */
 		ontime {
-			foreground 	= <1>;
-			top-app		= <1>;
+			top-app			= <1>;
+			camera-daemon	= <1>;
 
 			domain0 {
 				cpus = "0-3";

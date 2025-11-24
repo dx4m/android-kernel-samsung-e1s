@@ -1036,8 +1036,12 @@ void __mfc_qos_calculate(struct mfc_core *core, struct mfc_ctx *ctx, int delete)
 		mfc_ctx_debug(4, "[QoS] overspec mb %ld > %d\n", total_mb, pdata->max_mb);
 
 	/* search the suitable independent mfc freq using bps */
-	mfc_freq_idx = mfc_rate_get_bps_section_by_bps(core->dev, total_bps, core->dev->max_Kbps);
-	core->mfc_freq_by_bps = core->dev->pdata->mfc_freqs[mfc_freq_idx];
+	if (dec_found) {
+		mfc_freq_idx = mfc_rate_get_bps_section_by_bps(core->dev, total_bps, core->dev->max_Kbps);
+		core->mfc_freq_by_bps = core->dev->pdata->mfc_freqs[mfc_freq_idx];
+	} else {
+		core->mfc_freq_by_bps = 0;
+	}
 
 	if (delete && (list_empty(&core->qos_queue) || total_mb == 0)) {
 		if (core->cpu_boost_enable)
@@ -1403,3 +1407,53 @@ void mfc_qos_update_boosting(struct mfc_core *core, struct mfc_core_ctx *core_ct
 		}
 	}
 }
+
+#if IS_ENABLED(CONFIG_VIDEO_EXYNOS_REPEATER)
+void mfc_qos_repeater_set_decoder_info(struct mfc_dev *dev)
+{
+	struct mfc_core *core[MFC_NUM_CORE];
+	struct mfc_ctx *qos_ctx;
+	struct mfc_core_ctx *qos_core_ctx;
+	int dec_found = 0, i;
+	unsigned int dec_w = 0, dec_h = 0, dec_max_fps = 0;
+
+	for (i = 0; i < dev->num_core; i++) {
+		core[i] = dev->core[i];
+		if (!core[i]) {
+			mfc_dev_err("no mfc core%d device to run\n", i);
+			return;
+		}
+
+		mutex_lock(&core[i]->qos_mutex);
+
+		/* get the hw macroblock */
+		list_for_each_entry(qos_core_ctx, &core[i]->qos_queue, qos_list) {
+			qos_ctx = qos_core_ctx->ctx;
+			if (qos_ctx->idle_mode == MFC_IDLE_MODE_IDLE) {
+				mfc_dev_debug(4, "[QoS][MFCIDLE] skip idle ctx [%d]\n", qos_ctx->num);
+				continue;
+			}
+
+			if (qos_ctx->type == MFCINST_DECODER) {
+				dec_found += 1;
+				if ((qos_ctx->framerate / 1000) > dec_max_fps) {
+					dec_w = qos_ctx->img_width;
+					dec_h = qos_ctx->img_height;
+					dec_max_fps = qos_ctx->framerate / 1000;
+				}
+			}
+		}
+
+		mutex_unlock(&core[i]->qos_mutex);
+	}
+
+	if (dec_found)
+		repeater_set_decoder_info(dec_w, dec_h, dec_max_fps);
+	else
+		repeater_set_decoder_info(0, 0, 0);
+
+	mfc_dev_debug(4, "[QoS][OTF] dec_found: %d, wxh: %ux%u, fps: %u\n",
+			dec_found, dec_w, dec_h, dec_max_fps);
+}
+
+#endif

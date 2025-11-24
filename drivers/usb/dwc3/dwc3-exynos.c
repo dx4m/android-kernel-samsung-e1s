@@ -178,7 +178,7 @@ static int dwc3_exynos_clk_get(struct dwc3_exynos *exynos)
 	clk_ids[clk_count] = NULL;
 
 	exynos->clocks = (struct clk **) devm_kmalloc(exynos->dev,
-			clk_count * sizeof(struct clk *), GFP_KERNEL);
+			(clk_count + 1) * sizeof(struct clk *), GFP_KERNEL);
 	if (!exynos->clocks) {
 		dev_err(exynos->dev, "%s: couldn't alloc\n", __func__);
 		return -ENOMEM;
@@ -472,6 +472,8 @@ int dwc3_exynos_core_init(struct dwc3 *dwc, struct dwc3_exynos *exynos)
 void dwc3_exynos_gadget_disconnect_proc(struct dwc3 *dwc)
 {
 	int			reg;
+
+	dwc->suspended = false;
 
 	reg = dwc3_exynos_readl(dwc->regs, DWC3_DCTL);
 	reg &= ~DWC3_DCTL_INITU1ENA;
@@ -1218,6 +1220,21 @@ static void dwc3_init_kprobe_work(struct work_struct *data)
 	dwc3_exyons_kretprobe_init();
 }
 
+static void dwc3_exynos_init_cpufreq(struct dwc3_exynos *exynos)
+{
+	struct cpufreq_policy *policy;
+
+	pr_info("%s +++\n", __func__);
+
+	exynos->cpufreq_wq = alloc_ordered_workqueue("usb_cpufreq_wq",
+				__WQ_LEGACY | WQ_MEM_RECLAIM | WQ_FREEZABLE);
+	INIT_WORK(&exynos->cpufreq_work, dwc3_otg_cpufreq_work);
+
+	policy = cpufreq_cpu_get(0);
+	freq_qos_add_request(&policy->constraints, &(exynos->qos_req_cpu_cl0),
+				FREQ_QOS_MIN, FREQ_QOS_MIN_DEFAULT_VALUE);
+}
+
 static int dwc3_exynos_probe(struct platform_device *pdev)
 {
 	struct dwc3_exynos	*exynos;
@@ -1363,6 +1380,8 @@ static int dwc3_exynos_probe(struct platform_device *pdev)
 	ret = pm_runtime_put_sync(dev);
 	pr_info("%s, pm_runtime_put_sync = %d\n",__func__, ret);
 	pm_runtime_allow(dev);
+
+	dwc3_exynos_init_cpufreq(exynos);
 
 	/* Wait for end of dwc3 idle */
 	wait_counter = 0;

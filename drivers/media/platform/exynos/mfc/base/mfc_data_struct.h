@@ -1341,6 +1341,7 @@ struct _otf_debug {
 struct _otf_handle {
 	int otf_work_bit;
 	int otf_buf_index;
+	int otf_ctrls_done;
 	int otf_cb_registered;
 	int otf_err_notified;
 	u64 otf_time_stamp;
@@ -1500,6 +1501,8 @@ struct mfc_dev {
 	unsigned long otf_inst_bits;
 	unsigned long votf_inst_bits;
 	unsigned long multi_core_inst_bits;
+
+	atomic_t otf_run;
 
 	struct mutex mfc_mutex;
 	struct mutex mfc_migrate_mutex;
@@ -2732,6 +2735,8 @@ struct mfc_core_ctx {
 	int is_drm;
 
 	int is_plugin;
+
+	bool fg_sent_cmd;
 
 	struct mfc_buf_queue src_buf_queue;
 	struct mfc_buf_queue dst_buf_queue;

@@ -58,8 +58,12 @@ int cpif_page_pool_continue(u64 page_size, struct cpif_page_pool *pool)
 {
 	int i = pool->rpage_arr_len;
 	u64 num_page = pool->rpage_arr_baselen * CPIF_PAGE_POOL_MULT;
+	gfp_t flags = GFP_KERNEL | CPIF_GFP_MASK;
 
 	mif_info("Continue allocate page pool %u -> %llu\n", pool->rpage_arr_len, num_page);
+
+	if (in_interrupt())
+		flags &= ~__GFP_DIRECT_RECLAIM;
 
 	for (; i < num_page; i++) {
 		struct cpif_page *cur = kvzalloc(sizeof(struct cpif_page), GFP_KERNEL);
@@ -68,7 +72,7 @@ int cpif_page_pool_continue(u64 page_size, struct cpif_page_pool *pool)
 			mif_err_limited("failed to alloc cpif_page\n");
 			goto fail;
 		}
-		cur->page = __dev_alloc_pages(GFP_KERNEL | CPIF_GFP_MASK, pool->page_order);
+		cur->page = __dev_alloc_pages(flags, pool->page_order);
 		if (unlikely(!cur->page)) {
 			mif_err_limited("failed to get page\n");
 			kvfree(cur);

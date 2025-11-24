@@ -74,6 +74,7 @@ struct exynos_pm_domain {
 	unsigned int cmu_id;
 	bool skip_idle_ip;
 	struct list_head epd_list_node;	/* Node in the global PM domains list */
+	bool active_wakeup;
 };
 
 struct exynos_pd_dbg_info {

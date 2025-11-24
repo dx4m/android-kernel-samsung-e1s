@@ -105,7 +105,10 @@ static u32 is_ischain_mxp_get_sbwc_type(struct is_fmt *fmt, u32 flags)
 
 	switch (hw_sbwc) {
 	case COMP:
-		hw_sbwc |= SBWC_STRIDE_64B_ALIGN;
+		if (fmt->sbwc_align == 256)
+			hw_sbwc |= SBWC_STRIDE_256B_ALIGN;
+		else
+			hw_sbwc |= SBWC_STRIDE_64B_ALIGN;
 		break;
 	case COMP_LOSS:
 		if (fmt->sbwc_align == 64)

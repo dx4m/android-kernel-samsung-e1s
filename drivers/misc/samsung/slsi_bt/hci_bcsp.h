@@ -14,10 +14,10 @@
 
 #define HCI_BCSP_TYPE_ACK                 (HCI_UNKNOWN_PKT)
 #define HCI_BCSP_TYPE_CMD                 (HCI_COMMAND_PKT)
-#define HCI_BCSP_TYPE_ACL                 (HCI_ACL_DATA_PKT)
-#define HCI_BCSP_TYPE_SCO                 (HCI_SCO_DATA_PKT)
+#define HCI_BCSP_TYPE_ACL                 (HCI_ACLDATA_PKT)
+#define HCI_BCSP_TYPE_SCO                 (HCI_SCODATA_PKT)
 #define HCI_BCSP_TYPE_EVT                 (HCI_EVENT_PKT)
-#define HCI_BCSP_TYPE_ISO                 (HCI_ISO_DATA_PKT)
+#define HCI_BCSP_TYPE_ISO                 (HCI_ISODATA_PKT)
 #define HCI_BCSP_TYPE_UNKNOWN             (13)
 #define HCI_BCSP_TYPE_VENDOR              (HCI_PROPERTY_PKT)
 #define HCI_BCSP_TYPE_LINK_CONTROL        (15)
@@ -37,14 +37,18 @@ enum {
 	HCI_BCSP_MSG_TYPE_BCSP,
 };
 
-#define HCI_BCSP_RESEND_LIMIT       20
-#define HCI_BCSP_RESEND_TIMEOUT     (jiffies + HZ/4)
-#define HCI_BCSP_RESEND_WAKEUP_MS   (jiffies + msecs_to_jiffies(30))
+#define HCI_BCSP_RESEND_LIMIT       		20
+#define HCI_BCSP_RESEND_TIMEOUT     		(jiffies + HZ/4)
+#define HCI_BCSP_RESEND_WAKEUP_MS   		(jiffies + msecs_to_jiffies(6))
+#define HCI_BCSP_RESEND_WAKEUP_AFTER_CROSS_MS   0
 
 #define HCI_BCSP_TRACE_SLIP         1
 #define HCI_BCSP_TRACE_BCSP         2
 
-int hci_bcsp_init(struct hci_trans *htr);
-void hci_bcsp_deinit(struct hci_trans *htr);
+int hci_bcsp_open(struct hci_trans *htr);
+void hci_bcsp_close(struct hci_trans *htr);
+
+int hci_bcsp_init(void);
+void hci_bcsp_deinit(void);
 
 #endif /* __HCI_BCSP_H__ */

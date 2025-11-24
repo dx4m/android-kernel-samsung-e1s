@@ -1,0 +1,20 @@
+{
+    "PROJECT_NAME": "BT_DD",
+    "SRC_PATH": "drivers/misc/samsung/slsi_bt",
+    "SRC_LANG": "c",
+    "BUILD_PATH": "kernel/",
+    "SCM_TYPE": "git",
+    "SCM_REPO": "ssh://woonki84.lee@10.227.36.179:29418/android16/product/exynos/soc-series/common.git",
+    "SCM_BRANCH": "master",
+    "SCM_KEY": "last commit ID",
+    "BUILD_JOB_NAME": "BT_DD-TEM",
+    "BUILD_JOB_ID": "250211",
+    "EXECUTE_TIME": "2025-02-11 16:23:36",
+    "TESTED_LINE_CNT": 2879,
+    "TOTAL_LINE_CNT": 3303,
+    "TESTED_FUNCTION_CNT": 278,
+    "TOTAL_FUNCTION_CNT": 278,
+    "PASSED_TEST_CASE_CNT": 56,
+    "TOTAL_TEST_CASE_CNT": 56,
+    "TEST_TOOL_NAME": "lcov"
+}

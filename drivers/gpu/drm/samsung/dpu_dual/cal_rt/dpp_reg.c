@@ -793,7 +793,7 @@ dpp_reg_set_csc_params(u32 id, u32 std, u32 range, const unsigned long attr)
 		type = DPP_CSC_TYPE_BT2020;
 		break;
 	case EXYNOS_STANDARD_DCI_P3:
-		type = DPP_CSC_TYPE_DCI_P3;
+		type = DPP_CSC_TYPE_BT601;
 		break;
 	default:
 		type = DPP_CSC_TYPE_BT601;

@@ -207,15 +207,33 @@ int is_sensor_flush_prev_mode_change(struct is_cis *cis)
 	return 0;
 }
 
-int is_sensor_mode_change(struct is_cis *cis)
+int is_sensor_mode_change(struct is_cis *cis, struct is_device_sensor *device)
 {
-	int ret = 0;
+	int ret = 0, i;
 	struct is_device_sensor_peri *sensor_peri;
+	struct is_sensor_seamless_ctl init_seamless_mode;
+	const struct sensor_cis_mode_info *mode_info;
 
 	FIMC_BUG(!cis);
 	FIMC_BUG(!cis->cis_data);
 
 	sensor_peri = container_of(cis, struct is_device_sensor_peri, cis);
+
+	/* mipi clock index should be initialized before calling is_vendor_csi_stream_on */
+	cis->mipi_clock_index_cur = CAM_MIPI_NOT_INITIALIZED;
+	cis->mipi_clock_index_new = CAM_MIPI_NOT_INITIALIZED;
+
+	mode_info = cis->sensor_info->mode_infos[device->cfg->mode];
+	cis->cis_data->cur_12bit_mode = mode_info->state_12bit;
+
+	memset(&init_seamless_mode, 0, sizeof(struct is_sensor_seamless_ctl));
+
+	if (cis->cis_data->cur_12bit_mode == SENSOR_12BIT_STATE_REAL_12BIT)
+		init_seamless_mode.mode |= SENSOR_MODE_REAL_12BIT;
+
+	for (i = 0; i < NUM_FRAMES; i++)
+		memcpy(&cis->cis_data->seamless_mode_history[i],
+			&init_seamless_mode, sizeof(struct is_sensor_seamless_ctl));
 
 	dbg_sensor(1, "schedule_work mode_setting_work\n");
 	schedule_work(&sensor_peri->cis.mode_setting_work);
@@ -374,10 +392,12 @@ void is_sensor_flash_fire_work(struct work_struct *data)
 	device = v4l2_get_subdev_hostdata(subdev_flash);
 	FIMC_BUG_VOID(!device);
 
+	mutex_lock(&sensor_peri->cis.stream_off_lock);
 	mutex_lock(&sensor_peri->cis.control_lock);
 
 	if (!sensor_peri->cis.cis_data->stream_on) {
 		warn("[%s] already stream off\n", __func__);
+		mutex_unlock(&sensor_peri->cis.stream_off_lock);
 		goto already_stream_off;
 	}
 
@@ -385,8 +405,11 @@ void is_sensor_flash_fire_work(struct work_struct *data)
 	ret = CALL_CISOPS(&sensor_peri->cis, cis_stream_off, sensor_peri->subdev_cis);
 	if (ret < 0) {
 		err("[%s] stream off fail\n", __func__);
+		mutex_unlock(&sensor_peri->cis.stream_off_lock);
 		goto fail_cis_stream_off;
 	}
+
+	mutex_unlock(&sensor_peri->cis.stream_off_lock);
 
 	ret = CALL_CISOPS(&sensor_peri->cis, cis_wait_streamoff, sensor_peri->subdev_cis);
 	if (ret < 0) {
@@ -394,7 +417,7 @@ void is_sensor_flash_fire_work(struct work_struct *data)
 		goto fail_cis_stream_off;
 	}
 
-	dbg_flash("[%s] steram off done\n", __func__);
+	info("[%s] stream off done\n", __func__);
 
 	/* flash setting */
 
@@ -462,7 +485,7 @@ void is_sensor_flash_fire_work(struct work_struct *data)
 	is_sensor_ctl_update_exposure_duration(device, m_fcount,
 				expo, is_sensor_convert_us_to_ns(frame_duration));
 
-	dbg_flash("[%s][FLASH] mode %d, intensity %d, firing time %d us, step %d\n", __func__,
+	info("[%s][FLASH] mode %d, intensity %d, firing time %d us, step %d\n", __func__,
 			flash->flash_data.mode,
 			flash->flash_data.intensity,
 			flash->flash_data.firing_time_us,
@@ -545,6 +568,8 @@ void is_sensor_flash_fire_work(struct work_struct *data)
 	ret = CALL_CISOPS(&sensor_peri->cis, cis_wait_streamon, sensor_peri->subdev_cis);
 	if (ret < 0)
 		err("[%s] sensor wait stream on fail\n", __func__);
+	else
+		info("[%s] sensor wait stream on done\n", __func__);
 
 fail_cis_stream_off:
 already_stream_off:
@@ -2005,8 +2030,10 @@ int is_sensor_peri_s_stream(struct is_device_sensor *device,
 
 		if (cis->dual_sync_work_mode != DUAL_SYNC_STREAMOFF) {
 			mutex_lock(&cis->stream_off_lock);
+			mutex_lock(&cis->control_lock);
 			CALL_CISOPS(cis, cis_wait_seamless_update_delay, subdev_cis);
 			ret = CALL_CISOPS(cis, cis_stream_off, subdev_cis);
+			mutex_unlock(&cis->control_lock);
 			mutex_unlock(&cis->stream_off_lock);
 		}
 

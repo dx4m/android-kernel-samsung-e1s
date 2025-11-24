@@ -15,6 +15,10 @@
 #include "stui_ioctl.h"
 #include "stui_core.h"
 
+#define DISP_IF_MASK 0x000FFFFF
+#define DISP_FLAG_GET(x) ((x & 0xFFF00000) >> 20)
+#define DISP_FLAG_PACK(x) (x << 20)
+
 int stui_i2c_protect(bool is_protect);
 int stui_prepare_tui(void);
 void stui_finish_tui(void);

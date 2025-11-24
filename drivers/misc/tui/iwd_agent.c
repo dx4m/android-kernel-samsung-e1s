@@ -111,10 +111,9 @@ static void iwd_unregister_callbacks(void)
 	}
 }
 
-static int get_display_info(GetDisplayInfo_cmd_t *cmd, GetDisplayInfo_rsp_t *rsp)
+static int get_display_info(GetDisplayInfo_rsp_t *rsp)
 {
 	struct tui_hw_buffer buffer;
-	(void)cmd;
 	pr_debug(TUIHW_LOG_TAG " %s >>\n", __func__);
 	memset(&buffer, 0, sizeof(struct tui_hw_buffer));
 	if (stui_get_resolution(&buffer)) {
@@ -184,6 +183,9 @@ static int open_driver(OpenPeripheral_cmd_t *cmd, OpenPeripheral_rsp_t *rsp)
 
 			rsp->FB.disp_if = buffer.disp_if;
 			g_stui_disp_if  = buffer.disp_if;
+#ifdef CONFIG_EXYNOS_DPU_USE_DUAL_DRV
+			g_stui_disp_if &= DISP_IF_MASK;
+#endif //CONFIG_EXYNOS_DPU_USE_DUAL_DRV
 
 			break;
 		}
@@ -323,7 +325,7 @@ static int connecting_thread(void *data)
 			switch(cmd.cmd) {
 			case TUILL_ICMD_GET_DISPLAY_INFO:
 				pr_debug(TUIHW_LOG_TAG " received TUILL_ICMD_GET_DISPLAY_INFO\n");
-				rsp.ret_code = get_display_info(&cmd.GetDisplayInfo_cmd, &rsp.GetDisplayInfo_rsp);
+				rsp.ret_code = get_display_info(&rsp.GetDisplayInfo_rsp);
 				break;
 			case TUILL_ICMD_OPEN_DRIVER:
 				pr_debug(TUIHW_LOG_TAG " received TUILL_ICMD_OPEN_DRIVER\n");

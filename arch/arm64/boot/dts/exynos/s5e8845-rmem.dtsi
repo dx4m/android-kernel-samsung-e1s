@@ -149,6 +149,11 @@
 			rmem_index = <1>;
 		};
 
+		sysmmu_rmem: sysmmu_rmem {
+			compatible = "samsung,cpif-sysmmu";
+			reg = <0x8 0xA2E00000 0x00300000>;
+		};
+
 		mfc_fw_rmem: mfc_fw_rmem {
 			compatible = "shared-dma-pool";
 			size = <0x400000>;

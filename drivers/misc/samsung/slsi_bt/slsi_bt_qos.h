@@ -10,9 +10,10 @@
  ******************************************************************************/
 #ifndef __SLSI_BT_QOS_H__
 #define __SLSI_BT_QOS_H__
-#include "../scsc/scsc_mx_impl.h"
+#include "scsc_mx_module.h"
+#include IN_SCSC_SRC(scsc_mx_impl.h)
 
-#ifdef CONFIG_SCSC_QOS
+#if IS_ENABLED(CONFIG_SCSC_QOS)
 struct slsi_bt_qos;
 
 struct slsi_bt_qos *slsi_bt_qos_start(struct scsc_service *service);

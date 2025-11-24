@@ -13,6 +13,10 @@
 #ifndef __MFC_QOS_H
 #define __MFC_QOS_H __FILE__
 
+#if IS_ENABLED(CONFIG_VIDEO_EXYNOS_REPEATER)
+#include <media/exynos_repeater.h>
+#endif
+
 #include "mfc_common.h"
 
 #define MB_COUNT_PER_UHD_FRAME		32400
@@ -29,6 +33,11 @@ enum {
 	MFC_QOS_TABLE_TYPE_DEFAULT	= 0,
 	MFC_QOS_TABLE_TYPE_ENCODER	= 1,
 };
+
+#if IS_ENABLED(CONFIG_VIDEO_EXYNOS_REPEATER)
+extern int repeater_set_decoder_info(uint32_t width, uint32_t height, uint32_t fps);
+void mfc_qos_repeater_set_decoder_info(struct mfc_dev *dev);
+#endif
 
 #ifdef CONFIG_MFC_USE_BUS_DEVFREQ
 void mfc_qos_perf_boost_enable(struct mfc_core *core);

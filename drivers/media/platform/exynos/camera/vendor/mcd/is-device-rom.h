@@ -21,6 +21,7 @@
 #define IS_RESOLUTION_DATA_SIZE 54
 #define IS_AWB_MASTER_DATA_SIZE 8
 #define IS_AWB_MODULE_DATA_SIZE 8
+#define IS_SFR_CAL_SIZE 8
 #define IS_OIS_GYRO_DATA_SIZE 4
 #define IS_OIS_COEF_DATA_SIZE 2
 #define IS_OIS_SUPPERSSION_RATIO_DATA_SIZE 2
@@ -144,6 +145,7 @@ struct is_vendor_rom {
 	int32_t rom_header_module_id_addr;
 	int32_t rom_header_sensor_id_addr;
 	int32_t rom_header_mtf_data_addr;
+	int32_t rom_header_sfr_data_addr;
 	int32_t rom_awb_master_addr;
 	int32_t rom_awb_module_addr;
 	int32_t rom_af_cal_addr[AF_CAL_MAX];

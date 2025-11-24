@@ -465,6 +465,7 @@ struct sysmmu_drvdata {
 	u32 version;
 
 	struct stream_props *props;
+	u64 rmem_pbase;
 };
 
 struct exynos_vm_region {

@@ -775,14 +775,20 @@ void is_stop_streaming(struct vb2_queue *vbq)
 	clear_bit(IS_QUEUE_BUFFER_PREPARED, &iq->state);
 }
 
-static int _is_queue_buffer_tag(dma_addr_t saddr[], dma_addr_t taddr[],
-	u32 pixelformat, u32 width, u32 height, u32 planes, u32 *hw_planes)
+#define GET_STRIDE_W(node, plane, w) (node->bytesperline[plane] ? node->bytesperline[plane] : w)
+/*no vStride*/
+#define GET_STRIDE_H(node, plane, h) (h)
+#define GET_OFFSET(node, plane, w, h, w_align)                                                     \
+	(ALIGN(GET_STRIDE_W(node, plane, w), w_align) * GET_STRIDE_H(node, plane, h))
+
+static int _is_queue_buffer_tag(dma_addr_t saddr[], dma_addr_t taddr[], struct camera2_node *node,
+				 u32 width, u32 height, u32 planes, u32 *hw_planes)
 {
 	int i, j;
 	int ret = 0;
 
 	*hw_planes = planes;
-	switch (pixelformat) {
+	switch (node->pixelformat) {
 	case V4L2_PIX_FMT_NV21:
 	case V4L2_PIX_FMT_NV12:
 	case V4L2_PIX_FMT_NV16:
@@ -790,7 +796,7 @@ static int _is_queue_buffer_tag(dma_addr_t saddr[], dma_addr_t taddr[],
 		for (i = 0; i < planes; i++) {
 			j = i * 2;
 			taddr[j] = saddr[i];
-			taddr[j + 1] = taddr[j] + (width * height);
+			taddr[j + 1] = taddr[j] + GET_OFFSET(node, j, width, height, 1);
 		}
 		*hw_planes = planes * 2;
 		break;
@@ -799,7 +805,7 @@ static int _is_queue_buffer_tag(dma_addr_t saddr[], dma_addr_t taddr[],
 		for (i = 0; i < planes; i++) {
 			j = i * 2;
 			taddr[j] = saddr[i];
-			taddr[j + 1] = taddr[j] + (width * 2) * height;
+			taddr[j + 1] = taddr[j] + GET_OFFSET(node, j, width * 2, height, 1);
 		}
 		*hw_planes = planes * 2;
 		break;
@@ -815,8 +821,9 @@ static int _is_queue_buffer_tag(dma_addr_t saddr[], dma_addr_t taddr[],
 		for (i = 0; i < planes; i++) {
 			j = i * 3;
 			taddr[j] = saddr[i];
-			taddr[j + 1] = taddr[j] + (width * height);
-			taddr[j + 2] = taddr[j + 1] + (width * height / 4);
+			taddr[j + 1] = taddr[j] + GET_OFFSET(node, j, width, height, 1);
+			taddr[j + 2] = 
+				taddr[j + 1] + GET_OFFSET(node, j + 1, width / 2, height / 2, 1);
 		}
 		*hw_planes = planes * 3;
 		break;
@@ -824,8 +831,9 @@ static int _is_queue_buffer_tag(dma_addr_t saddr[], dma_addr_t taddr[],
 		for (i = 0; i < planes; i++) {
 			j = i * 3;
 			taddr[j] = saddr[i];
-			taddr[j + 2] = taddr[j] + (ALIGN(width, 16) * height);
-			taddr[j + 1] = taddr[j + 2] + (ALIGN(width / 2, 16) * height / 2);
+			taddr[j + 2] = taddr[j] + GET_OFFSET(node, j, width, height, 16);
+			taddr[j + 1] = 
+				taddr[j + 2] + GET_OFFSET(node, j + 1, width / 2, height / 2, 16);
 		}
 		*hw_planes = planes * 3;
 		break;
@@ -833,8 +841,8 @@ static int _is_queue_buffer_tag(dma_addr_t saddr[], dma_addr_t taddr[],
 		for (i = 0; i < planes; i++) {
 			j = i * 3;
 			taddr[j] = saddr[i];
-			taddr[j + 1] = taddr[j] + (width * height);
-			taddr[j + 2] = taddr[j + 1] + (width * height / 2);
+			taddr[j + 1] = taddr[j] + GET_OFFSET(node, j, width, height, 1);
+			taddr[j + 2] = taddr[j + 1] + GET_OFFSET(node, j + 1, width / 2, height, 1);
 		}
 		*hw_planes = planes * 3;
 		break;
@@ -864,8 +872,8 @@ static int _is_queue_buffer_tag(dma_addr_t saddr[], dma_addr_t taddr[],
 		for (i = 0; i < planes; i++) {
 			j = i * 3;
 			taddr[j + 2] = saddr[i];
-			taddr[j + 1] = taddr[j + 2] + (width * height);
-			taddr[j] = taddr[j + 1] + (width * height);
+			taddr[j + 1] = taddr[j + 2] + GET_OFFSET(node, j, width, height, 1);
+			taddr[j] = taddr[j + 1] + GET_OFFSET(node, j, width, height, 1);
 		}
 		*hw_planes = planes * 3;
 		break;
@@ -873,10 +881,28 @@ static int _is_queue_buffer_tag(dma_addr_t saddr[], dma_addr_t taddr[],
 		for (i = 0; i < planes; i++) {
 			j = i * 3;
 			taddr[j] = saddr[i];
-			taddr[j + 1] = taddr[j] + (width * height);
-			taddr[j + 2] = taddr[j + 1] + (width * height);
+			taddr[j + 1] = taddr[j] + GET_OFFSET(node, j, width, height, 1);
+			taddr[j + 2] = taddr[j + 1] + GET_OFFSET(node, j, width, height, 1);
 		}
 		*hw_planes = planes * 3;
+		break;
+	case V4L2_PIX_FMT_NV12N_SBWC_256_8B:
+		for (i = 0; i < planes; i++) {
+			j = i * 2;
+			taddr[j] = saddr[i];
+			taddr[j + 1] = saddr[j] + SBWC_256_8B_Y_SIZE(width, height) +
+			 SBWC_256_8B_Y_HEADER_SIZE(width, height);
+		}
+		*hw_planes = planes * 2;
+		break;
+	case V4L2_PIX_FMT_NV12N_SBWC_256_10B:
+		for (i = 0; i < planes; i++) {
+			j = i * 2;
+			taddr[j] = saddr[i];
+			taddr[j + 1] = saddr[j] + SBWC_256_10B_Y_SIZE(width, height) +
+			 SBWC_256_10B_Y_HEADER_SIZE(width, height);
+		}
+		*hw_planes = planes * 2;
 		break;
 	default:
 		for (i = 0; i < planes; i++)
@@ -897,7 +923,7 @@ static int _is_queue_subbuf_queue(struct is_video_ctx *vctx,
 	struct is_sub_dma_buf *sdbuf;
 	struct is_crop *crop;
 	u32 index = frame->index;
-	u32 n, stride_w, stride_h, hw_planes = 0;
+	u32 n, width, height, stride_w, stride_h, hw_planes = 0;
 
 	/* Extract output subbuf information */
 	snode = &frame->cap_node;
@@ -920,15 +946,13 @@ static int _is_queue_subbuf_queue(struct is_video_ctx *vctx,
 		snode->sframe[n].num_planes
 			= sdbuf->num_plane * sdbuf->num_buffer;
 		crop = (struct is_crop *)node->output.cropRegion;
-		stride_w = max(node->width, crop->w);
-		stride_h = max(node->height, crop->h);
+		width = max(node->width, crop->w);
+		height = max(node->height, crop->h);
+		stride_w = GET_STRIDE_W(node, 0, width);
+		stride_h = GET_STRIDE_H(node, 0, height);
 
-		_is_queue_buffer_tag(sdbuf->dva,
-				snode->sframe[n].dva,
-				node->pixelformat,
-				stride_w, stride_h,
-				snode->sframe[n].num_planes,
-				&hw_planes);
+		_is_queue_buffer_tag(sdbuf->dva, snode->sframe[n].dva, node, width, height,
+				     snode->sframe[n].num_planes, &hw_planes);
 
 		snode->sframe[n].num_planes = hw_planes;
 

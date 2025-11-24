@@ -282,6 +282,22 @@ static const struct gdc_fmt gdc_formats[] = {
 		.h_shift	= 1,
 		.v_shift	= 1,
 	}, {
+		.name		= "NV12N SBWC LOSSLESS contiguous, Y/CbCr aligned by 256",
+		.pixelformat	= V4L2_PIX_FMT_NV12N_SBWC_256_8B,
+		.bitperpixel	= { 12 },
+		.num_planes	= 1,
+		.num_comp	= 2,
+		.h_shift	= 1,
+		.v_shift	= 1,
+	}, {
+		.name		= "NV12N SBWC LOSSLESS contiguous, Y/CbCr 10-bit aligned by 256",
+		.pixelformat	= V4L2_PIX_FMT_NV12N_SBWC_256_10B,
+		.bitperpixel	= { 24 },
+		.num_planes	= 1,
+		.num_comp	= 2,
+		.h_shift	= 1,
+		.v_shift	= 1,
+	}, {
 		.name		= "Y 8bit",
 		.pixelformat	= V4L2_PIX_FMT_GREY,
 		.bitperpixel	= { 8 },
@@ -1319,7 +1335,7 @@ static int gdc_open(struct file *file)
 	struct gdc_ctx *ctx;
 	int ret = 0;
 
-	ctx = vzalloc(sizeof(struct gdc_ctx));
+	ctx = pablo_zalloc(sizeof(struct gdc_ctx), GFP_KERNEL);
 
 	if (!ctx) {
 		dev_err(gdc->dev, "no memory for open context\n");
@@ -1394,7 +1410,7 @@ err_pclk_prepare:
 	atomic_dec(&gdc->m2m.in_use);
 	gdc_free_pmio_mem(gdc);
 err_alloc_pmio_mem:
-	vfree(ctx);
+	pablo_free(ctx);
 
 	return ret;
 }
@@ -1456,7 +1472,7 @@ static int gdc_release(struct file *file)
 		clk_unprepare(gdc->pclk);
 	v4l2_fh_del(&ctx->fh);
 	v4l2_fh_exit(&ctx->fh);
-	vfree(ctx);
+	pablo_free(ctx);
 
 	dev_info(gdc->dev, "X\n");
 
@@ -1935,10 +1951,33 @@ static int gdc_get_bufaddr(struct gdc_dev *gdc, struct gdc_ctx *ctx,
 		break;
 	case 2:
 		if (frame->gdc_fmt->num_planes == 1) {
-			/* V4L2_PIX_FMT_NV12, V4L2_PIX_FMT_NV21,  V4L2_PIX_FMT_NV61, V4L2_PIX_FMT_NV16 */
-			frame->addr.cb = frame->addr.y + pixsize;
-			frame->addr.ysize = pixsize;
-			frame->addr.cbsize = bytesize - pixsize;
+			/* single-fd yuv 420 SBWC formats */
+			if (frame->extra && camerapp_hw_gdc_has_comp_header(frame->extra)) {
+				if (frame->gdc_fmt->pixelformat == V4L2_PIX_FMT_NV12N_SBWC_256_8B)
+					frame->addr.cb = SBWC_256_8B_CBCR_BASE(frame->addr.y, w, h);
+				else if (frame->gdc_fmt->pixelformat == V4L2_PIX_FMT_NV12N_SBWC_256_10B)
+					frame->addr.cb = SBWC_256_10B_CBCR_BASE(frame->addr.y, w, h);
+				else
+					return -EINVAL;
+
+				frame->addr.ysize = camerapp_hw_get_comp_buf_size(gdc, frame, w, h,
+						frame->gdc_fmt->pixelformat, GDC_PLANE_LUMA, GDC_SBWC_SIZE_PAYLOAD);
+				frame->addr.y_2bit = frame->addr.y + frame->addr.ysize;
+
+				frame->addr.cbsize = camerapp_hw_get_comp_buf_size(gdc, frame, w, h,
+						frame->gdc_fmt->pixelformat, GDC_PLANE_CHROMA, GDC_SBWC_SIZE_PAYLOAD);
+				frame->addr.cbcr_2bit = frame->addr.cb + frame->addr.cbsize;
+
+				gdc_dbg("y(addr:%pad, size:%u, header:%pad)\n",
+					&frame->addr.y, frame->addr.ysize, &frame->addr.y_2bit);
+				gdc_dbg("cbcr(addr:%pad, size:%u, header:%pad)\n",
+					&frame->addr.cb, frame->addr.cbsize, &frame->addr.cbcr_2bit);
+			} else {
+				/* V4L2_PIX_FMT_NV12, V4L2_PIX_FMT_NV21,  V4L2_PIX_FMT_NV61, V4L2_PIX_FMT_NV16 */
+				frame->addr.cb = frame->addr.y + pixsize;
+				frame->addr.ysize = pixsize;
+				frame->addr.cbsize = bytesize - pixsize;
+			}
 		} else if (frame->gdc_fmt->num_planes == 2) {
 			/* V4L2_PIX_FMT_NV21M, V4L2_PIX_FMT_NV12M */
 			/* V4L2_PIX_FMT_NV61M, V4L2_PIX_FMT_NV16M */

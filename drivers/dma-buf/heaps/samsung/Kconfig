@@ -61,3 +61,12 @@ config RBIN
 	default y
 	help
 	  Choose this option to enable dma-buf rbin heap for samsung.
+
+config DMABUF_HEAPS_CAMERAPOOL
+	bool "DMA-BUF Samsung camera pool heap"
+	depends on DMABUF_SAMSUNG_HEAPS
+	help
+	  Choose this option to enable dma-buf camera pool heap for samsung.
+	  Camera may pre-allocate memory on camera launch before allocating
+	  dma buffer.
+	  Pre-allocated memory should be freed on camera close.

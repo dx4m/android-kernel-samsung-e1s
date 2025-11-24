@@ -31,6 +31,8 @@
 #include "rsx_v12/is-vendor-config_rsx_v12.h"
 #elif defined(CONFIG_CAMERA_BRY_V7)
 #include "bry_v7/is-vendor-config_bry_v7.h"
+#elif defined(CONFIG_CAMERA_RSY_V13)
+#include "rsy_v13/is-vendor-config_rsy_v13.h"
 #else
 #include "esx/is-vendor-config_esx_v01.h" /* Default */
 #endif

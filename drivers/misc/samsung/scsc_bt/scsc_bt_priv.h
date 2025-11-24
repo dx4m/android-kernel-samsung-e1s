@@ -381,8 +381,6 @@ struct scsc_bt_hcf_collection {
 #define FW_LOG_REMOVE_MULTIPLIER       (4)
 
 struct scsc_bt_fw_log {
-	spinlock_t                     write_lock;
-	spinlock_t                     read_lock;
 	struct circ_buf                circ_buf;
 	size_t                         circ_buf_size;
 	size_t                         circ_buf_threshold;
@@ -390,6 +388,10 @@ struct scsc_bt_fw_log {
 	size_t                         fw_acl_read_len;
 	u8                             fw_acl_read_state;
 	bool                           observers_registered;
+	u32                            btlog_enables0_low;
+	u32                            btlog_enables0_high;
+	u32                            btlog_enables1_low;
+	u32                            btlog_enables1_high;
 };
 
 #define FW_READ_DISABLE                (0x00)

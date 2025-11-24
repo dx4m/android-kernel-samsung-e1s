@@ -2993,11 +2993,11 @@ static int exynos_ufs_update_cal_store(struct exynos_ufs *ufs, const char *buf,
 {
 	struct ufs_vs_handle *handle = &ufs->handle;
 	struct ufs_cal_param *p = &ufs->cal_param;
-	char cmd[6];
+	char cmd[7];
 	u32 addr, value;
 	int ret;
 
-	ret = sscanf(buf, "%s %x %x", cmd, &addr, &value);
+	ret = sscanf(buf, "%6s %x %x", cmd, &addr, &value);
 	if (ret != 3)
 		return -EINVAL;
 

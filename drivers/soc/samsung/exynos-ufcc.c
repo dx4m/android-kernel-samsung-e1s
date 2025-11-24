@@ -669,7 +669,7 @@ static void release_limit_freq(enum ufc_ctrl_type type)
 			freq_qos_update_request(req, FREQ_QOS_MAX_DEFAULT_VALUE);
 		} else {
 			if (type == PM_QOS_MIN_LIMIT && ufc.low_freq_table)
-				 ego_reset_adaptive_freq(cpumask_first(&dom->cpus));
+				 ego_reset_adaptive_freq(cpumask_first(&dom->cpus), true);
 
 			freq_qos_update_request(req, FREQ_QOS_MIN_DEFAULT_VALUE);
 		}
@@ -772,7 +772,7 @@ static void update_min_limit(void)
 				ego_set_adaptive_freq(cpumask_first(&dom->cpus),
 						low_freq[dom->index], min_limit[dom->index]);
 			} else {
-				ego_reset_adaptive_freq(cpumask_first(&dom->cpus));
+				ego_reset_adaptive_freq(cpumask_first(&dom->cpus), false);
 
 				if (min_limit[dom->index])
 					freq_qos_update_request(req, min_limit[dom->index]);

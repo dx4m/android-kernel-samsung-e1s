@@ -2008,6 +2008,36 @@ static int max77775_muic_set_hiccup_mode(int on_off)
 }
 #endif /* CONFIG_HICCUP_CHARGER */
 
+static void max77775_muic_stuck_check(struct work_struct *work)
+{
+	struct max77775_muic_data *muic_data =
+		container_of(work, struct max77775_muic_data, stuck_check_work.work);
+	struct max77775_usbc_platform_data *usbc_data = muic_data->usbc_pdata;
+	struct i2c_client *i2c = muic_data->i2c;
+	usbc_cmd_queue_t *cmd_queue = NULL;
+	u8 cc_stat;
+	u8 stop_mode;
+
+	max77775_muic_read_reg(i2c, REG_CC_STATUS1, &cc_stat);
+	cc_stat = (cc_stat & BIT_CCStat) >> FFS(BIT_CCStat);
+	md75_info_usb("%s: cc_stat: 0x%x (0:No_connection/1:Sink/2:Source)\n", __func__, cc_stat);
+
+	max77775_muic_read_reg(i2c, REG_PD_STATUS2, &stop_mode);
+	stop_mode = (stop_mode & BIT_PD_STOP_MODE) >> FFS(BIT_PD_STOP_MODE);
+	md75_info_usb("%s: stopmode: 0x%x\n", __func__, stop_mode);
+
+	cmd_queue = &(usbc_data->usbc_cmd_queue);
+
+	if ((cc_stat == cc_No_Connection || cc_stat == cc_SOURCE)
+		&& (stop_mode == 1)
+		&& is_empty_usbc_cmd_queue(cmd_queue)){
+		max77775_send_check_stuck_opcode(usbc_data);
+		md75_info_usb("%s: max77775_send_check_stuck_opcode\n", __func__);
+	}
+
+	schedule_delayed_work(&(muic_data->stuck_check_work), msecs_to_jiffies(30000));
+}
+
 static void max77775_muic_print_reg_log(struct work_struct *work)
 {
 	struct max77775_muic_data *muic_data =
@@ -2442,6 +2472,11 @@ int max77775_muic_probe(struct max77775_usbc_platform_data *usbc_data)
 	schedule_delayed_work(&(muic_data->debug_work),
 		msecs_to_jiffies(10000));
 
+	INIT_DELAYED_WORK(&(muic_data->stuck_check_work),
+		max77775_muic_stuck_check);
+	schedule_delayed_work(&(muic_data->stuck_check_work),
+		msecs_to_jiffies(30000));
+
 	/* hv charger init */
 	set_bit(MUIC_PROBE_DONE, &muic_data->pdata->driver_probe_flag);
 	if (test_bit(CHARGER_PROBE_DONE, &muic_data->pdata->driver_probe_flag))
@@ -2484,6 +2519,7 @@ int max77775_muic_remove(struct max77775_usbc_platform_data *usbc_data)
 #endif
 		muic_unregister_usb_notifier(muic_data);
 		cancel_delayed_work_sync(&(muic_data->debug_work));
+		cancel_delayed_work_sync(&(muic_data->stuck_check_work));
 
 		if (muic_data->pdata->cleanup_switch_dev_cb)
 			muic_data->pdata->cleanup_switch_dev_cb();
@@ -2539,6 +2575,7 @@ void max77775_muic_shutdown(struct max77775_usbc_platform_data *usbc_data)
 #endif /* CONFIG_HICCUP_CHARGER */
 	muic_unregister_usb_notifier(muic_data);
 	cancel_delayed_work_sync(&(muic_data->debug_work));
+	cancel_delayed_work_sync(&(muic_data->stuck_check_work));
 
 out:
 	md75_info_usb("%s -\n", __func__);
@@ -2550,6 +2587,7 @@ int max77775_muic_suspend(struct max77775_usbc_platform_data *usbc_data)
 
 	md75_info_usb("%s\n", __func__);
 	cancel_delayed_work_sync(&(muic_data->debug_work));
+	cancel_delayed_work_sync(&(muic_data->stuck_check_work));
 
 	return 0;
 }
@@ -2560,6 +2598,7 @@ int max77775_muic_resume(struct max77775_usbc_platform_data *usbc_data)
 
 	md75_info_usb("%s\n", __func__);
 	schedule_delayed_work(&(muic_data->debug_work), msecs_to_jiffies(1000));
+	schedule_delayed_work(&(muic_data->stuck_check_work), msecs_to_jiffies(30000));
 
 	return 0;
 }

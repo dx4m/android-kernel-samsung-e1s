@@ -31,7 +31,7 @@
 #include "pcie-exynos-phycal_common.h"
 
 int exynos_pcie_rc_set_outbound_atu(int ch_num, u32 target_addr, u32 offset, u32 size);
-void exynos_pcie_rc_register_dump(int ch_num);
+void exynos_pcie_rc_register_dump(int ch_num, int full_dump);
 void exynos_pcie_set_perst_gpio(int ch_num, bool on);
 void remove_pcie_sys_file(struct device *dev);
 
@@ -62,25 +62,26 @@ void exynos_pcie_dbg_print_msi_register(struct exynos_pcie *exynos_pcie)
 	struct dw_pcie *pci = exynos_pcie->pci;
 	struct dw_pcie_rp *pp = &pci->pp;
 	u32 val;
+	int i;
 
 	exynos_pcie_rc_rd_own_conf(pp, PCIE_MSI_ADDR_LO, 4, &val);
-	pcie_info("PCIE_MSI_ADDR_LO: 0x%x\n", val);
+	pcie_info("%s PCIE_MSI_ADDR_LO(0x%x): 0x%x\n", __func__, PCIE_MSI_ADDR_LO, val);
 	exynos_pcie_rc_rd_own_conf(pp, PCIE_MSI_ADDR_HI, 4, &val);
-	pcie_info("PCIE_MSI_ADDR_HI: 0x%x\n", val);
+	pcie_info("%s PCIE_MSI_ADDR_HI(0x%x): 0x%x\n", __func__, PCIE_MSI_ADDR_HI, val);
 
-	exynos_pcie_rc_rd_own_conf(pp, PCIE_MSI_INTR0_ENABLE, 4, &val);
-	pcie_info("PCIE_MSI_INTR0_ENABLE(0x%x):0x%x\n", PCIE_MSI_INTR0_ENABLE, val);
-	exynos_pcie_rc_rd_own_conf(pp, PCIE_MSI_INTR0_MASK, 4, &val);
-	pcie_info("PCIE_MSI_INTR0_MASK(0x%x):0x%x\n", PCIE_MSI_INTR0_MASK, val);
-	exynos_pcie_rc_rd_own_conf(pp, PCIE_MSI_INTR0_STATUS, 4, &val);
-	pcie_info("PCIE_MSI_INTR0_STATUS: 0x%x\n", val);
+	for (i = 0; i < MAX_MSI_CTRLS; i++) {
+		exynos_pcie_rc_rd_own_conf(pp, PCIE_MSI_INTR0_ENABLE + (i * MSI_REG_CTRL_BLOCK_SIZE), 4, &val);
+		pcie_info("%s PCIE_MSI_INTR%d_ENABLE(0x%x):0x%x\n", __func__, i,
+				PCIE_MSI_INTR0_ENABLE + (i * MSI_REG_CTRL_BLOCK_SIZE), val);
 
-	exynos_pcie_rc_rd_own_conf(pp, PCIE_MSI_INTR1_ENABLE, 4, &val);
-	pcie_info("PCIE_MSI_INTR1_ENABLE(0x%x):0x%x\n", PCIE_MSI_INTR0_ENABLE, val);
-	exynos_pcie_rc_rd_own_conf(pp, PCIE_MSI_INTR1_MASK, 4, &val);
-	pcie_info("PCIE_MSI_INTR1_MASK(0x%x):0x%x\n", PCIE_MSI_INTR0_MASK, val);
-	exynos_pcie_rc_rd_own_conf(pp, PCIE_MSI_INTR1_STATUS, 4, &val);
-	pcie_info("PCIE_MSI_INTR1_STATUS: 0x%x\n", val);
+		exynos_pcie_rc_rd_own_conf(pp, PCIE_MSI_INTR0_MASK + (i * MSI_REG_CTRL_BLOCK_SIZE), 4, &val);
+		pcie_info("%s PCIE_MSI_INTR%d_MASK(0x%x):0x%x\n", __func__, i,
+				PCIE_MSI_INTR0_MASK + (i * MSI_REG_CTRL_BLOCK_SIZE), val);
+
+		exynos_pcie_rc_rd_own_conf(pp, PCIE_MSI_INTR0_STATUS + (i * MSI_REG_CTRL_BLOCK_SIZE), 4, &val);
+		pcie_info("%s PCIE_MSI_INTR%d_STATUS(0x%x): 0x%x\n", __func__, i,
+				PCIE_MSI_INTR0_STATUS + (i * MSI_REG_CTRL_BLOCK_SIZE), val);
+	}
 }
 
 void exynos_pcie_dbg_dump_link_down_status(struct exynos_pcie *exynos_pcie)
@@ -153,6 +154,14 @@ void exynos_pcie_dbg_register_dump(struct exynos_pcie *exynos_pcie)
 		pcie_err("DBI 0x%04x:    0x%08x    0x%08x    0x%08x    0x%08x\n",
 				i, val_0, val_4, val_8, val_c);
 	}
+	pcie_err("\n");
+
+	exynos_pcie_rc_rd_own_conf(pp, 0x80, 4, &val_0);
+	exynos_pcie_rc_rd_own_conf(pp, 0x98, 4, &val_4);
+	exynos_pcie_rc_rd_own_conf(pp, 0x19C, 4, &val_8);
+	exynos_pcie_rc_rd_own_conf(pp, 0x1A0, 4, &val_c);
+	pcie_err("DBI 0x80: 0x%08x, 0x98: 0x%08x, 0x19C: 0x%08x, 0x1A0: 0x%08x\n",
+			val_0, val_4, val_8, val_c);
 	pcie_err("\n");
 
 	pcie_err("[Print PHY region]\n");
@@ -774,7 +783,7 @@ static ssize_t exynos_pcie_rc_store(struct device *dev,
 			pcie_info("l1ss_ctrl_id_state = 0x0(LINK down)\n");
 			break;
 		}
-		exynos_pcie_rc_register_dump(exynos_pcie->ch_num);
+		exynos_pcie_rc_register_dump(exynos_pcie->ch_num, 1);
 		break;
 	case 19:
 		if (exynos_pcie->state != STATE_LINK_UP) {

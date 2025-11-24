@@ -271,6 +271,9 @@ int dsp_dhcp_init(struct npu_device *rdev)
 	dsp_dhcp_write_reg_idx(dhcp, DSP_DHCP_SHARED_MEM_IOVA, 0xdeadbeef);
 	dsp_dhcp_write_reg_idx(dhcp, DSP_DHCP_NPUMEM_MODE, 0x0);
 
+	dsp_dhcp_write_reg_idx(dhcp, FORCE_SUSPEND_READY, 0x0);
+	dsp_dhcp_write_reg_idx(dhcp, FORCE_SUSPEND_REQUEST, 0x0);
+
 	/* update mem info */
 	dsp_dhcp_init_mem_info(&rdev->system, dhcp);
 	return 0;

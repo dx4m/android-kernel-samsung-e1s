@@ -79,8 +79,6 @@ static void __mfc_plugin_dump_regs(struct mfc_core *core)
 static void __mfc_plugin_dump_info_without_regs(struct mfc_core *core)
 {
 	struct mfc_core_ctx *core_ctx = core->core_ctx[core->curr_core_ctx];
-	struct mfc_ctx *ctx = core_ctx->ctx;
-	struct mfc_dec *dec = ctx->dec_priv;
 	int i;
 
 	dev_err(core->device, "-----------dumping Film grain info-----------\n");
@@ -88,9 +86,8 @@ static void __mfc_plugin_dump_info_without_regs(struct mfc_core *core)
 			mfc_core_get_pwr_ref_cnt(core),
 			mfc_core_get_clk_ref_cnt(core),
 			core->num_inst, core->num_drm_inst);
-	dev_err(core->device, "hwlock bits:%#lx, curr_ctx:%d (is_drm:%d), work_bits:%#lx\n",
-			core->hwlock.bits, core->curr_core_ctx, ctx->is_drm,
-			mfc_get_bits(&core->work_bits));
+	dev_err(core->device, "hwlock bits:%#lx, curr_ctx:%d, work_bits:%#lx\n",
+			core->hwlock.bits, core->curr_core_ctx, mfc_get_bits(&core->work_bits));
 
 	if (core->dev->pdata->support_fg_shadow) {
 		dev_err(core->device,
@@ -104,7 +101,8 @@ static void __mfc_plugin_dump_info_without_regs(struct mfc_core *core)
 				i, core->fg_q_handle->ctx_num_table[i]);
 	}
 
-	mfc_print_dpb_queue(core_ctx, dec);
+	if (core_ctx)
+		mfc_print_dpb_queue(core_ctx, core_ctx->ctx->dec_priv);
 	/* TODO: print trace */
 }
 

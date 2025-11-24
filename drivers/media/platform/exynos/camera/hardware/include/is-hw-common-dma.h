@@ -35,6 +35,7 @@
 #define SBWC_ALIGN_TYPE_32B		0
 #define SBWC_ALIGN_TYPE_64B		1
 #define SBWC_ALIGN_TYPE_128B		2
+#define SBWC_ALIGN_TYPE_256B		3
 
 #define CALL_DMA_OPS(dma, op, args...)	\
 	(((dma)->ops && (dma)->ops->op) ? ((dma)->ops->op(dma, args)) : 0)

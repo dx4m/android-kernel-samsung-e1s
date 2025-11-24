@@ -284,44 +284,45 @@ static void exynos_eint_flt_config(int en, int sel, int width,
 				   struct samsung_pinctrl_drv_data *d,
 				   struct samsung_pin_bank *bank)
 {
-	unsigned int flt_reg, flt_con;
-	unsigned int val, shift;
+	u32 flt_con = 0;
+	void __iomem *reg0, *reg1 = NULL;
+	u32 val0 = 0, val1 = 0;
 	int i;
-	int loop_cnt;
 
-	flt_con = 0;
-
-	if (en)
-		flt_con |= EXYNOS_EINT_FLTCON_EN;
-
-	if (sel)
-		flt_con |= EXYNOS_EINT_FLTCON_SEL;
-
+	flt_con |= (en ? EXYNOS_EINT_FLTCON_EN : 0);
+	flt_con |= (sel ? EXYNOS_EINT_FLTCON_SEL : 0);
 	flt_con |= EXYNOS_EINT_FLTCON_WIDTH(width);
 
-	flt_reg = EXYNOS_GPIO_EFLTCON_OFFSET + bank->fltcon_offset;
-
+	reg0 = d->virt_base + EXYNOS_GPIO_EFLTCON_OFFSET + bank->fltcon_offset;
 	if (bank->nr_pins > 4)
-		/* if nr_pins > 4, we should set FLTCON0 register fully. (pin0 ~ 3) */
-		/* So, we shoud loop 4 times in case of FLTCON0. */
-		loop_cnt = 4;
-	else
-		loop_cnt = bank->nr_pins;
+		reg1 = reg0 + 4;
 
-	val = readl(d->virt_base + flt_reg);
+	val0 = readl(reg0);
+	if (reg1)
+		val1 = readl(reg1);
 
-	for (i = 0; i < loop_cnt; i++) {
-		shift = i * EXYNOS_EINT_FLTCON_LEN;
-		val &= ~(EXYNOS_EINT_FLTCON_MASK << shift);
-		val |= (flt_con << shift);
+	for (i = 0; i < bank->nr_pins; i++) {
+		u32 shift = (i % 4) * EXYNOS_EINT_FLTCON_LEN;
+		u32 mask = EXYNOS_EINT_FLTCON_MASK << shift;
+		u32 val = flt_con << shift;
+
+		// Skip setting if digital filter is requested to be kept (sel != 1)
+		if (!sel && (bank->eint_keep_filter & BIT(i)))
+			continue;
+
+		if (i < 4)
+			val0 = (val0 & ~mask) | val;
+		else if (reg1)
+			val1 = (val1 & ~mask) | val;
 	}
 
-	writel(val, d->virt_base + flt_reg);
-
-	/* if nr_pins > 4, we should also set FLTCON1 register like FLTCON0. (pin4 ~ ) */
-	if (bank->nr_pins > 4)
-		writel(val, d->virt_base + flt_reg + 0x4);
-};
+	writel(val0, reg0);
+	pr_debug("[pinctrl] %s: EINT_FLTCON0 = 0x%08x\n", bank->name, val0);
+	if (reg1) {
+		writel(val1, reg1);
+		pr_debug("[pinctrl] %s: EINT_FLTCON1 = 0x%08x\n", bank->name, val1);
+	}
+}
 
 /*
  * exynos_eint_gpio_init() - setup handling of external gpio interrupts.

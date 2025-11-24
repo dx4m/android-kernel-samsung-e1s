@@ -44,10 +44,27 @@ static inline void __mfc_clear_all_prio_bits(struct mfc_core *core)
 static int __mfc_ctx_ready_set_bit_prio(struct mfc_core_ctx *core_ctx, bool set)
 
 {
-	struct mfc_core *core = core_ctx->core;
-	struct mfc_ctx *ctx = core_ctx->ctx;
+	struct mfc_core *core;
+	struct mfc_ctx *ctx;
 	unsigned long flags;
-	int p, is_ready;
+	int p, is_ready = 0;
+
+	if (!core_ctx) {
+		mfc_pr_err("no mfc core_ctx device to run\n");
+		return is_ready;
+	}
+
+	core = core_ctx->core;
+	if (!core) {
+		mfc_err("no mfc core device to run\n");
+		return is_ready;
+	}
+
+	ctx = core_ctx->ctx;
+	if (!ctx) {
+		mfc_err("no mfc ctx device to run\n");
+		return is_ready;
+	}
 
 	mfc_qos_update_boosting(core, core_ctx);
 

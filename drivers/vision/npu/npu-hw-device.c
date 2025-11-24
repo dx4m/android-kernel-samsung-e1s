@@ -483,19 +483,44 @@ int npu_hwdev_close(struct npu_device *device)
 }
 #endif
 
-int npu_hwdev_bootup(struct npu_device *device, __u32 hids)
+int npu_hwdev_bootup(struct npu_device *device, struct npu_session *session, __u32 hids)
 {
 	int ret = 0;
 	int hi;
 	struct npu_hw_device *hdev;
+	u32 boot_hid_mask = 0, init_hid_mask = 0;
+	struct npu_system *system = &device->system;
 
-	BUG_ON(!device);
+	if (unlikely(!device)) {
+		npu_err("Failed to get npu_device\n");
+		return -EINVAL;
+	}
+
+	if (unlikely(!system)) {
+		npu_err("Failed to get npu_system\n");
+		return -EINVAL;
+	}
+
+	if (unlikely(!session)) {
+		npu_err("Failed to get npu_session\n");
+		return -EINVAL;
+	}
 
 	/* hw-device-wide bootup : for each network */
 	for (hi = 0; hi < g_hwdev_num; hi++) {
 		hdev = g_hwdev_list[hi];
 		if (hdev && (hids & hdev->id)) {
-			npu_hw_ref_get(device, &hdev->boot_cnt);
+			boot_hid_mask |= hdev->id;
+
+			ret = npu_hw_ref_get(device, &hdev->boot_cnt);
+			if (check_emergency(device)) {
+				npu_err("start for emergency recovery\n");
+				npu_device_recovery_close(device);
+				return -EWOULDBLOCK;
+			} else if (ret) {
+				npu_err("failed boot %s (%d)\n", hdev->name, hdev->id);
+				goto err_boot;
+			}
 			npu_info("boot %s (%d)\n", hdev->name, hdev->id);
 		}
 	}
@@ -503,12 +528,40 @@ int npu_hwdev_bootup(struct npu_device *device, __u32 hids)
 	for (hi = 0; hi < g_hwdev_num; hi++) {
 		hdev = g_hwdev_list[hi];
 		if (hdev && (hids & hdev->id)) {
-			npu_hw_ref_get(device, &hdev->init_cnt);
+			init_hid_mask |= hdev->id;
+
+			ret = npu_hw_ref_get(device, &hdev->init_cnt);
+			if (check_emergency(device)) {
+				npu_err("start for emergency recovery\n");
+				npu_device_recovery_close(device);
+				return -EWOULDBLOCK;
+			} else if (ret) {
+				npu_err("failed init %s (%d)\n", hdev->name, hdev->id);
+				goto err_init;
+			}
 			npu_info("init %s (%d)\n", hdev->name, hdev->id);
 		}
 	}
 
 	npu_info("(%d)\n", ret);
+	return 0;
+
+err_init:
+	for (hi = g_hwdev_num - 1; hi >= 0; hi--) {
+		hdev = g_hwdev_list[hi];
+		if (hdev && (init_hid_mask & hdev->id)) {
+			npu_hw_ref_put(device, &hdev->init_cnt);
+		}
+	}
+err_boot:
+	for (hi = g_hwdev_num - 1; hi >= 0; hi--) {
+		hdev = g_hwdev_list[hi];
+		if (hdev && (boot_hid_mask & hdev->id)) {
+			npu_hw_ref_put(device, &hdev->boot_cnt);
+		}
+	}
+	session->is_bootup_error_handling_called = true;
+
 	return ret;
 }
 

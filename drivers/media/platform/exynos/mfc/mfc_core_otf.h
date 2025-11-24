@@ -20,6 +20,8 @@
 #include <media/exynos_repeater.h>
 #endif
 
+#include <linux/delay.h>
+
 #include "base/mfc_common.h"
 
 #define MFC_OTF_DEFAULT_SCRATCH_SIZE	81920
@@ -64,6 +66,7 @@ void mfc_core_otf_notify_error(struct mfc_core *core);
 int mfc_core_otf_ctx_ready_set_bit(struct mfc_core_ctx *core_ctx, struct mfc_bits *data, bool set);
 int mfc_core_otf_ctx_ready_set_bit_raw(struct mfc_core_ctx *core_ctx,
 		unsigned long *bits, bool set);
+void mfc_core_otf_request_work(struct mfc_ctx *ctx);
 int mfc_core_otf_run_enc_init(struct mfc_core *core, struct mfc_ctx *ctx);
 int mfc_core_otf_run_enc_last_frame(struct mfc_core *core, struct mfc_ctx *ctx);
 int mfc_core_otf_run_enc_frame(struct mfc_core *core, struct mfc_ctx *ctx);
@@ -83,5 +86,26 @@ extern int gdc_device_run(unsigned long i_ino);
 int mfc_core_votf_run(struct mfc_ctx *ctx, struct mfc_buf_queue *queue, unsigned long i_ino);
 int mfc_core_votf_init(struct mfc_core *core, struct mfc_ctx *ctx);
 void mfc_core_votf_deinit(struct mfc_ctx *ctx);
+
+static inline int mfc_core_otf_get_lock(struct mfc_dev *dev)
+{
+	unsigned long timeout;
+
+	timeout = jiffies + msecs_to_jiffies(MFC_OTF_TIMEOUT);
+	while (atomic_cmpxchg(&dev->otf_run, 0, 1)) {
+		if (time_after(jiffies, timeout)) {
+			mfc_dev_err("[OTF] Timed out while waiting to set otf_run\n");
+			return -OTF_ERR;
+		}
+		msleep(1);
+	}
+
+	return 0;
+}
+
+static inline void mfc_core_otf_release_lock(struct mfc_dev *dev)
+{
+	atomic_set(&dev->otf_run, 0);
+}
 
 #endif /* __MFC_CORE_OTF_H  */

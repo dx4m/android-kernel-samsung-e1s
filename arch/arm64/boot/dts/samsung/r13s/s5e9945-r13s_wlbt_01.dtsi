@@ -1,0 +1,124 @@
+/ {
+    fragment@model {
+        target-path = "/";
+        __overlay__ {
+			scsc_wifibt: scsc_wifibt{
+				compatible = "samsung,scsc_wifibt";
+				memory-region = <&wifibt_if>;
+				gpios = <&gpb1 3 0x1 /* PMIC TO PMU */>;
+				pinctrl-names = "default";
+				pinctrl-0 = <&wlbt_pmic_pinctrl &wlbt_wakeup_pinctrl &wlbt_reset_pinctrl &wlbt_suspend_pinctrl>;
+				wlbt,clk_gpio = <&gpa3 6 0xf>;
+				wlbt,wakeup_gpio = <&gpa2 1 0xf>;
+				wlbt,reset_gpio = <&gpp2 3 0x1>;
+				wlbt,suspend_gpio = <&gpa3 4 0x1>;
+				vdd-wlbt-supply = <&s4_b_sr1_reg>;
+				hwid = <0>;
+				/* Mailbox Registers */
+				//reg = <0x0 0x129D0000 0x180>,	/* WLAN MAILBOX */
+				//	<0x0 0x129E000 0x180>;	/* WPAN MAILBOX */
+
+				//reg = <0x0 0x20002000 0x10000>;
+				//reg-names = "wlbt_ramrp";
+
+				//SPI[18] 50 BLK_ALIVE INTREQ__ALIVE_WLBT_ACTIVE
+				//SPI[63] 95 BLK_ALIVE INTREQ__MAILBOX_
+				//SPI[64] 96 BLK_ALIVE INTREQ__MAILBOX_WPAN2AP
+				//SPI[195] 227 BLK_WLBT WB2AP_CFG_REQ
+				//SPI[196] 228 BLK_WLBT WB2AP_WDOG_RESET_REQ_IRQ
+				interrupts = <0 18 4>, <0 63 4>, <0 64 4>, <0 195 4>, <0 196 4>;
+				interrupt-names = "ALIVE", "MBOX_WLAN","MBOX_WPAN","CFG_REQ","WDOG";
+				samsung,syscon-phandle = <&pmu_system_controller>;
+				pci_ch_num = <0>;
+						acpm-ipc-channel = <2>;
+
+				/* MIF / INT / CL0 / CL1 / CL2 */
+				qos_table = <
+					421000 89000 400000 533000 533000 /* SCSC_QOS_MIN */
+					1539000 400000 1274000 1352000 1352000 /* SCSC_QOS_MED */
+					3172000 663000 2002000 2600000 2808000 /* SCSC_QOS_MAX */
+					>;
+
+				/* LOW / MID / HIGH / OVERRIDE */
+				cpu_table_napi = <
+					0 0 4 4 /* NP_RX_0 */
+					0 0 5 5 /* NP_RX_1 */
+					0 0 5 5 /* NP_TX_0 */
+					>;
+				cpu_table_rps = "00", "00", "40", "40";
+				/* mid_tput / high_tput */
+				threshold_table_napi = <0 150>;
+				threshold_table_rps =  <0 1000>;
+			};
+
+			wpan: slsi_wpan {
+				compatible = "samsung,slsi-wpan";
+				status = "okay";
+				bt2ap-wakeup-gpio = <&gpa0 3 0xf>;
+			};
+		};
+	};
+};
+
+&pcie_0 {
+	compatible = "exynos-pcie-rc,wifi_ss";
+	interrupts = <GIC_SPI INTREQ__PCIE_GEN4_2L_0_subsystem_int IRQ_TYPE_LEVEL_HIGH>,
+		   <GIC_SPI INTREQ__PCIE_GEN4_2L_0_msi_recieved_from_EP_NUM_0 IRQ_TYPE_LEVEL_HIGH>,
+		   <GIC_SPI INTREQ__PCIE_GEN4_2L_0_msi_recieved_from_EP_NUM_1 IRQ_TYPE_LEVEL_HIGH>,
+		   <GIC_SPI INTREQ__PCIE_GEN4_2L_0_msi_recieved_from_EP_NUM_2 IRQ_TYPE_LEVEL_HIGH>,
+		   <GIC_SPI INTREQ__PCIE_GEN4_2L_0_msi_recieved_from_EP_NUM_3 IRQ_TYPE_LEVEL_HIGH>,
+		   <GIC_SPI INTREQ__PCIE_GEN4_2L_0_msi_recieved_from_EP_NUM_4 IRQ_TYPE_LEVEL_HIGH>,
+		   <GIC_SPI INTREQ__PCIE_GEN4_2L_0_msi_recieved_from_EP_NUM_5 IRQ_TYPE_LEVEL_HIGH>,
+		   <GIC_SPI INTREQ__PCIE_GEN4_2L_0_msi_recieved_from_EP_NUM_6 IRQ_TYPE_LEVEL_HIGH>,
+		   <GIC_SPI INTREQ__PCIE_GEN4_2L_0_msi_recieved_from_EP_NUM_7 IRQ_TYPE_LEVEL_HIGH>;
+	status = "okay";
+	use-sysmmu = "true";
+	ip-ver = <0x994500>;
+	use-ia = "true";
+	ep-device-type = <EP_TYPE_SAMSUNG_WIFI>;
+	pcie,ep-power-gpio = <&gpb1 3 0x1 /* PMIC TO PMU */>;
+	max-link-speed = <LINK_SPEED_GEN3>;
+	num-lanes = <1>;
+};
+
+&pinctrl_0 {
+	wlbt_wakeup_pinctrl: wifi_wakeup_pinctrl {
+		samsung,pins = "gpa2-1";
+		samsung,pin-pud = <0>;
+		samsung,pin-function = <0xf>;
+	};
+
+	wlbt_suspend_pinctrl: wlbt_suspend_pinctrl {
+		samsung,pins = "gpa3-4";
+		samsung,pin-pud = <0>;
+		samsung,pin-function = <1>;
+	};
+};
+
+&pinctrl_7 {
+	wlbt_pmic_pinctrl: wlbt_pmic_pinctrl {
+		samsung,pins = "gpb1-3";
+		samsung,pin-function = <1>;
+		samsung,pin-pud = <0>;
+		samsung,pin-drv = <3>;
+		samsung,pin-con-pdn = <3>;
+		samsung,pin-pud-pdn = <0>;
+	};
+
+	wlbt_reset_pinctrl: wlbt_reset_pinctrl {
+		samsung,pins = "gpp2-3";
+		samsung,pin-function = <1>;
+		samsung,pin-pud = <0>;
+		samsung,pin-drv = <3>;
+		samsung,pin-con-pdn = <3>;
+		samsung,pin-pud-pdn = <0>;
+	};
+};
+
+&reserved_memory {
+	wifibt_if: wifibt_if{
+		compatible = "exynos,wifibt_if";
+		reg = <0x9 0xab400000 0x1400000>;
+	};
+};
+

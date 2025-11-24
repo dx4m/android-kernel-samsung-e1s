@@ -108,10 +108,10 @@ void pst_deinit_crta_mock(void)
 	if (atomic_dec_return(&refcnt) > 0)
 		return;
 
-	kvfree(icpu_adt_mock->priv);
+	pablo_free(icpu_adt_mock->priv);
 	icpu_adt_mock->priv = NULL;
 
-	kvfree(icpu_adt_mock);
+	pablo_free(icpu_adt_mock);
 	icpu_adt_mock = NULL;
 
 	hw->icpu_adt = icpu_adt_save;
@@ -132,14 +132,14 @@ int pst_init_crta_mock(void)
 
 	icpu_adt_save = pablo_get_icpu_adt();
 
-	icpu_adt_mock = kvzalloc(sizeof(struct pablo_icpu_adt), GFP_KERNEL);
+	icpu_adt_mock = pablo_zalloc(sizeof(struct pablo_icpu_adt), GFP_KERNEL);
 	if (ZERO_OR_NULL_PTR(icpu_adt_mock)) {
 		pr_err("failed to allocate icpu_adt_mock");
 		ret = -ENOMEM;
 		goto err_alloc_icpu_adt_mock;
 	}
 
-	adt = kvzalloc(sizeof(struct icpu_adt_v2), GFP_KERNEL);
+	adt = pablo_zalloc(sizeof(struct icpu_adt_v2), GFP_KERNEL);
 	if (ZERO_OR_NULL_PTR(adt)) {
 		merr_adt("failed to alloc icpu_adt_mock", 0);
 		ret = -ENOMEM;
@@ -158,7 +158,7 @@ int pst_init_crta_mock(void)
 	return 0;
 
 err_alloc_adt:
-	kvfree(icpu_adt_mock);
+	pablo_free(icpu_adt_mock);
 
 err_alloc_icpu_adt_mock:
 	atomic_dec(&refcnt);

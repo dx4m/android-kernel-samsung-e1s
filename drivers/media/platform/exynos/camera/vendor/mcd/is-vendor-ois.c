@@ -196,6 +196,67 @@ p_err:
 	return efs_size;
 }
 
+#if defined(USE_OIS_AF_POSITION)
+int is_vendor_ois_get_af_position(int *af_position)
+{
+	int ret = 0;
+	int i = 0;
+	struct is_module_enum *module = NULL;
+	struct v4l2_subdev *subdev_module = NULL;
+	struct is_device_sensor *device = NULL;
+	struct is_actuator *actuator = NULL;
+	int sensor_list[3] = {SENSOR_POSITION_REAR, -1, -1};
+	int sensor_size = 1;
+	int sensor_id = 0;
+#if defined(CAMERA_2ND_OIS)
+	sensor_list[1] = SENSOR_POSITION_REAR2;
+	sensor_size = 2;
+#endif
+#if defined(CAMERA_3RD_OIS)
+	sensor_list[2] = SENSOR_POSITION_REAR4;
+	sensor_size = 3;
+#endif
+
+	dbg_ois("[%s] E\n", __func__);
+
+	for (i = 0; i < sensor_size; i++) {
+		if (sensor_list[i] == -1)
+			continue;
+
+		ret = is_vendor_get_module_from_position(sensor_list[i], &module);
+		if (!module || ret)
+			continue;
+
+		subdev_module = module->subdev;
+		if (!subdev_module) {
+			err_mcu("%s, subdev_module is NULL\n", __func__);
+			continue;
+		}
+
+		device = v4l2_get_subdev_hostdata(subdev_module);
+		if (!device) {
+			err_mcu("%s, device is NULL\n", __func__);
+			continue;
+		}
+
+		sensor_id = module->pdata->id;
+		actuator = device->actuator[sensor_id];
+		if (!actuator) {
+			err_mcu("%s, actuator is NULL\n", __func__);
+			continue;
+		}
+
+		if (actuator->position <= 0)
+			af_position[i] = (actuator->vendor_first_pos >> 4);
+		else
+			af_position[i] = (actuator->position >> 4);
+
+		info_mcu("[%s] sen: %d, af pos: 0x%X\n", __func__, sensor_list[i], af_position[i]);
+	}
+	return ret;
+}
+#endif
+
 int is_vendor_ois_set_ggfadeupdown(struct v4l2_subdev *subdev, int up, int down)
 {
 	int ret = 0;
@@ -205,6 +266,9 @@ int is_vendor_ois_set_ggfadeupdown(struct v4l2_subdev *subdev, int up, int down)
 	u8 status = 0;
 	int retries = 100;
 	u8 data[2];
+#if defined(USE_OIS_AF_POSITION)
+	int af_position[3] = {MCU_AF_INIT_POSITION, MCU_AF_INIT_POSITION, MCU_AF_INIT_POSITION};
+#endif
 #ifdef USE_OIS_SLEEP_MODE
 	u8 read_sensorStart = 0;
 #endif
@@ -228,7 +292,20 @@ int is_vendor_ois_set_ggfadeupdown(struct v4l2_subdev *subdev, int up, int down)
 	ois = is_mcu->ois;
 
 	dbg_ois("%s up:%d down:%d\n", __func__, up, down);
+#if defined(USE_OIS_AF_POSITION)
+	is_vendor_ois_get_af_position(af_position);
+	/* Wide af position value */
+	is_mcu_set_reg_u8(mcu->regs[OM_REG_CORE], OIS_CMD_REAR_AF, (u8)af_position[0]);
 
+	#if defined(CAMERA_2ND_OIS)
+	/* Tele af position value */
+	is_mcu_set_reg_u8(mcu->regs[OM_REG_CORE], OIS_CMD_REAR2_AF, (u8)af_position[1]);
+	#endif
+	#if defined(CAMERA_3RD_OIS)
+	/* Tele2 af position value */
+	is_mcu_set_reg_u8(mcu->regs[OM_REG_CORE], OIS_CMD_REAR3_AF, (u8)af_position[2]);
+	#endif
+#else
 	/* Wide af position value */
 	is_mcu_set_reg_u8(mcu->regs[OM_REG_CORE], OIS_CMD_REAR_AF, MCU_AF_INIT_POSITION);
 
@@ -240,7 +317,7 @@ int is_vendor_ois_set_ggfadeupdown(struct v4l2_subdev *subdev, int up, int down)
 	/* Tele2 af position value */
 	is_mcu_set_reg_u8(mcu->regs[OM_REG_CORE], OIS_CMD_REAR3_AF, MCU_AF_INIT_POSITION);
 #endif
-
+#endif
 	is_mcu_set_reg_u8(mcu->regs[OM_REG_CORE], OIS_CMD_CACTRL_WRITE, 0x01);
 
 	/* set fadeup */
@@ -313,7 +390,11 @@ int is_vendor_ois_set_mode(struct v4l2_subdev *subdev, int mode)
 	ois = is_mcu->ois;
 
 	if (ois->fadeupdown == false) {
+#if defined(USE_OIS_AF_POSITION)
+		if (mcu->ois_fadeupdown == false || mcu->is_mcu_active == false) {
+#else
 		if (mcu->ois_fadeupdown == false) {
+#endif
 			mcu->ois_fadeupdown = true;
 			is_vendor_ois_set_ggfadeupdown(subdev, 1000, 1000);
 		}

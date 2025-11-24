@@ -460,8 +460,6 @@ static int __shrp_hf_otf_in_cfg(struct is_device_ischain *device,
 	struct param_otf_output *rgbp_otf_output = is_itf_g_param(device, frame, PARAM_RGBP_OTF_OUTPUT_HF);
 	struct param_otf_input *mcfp_otf_input = is_itf_g_param(device, frame, PARAM_MCFP_HF);
 
-	set_bit(pindex, pmap);
-
 	otf_input = is_itf_g_param(device, frame, pindex);
 
 	if (otf_input->cmd != (node->request ? OTF_INPUT_COMMAND_ENABLE : OTF_INPUT_COMMAND_DISABLE)) {
@@ -599,6 +597,8 @@ static int __shrp_dma_in_cfg(struct is_device_ischain *device,
 	u32 hw_order, hw_plane = 2;
 	u32 width, height, flag_extra;
 	int ret = 0;
+
+	set_bit(PARAM_SHRP_HF_OTF_INPUT, pmap);
 
 	if (node->vid == IS_LVN_SHRP_HF && node->request == SHRP_CMD_HF_OTF)
 		return __shrp_hf_otf_in_cfg(device, leader, frame, node, PARAM_SHRP_HF_OTF_INPUT, pmap);

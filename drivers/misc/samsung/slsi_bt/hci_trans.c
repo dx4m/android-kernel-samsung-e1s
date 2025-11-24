@@ -49,7 +49,7 @@ int hci_trans_send_skb(struct hci_trans *htr, struct sk_buff *skb)
 	struct hci_trans *next = hci_trans_get_next(htr);
 
 	BTTR_CALL_TRACE(htr, next);
-	if (next)
+	if (next && next->send_skb)
 		return next->send_skb(next, skb);
 
 	if (skb)
@@ -63,7 +63,7 @@ int hci_trans_recv_skb(struct hci_trans *htr, struct sk_buff *skb)
 
 	BTTR_CALL_TRACE(htr, prev);
 	TR_DBG("%s\n", hci_trans_get_name(prev));
-	if (prev)
+	if (prev && prev->recv_skb)
 		return prev->recv_skb(prev, skb);
 
 	if (skb)
@@ -71,7 +71,8 @@ int hci_trans_recv_skb(struct hci_trans *htr, struct sk_buff *skb)
 	return -EINVAL;
 }
 
-void hci_trans_init(struct hci_trans *htr, const char *name)
+void hci_trans_init(struct hci_trans *htr, const char *name,
+		    enum hci_trans_type type)
 {
 	if (htr == NULL)
 		return;
@@ -87,6 +88,7 @@ void hci_trans_init(struct hci_trans *htr, const char *name)
 	INIT_LIST_HEAD(&htr->list);
 	htr->head = htr;
 
+	htr->type = type;
 	htr->send_skb = hci_trans_send_skb;
 	htr->recv_skb = hci_trans_recv_skb;
 	htr->send = hci_trans_default_send;;
@@ -103,12 +105,12 @@ void hci_trans_deinit(struct hci_trans *htr)
 		htr->deinit(htr);
 }
 
-struct hci_trans *hci_trans_new(const char *name)
+struct hci_trans *hci_trans_new(const char *name, enum hci_trans_type type)
 {
 	struct hci_trans *htr =  kmalloc(sizeof(struct hci_trans), GFP_KERNEL);
 
 	if (htr) {
-		hci_trans_init(htr, name);
+		hci_trans_init(htr, name, type);
 		return htr;
 	}
 	return NULL;
@@ -120,6 +122,23 @@ void hci_trans_free(struct hci_trans *htr)
 		hci_trans_deinit(htr);
 		kfree(htr);
 	}
+}
+
+void hci_trans_add(struct hci_trans *htr, struct hci_trans *head)
+{
+	struct hci_trans *prev = NULL;
+
+	if (!htr || !head)
+		return;
+
+	list_add(&htr->list, &head->list);
+	htr->head = head->head;
+
+	prev = hci_trans_get_prev(htr);
+	TR_INFO("prev: %s -> htr: %s -> next: %s\n",
+		hci_trans_get_name(hci_trans_get_prev(htr)),
+		hci_trans_get_name(htr),
+		hci_trans_get_name(hci_trans_get_next(htr)));
 }
 
 void hci_trans_add_tail(struct hci_trans *htr, struct hci_trans *head)
@@ -141,7 +160,7 @@ void hci_trans_add_tail(struct hci_trans *htr, struct hci_trans *head)
 void hci_trans_del(struct hci_trans *htr)
 {
 	if (htr) {
-		htr->head = htr;
+		htr->head = NULL;
 		list_del(&htr->list);
 	}
 }
@@ -186,4 +205,56 @@ ssize_t hci_trans_default_recv(struct hci_trans *htr, const char *data,
 	TR_DBG("count: %zu\n", count);
 	skb = hci_trans_default_make_skb(data, count, flags);
 	return htr->recv_skb(htr, skb);
+}
+
+int hci_trans_suspend(struct hci_trans *htr)
+{
+	struct hci_trans *p, *block = NULL;
+	int ret = 0;
+
+	if (htr == NULL)
+		return 0;
+
+	list_for_each_entry(p, &htr->head->list, list) {
+		if (p->suspend) {
+			ret = p->suspend(p);
+			if (ret) {
+				block = p;
+				break;
+			}
+		}
+	}
+
+	if (block) {
+		int flag = false;
+
+		TR_INFO("%s suspend failed.\n", hci_trans_get_name(block));
+		list_for_each_entry_reverse(p, &htr->head->list, list) {
+			if (flag && p->resume)
+				p->resume(p);
+
+			if (p == block)
+				flag = true;
+		}
+	}
+	return ret;
+}
+
+int hci_trans_resume(struct hci_trans *htr)
+{
+	struct hci_trans *p;
+
+	if (htr == NULL)
+		return 0;
+
+	list_for_each_entry(p, &htr->head->list, list)
+		if (p->resume)
+			p->resume(p);
+
+	return 0;
+}
+
+enum hci_trans_type hci_trans_get_type(struct hci_trans *htr)
+{
+	return htr->type;
 }

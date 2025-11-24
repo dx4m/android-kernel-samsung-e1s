@@ -381,7 +381,7 @@ out:
 /* rbincache rb_tree & ra_tree helper functions */
 
 /* Cleancache API implementation start */
-static bool is_zero_page(struct page *page)
+static bool is_zero_filled(struct page *page)
 {
 	unsigned long *ptr = kmap_atomic(page);
 	int i;
@@ -444,6 +444,7 @@ static ssize_t refill_mode_store(struct kobject *kobj,
 	return count;
 }
 
+static unsigned long low_threshold;
 /*
  * function for cleancache_ops->put_page
  * Though it might fail, it does not matter since Cleancache does not
@@ -456,14 +457,14 @@ static void rc_store_page(int pool_id, struct cleancache_filekey key,
 	int ret;
 	bool zero;
 
-	if (!current_is_kswapd())
+	if (!current_is_kswapd() && !file_is_tiny(low_threshold))
 		return;
 
 	if (is_refill_blocked())
 		return;
 
 	atomic_inc(&rc_num_puts);
-	zero = is_zero_page(src);
+	zero = is_zero_filled(src);
 	if (zero) {
 		handle = (struct rr_handle *)ZERO_HANDLE;
 		goto out_zero;
@@ -849,6 +850,7 @@ int init_rbincache(unsigned long pfn, unsigned long nr_pages)
 		kobject_put(rbin_kobject);
 		pr_warn("sysfs initialization failed\n");
 	}
+	low_threshold = get_low_threshold();
 
 	pr_info("cleancache enabled for rbin cleancache\n");
 	return 0;

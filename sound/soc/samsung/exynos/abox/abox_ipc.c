@@ -122,6 +122,7 @@ static int __abox_ipc_send(struct device *dev, const ABOX_IPC_MSG *ipc, size_t s
 {
 	struct abox_msg_cmd cmd;
 	struct abox_msg_send_data data[2];
+	struct abox_data *abox_data = dev_get_drvdata(dev);
 	int ret = 0;
 	int count = 1;
 	int i;
@@ -129,6 +130,11 @@ static int __abox_ipc_send(struct device *dev, const ABOX_IPC_MSG *ipc, size_t s
 	abox_dbg(dev, "%s(%d, %d, %d, %zu, %zu)\n", __func__,
 			ipc->ipcid, ipc->task_id, ipc->msg.system.msgtype,
 			size, bundle_size);
+
+	if (!abox_can_calliope_ipc(dev, abox_data)) {
+		abox_err(dev, "Failed ipc send, state=%u\n", abox_data->calliope_state);
+		return -EIO;
+	}
 
 	data[0].data = ipc;
 	data[0].size = abox_ipc_fix_size(ipc, size);

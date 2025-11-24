@@ -465,14 +465,14 @@ static struct binder_buffer *binder_alloc_new_buf_locked(
 	}
 
 #ifdef CONFIG_SAMSUNG_FREECESS
-	if (is_async && (alloc->free_async_space < 3*(size + sizeof(struct binder_buffer))
-		|| (alloc->free_async_space < alloc->buffer_size/4))) {
+	if (is_async && (alloc->free_async_space < 3 * size
+		|| alloc->free_async_space < alloc->buffer_size/4)) {
 		struct task_struct *p;
 
 		rcu_read_lock();
 		p = find_task_by_vpid(alloc->pid);
 		rcu_read_unlock();
-		if (p && (thread_group_is_frozen(p) || p->jobctl & JOBCTL_TRAP_FREEZE))
+		if (p && (thread_group_is_frozen(p) || cgroup2_frozen(p)))
 			binder_report(p, -1, "free_buffer_full", is_async);
 	}
 #endif
@@ -972,9 +972,9 @@ void binder_alloc_deferred_release(struct binder_alloc *alloc)
 			__free_page(alloc->pages[i].page_ptr);
 			page_count++;
 		}
-		kfree(alloc->pages);
 	}
 	binder_alloc_unlock(alloc);
+	kfree(alloc->pages);
 	if (alloc->mm)
 		mmdrop(alloc->mm);
 
@@ -1332,4 +1332,4 @@ int binder_alloc_copy_from_buffer(struct binder_alloc *alloc,
 	return binder_alloc_do_buffer_copy(alloc, false, buffer, buffer_offset,
 					   dest, bytes);
 }
-
+EXPORT_SYMBOL_GPL(binder_alloc_copy_from_buffer);

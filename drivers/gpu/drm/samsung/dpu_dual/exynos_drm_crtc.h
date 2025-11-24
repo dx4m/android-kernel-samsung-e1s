@@ -18,6 +18,8 @@
 
 #include <exynos_drm_drv.h>
 #include <exynos_drm_debug.h>
+#include <exynos_drm_fence.h>
+
 #include <drm/drm_encoder.h>
 
 /* HAL color mode */
@@ -241,6 +243,8 @@ struct exynos_drm_crtc_state {
 	bool rcd_enabled;
 	u64 expected_present_time;
 	char *dqe_colormode_ctx;
+	struct drm_pending_vblank_event *event;
+	struct exynos_out_fence out_fence;
 #if IS_ENABLED(CONFIG_DRM_MCD_COMMON)
 	bool skip_frame_update;
 #endif
@@ -281,7 +285,6 @@ struct exynos_drm_crtc {
 	struct dpu_bts			*bts;
 	struct dpu_freq_hop_ops		*freq_hop;
 	enum exynos_drm_crc_state	crc_state;
-	struct drm_pending_vblank_event *event;
 	u32 rcd_plane_mask;
 };
 
@@ -300,8 +303,9 @@ uint32_t exynos_drm_get_possible_crtcs(struct drm_encoder *encoder,
 
 uint32_t crtc_get_bts_fps(const struct drm_crtc *crtc);
 
-void exynos_crtc_arm_event(struct exynos_drm_crtc *exynos_crtc);
-void exynos_crtc_send_event(struct exynos_drm_crtc *exynos_crtc);
+void exynos_crtc_arm_event(struct drm_crtc *crtc, struct drm_crtc_state *crtc_state);
+void exynos_crtc_send_event(struct exynos_drm_crtc *exynos_crtc,
+			    struct exynos_drm_crtc_state *exynos_crtc_state);
 
 static inline struct drm_encoder*
 crtc_get_encoder(const struct drm_crtc_state *crtc_state, u32 encoder_type)

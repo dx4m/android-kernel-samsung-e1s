@@ -8,27 +8,31 @@
  ******************************************************************************/
 #include <linux/skbuff.h>
 #include <linux/crc-ccitt.h>
-#include <linux/workqueue.h>
 #include <linux/mutex.h>
 #include <linux/time.h>
 #include <linux/bitrev.h>
 #include <linux/seq_file.h>
 #include <linux/delay.h>
 
-#include <scsc/scsc_wakelock.h>
+#include "scsc_mx_module.h"
+#include IN_SCSC_INC(scsc_wakelock.h)
 
 #include "slsi_bt_err.h"
 #include "hci_trans.h"
 #include "hci_pkt.h"
 #include "hci_bcsp.h"
+#include "slsi_bt_fastpath.h"
 
-struct hci_bcsp {
+#ifndef FALL_THROUGH
+#define FALL_THROUGH() __attribute__((__fallthrough__))
+#endif
+
+/* BCSp context */
+static struct hci_bcsp {
 	struct hci_trans                *htr;
 
 	struct work_struct              work_tx;
 	struct work_struct              work_timeout;
-	struct workqueue_struct	        *wq;
-	atomic_t                        tx_running;
 
 	struct mutex                    lock;
 	struct scsc_wake_lock           tx_wake_lock;
@@ -41,7 +45,7 @@ struct hci_bcsp {
 
 	struct timer_list               resend_timer;
 	struct timer_list               wakeup_timer;
-	atomic_t                        timer_running;
+	int                             wakeup_timeout_cnt;
 
 	int                             resend_cnt;
 	int                             ack_mismatch;
@@ -64,27 +68,28 @@ struct hci_bcsp {
 	unsigned char                   credit;
 	bool                            sw_fctrl;  /* OOF Flow Control */
 	bool                            ack_req;
-};
 
-static inline int bcsp_valid_lock(struct hci_bcsp *bcsp)
+	unsigned long                   flags;
+} slsi_bt_bcsp;
+
+/* BCSP flag bits */
+#define HCI_BCSP_OPENED        0
+#define HCI_BCSP_TX_WAKEUP     1
+#define HCI_BCSP_SENDING       2
+
+static void bcsp_set_resend_timeout(struct hci_bcsp *bcsp)
 {
-	if (bcsp) {
-		mutex_lock(&bcsp->lock);
-		if (bcsp && bcsp->htr)
-			return 0;
-
-		mutex_unlock(&bcsp->lock);
-		return -ENOLCK;
-	}
-	return -ENOLCK;
+	if (test_bit(HCI_BCSP_OPENED, &bcsp->flags))
+		mod_timer(&bcsp->resend_timer, HCI_BCSP_RESEND_TIMEOUT);
 }
 
-static inline void bcsp_unlock(struct hci_bcsp *bcsp)
+static void bcsp_set_wakeup_timeout(struct hci_bcsp *bcsp, unsigned long expires)
 {
-	if (bcsp)
-		mutex_unlock(&bcsp->lock);
+	if (test_bit(HCI_BCSP_OPENED, &bcsp->flags))
+		mod_timer(&bcsp->wakeup_timer, expires);
 }
 
+/* skbs */
 #define BCSP_HEADER_SIZE        (4)
 #define BCSP_PACKET_SIZE_MAX    (4+ 4095 + 2)
 #define SLIP_PAYLOAD_SIZE_MAX   (BCSP_PACKET_SIZE_MAX*2 + 2)
@@ -138,7 +143,7 @@ static inline int slip_special_oct_search(const unsigned char *data, int len,
 		case 0x13:
 			if (!sw_fctrl)
 				break;
-		__attribute__((__fallthrough__));
+		FALL_THROUGH();
 		case 0xc0:
 		case 0xdb:
 			return offset;
@@ -340,6 +345,108 @@ static inline bool slip_check_complete(struct sk_buff *skb)
 	return true;
 }
 
+/*******************************************************************************
+ * Fastpath for H5.
+ * Fastpath is a S.LSI specific functionality which is defined in SC-511108-SP.
+ * The packets for Fastpath is transmitted by VSPMP which is defined in
+ * SC-5111114-SP
+ ******************************************************************************/
+static void fastpath_enable(struct hci_bcsp *bcsp, bool enable)
+{
+	struct sk_buff *skb = NULL;
+
+	if (slsi_bt_fastpath_supported()) {
+		BT_INFO("fastpath enabled: %s\n", enable ? "true" : "false");
+		skb = slsi_bt_fastpath_enable_req_packet(enable);
+		if (skb)
+			skb_queue_tail(&bcsp->rel_q, skb);
+		else
+			BT_WARNING("FASTPATH_ENABLE_REQ_PACKET is not sent");
+	}
+}
+
+static int fastpath_control_packet_handle(struct hci_bcsp *bcsp,
+					  const char *data, size_t len)
+{
+	struct fastpath_datagram datagram;
+	struct sk_buff *rsp = NULL, *alter = NULL;
+	int pos = 0;
+
+	/* skip vspmp channel byte */
+	data++;
+	len--;
+
+	while (len > pos) {
+		unsigned char tag = data[pos++];
+		unsigned char length = data[pos++];
+		const char *value = &data[pos];
+		pos += length;
+
+		switch (tag) {
+		case FASTPATH_ENABLE_CFM_TAG:
+			BT_INFO("fastpath enable cfm: %u\n", *value);
+			break;
+
+		case FASTPATH_TO_AIR_ACTIVATE_IND_TAG:
+			BT_INFO("fastpath to air activate ind: %u\n", *value);
+			slsi_bt_fastpath_activate((bool)*value);
+
+			rsp = slsi_bt_fastpath_to_air_activate_rsp_packet();
+			if (rsp == NULL) {
+				BT_ERR("failed to alloc_hci_pkt_skb\n");
+				return -ENOMEM;
+			}
+			skb_queue_tail(&bcsp->rel_q, rsp);
+			break;
+
+		case FASTPATH_DATAGRAM_TAG:
+			BT_DBG("fastpath datagram: %u\n", value[0]);
+			slsi_bt_fastpath_bytes_to_datagram(&datagram, value);
+			alter = slsi_bt_fastpath_read(&datagram);
+
+			hci_trans_recv_skb(bcsp->htr, alter);
+			break;
+
+		default:
+			BT_ERR("Unsupported tag is received: %u\n", tag);
+			break;
+		}
+	}
+
+	return pos;
+}
+
+static struct sk_buff *change_to_fastpath(struct sk_buff *skb)
+{
+	struct fastpath_datagram datagram;
+	int err;
+
+	BT_DBG("send to fastpath\n");
+	err = slsi_bt_fastpath_write(skb, &datagram);
+	kfree_skb(skb);
+	if (err) {
+		BT_ERR("failed to slsi_bt_fastpath_write: %d\n", err);
+		return NULL;
+	}
+
+	skb = slsi_bt_fastpath_datagram_packet(&datagram);
+	if (skb == NULL) {
+		BT_ERR("failed to allocate_hci_pkt_skb\n");
+		return NULL;
+	}
+	BT_DBG("FASTPATH_DATAGRAM\n");
+	return skb;
+}
+
+static void bcsp_update_fastpath_infor(struct sk_buff *skb, int key)
+{
+	if (GET_HCI_PKT_TYPE(skb) != HCI_BCSP_TYPE_VENDOR)
+		return;
+
+	slsi_bt_fastpath_update_key(skb->data + BCSP_HEADER_SIZE,
+				    skb->len + BCSP_HEADER_SIZE, key);
+}
+
 /********************************** BCSP Packet *******************************/
 static inline bool bcsp_cross_scenario_detected(struct hci_bcsp *bcsp)
 {
@@ -386,10 +493,10 @@ static inline bool bcsp_check_reliable(const unsigned char type)
 	case HCI_BCSP_TYPE_ACL:
 	case HCI_BCSP_TYPE_CMD:
 	case HCI_BCSP_TYPE_ISO:
+	case HCI_BCSP_TYPE_SCO:
 	case HCI_BCSP_TYPE_VENDOR:
 		return true;
 	case HCI_BCSP_TYPE_ACK:
-	case HCI_BCSP_TYPE_SCO:
 	case HCI_BCSP_TYPE_LINK_CONTROL:
 	default:
 		return false;
@@ -428,6 +535,8 @@ static void bcsp_skb_update_packet(struct hci_bcsp *bcsp, struct sk_buff *skb)
 		TR_DBG("reliable packet. seq=%u\n", bcsp->seq);
 		hdr[0] = (bcsp->seq & 0x7) | (0x1 << 7);
 		bcsp->seq = (bcsp->seq + 1) & 0x7;
+
+		bcsp_update_fastpath_infor(skb, bcsp->seq);
 	}
 
 	if (!bcsp_skb_check_data_integrity_option(skb))
@@ -675,7 +784,7 @@ static int bcsp_link_establishment(struct hci_bcsp *bcsp, struct sk_buff *rsp)
 		switch (rmsg) {
 		case BCSP_LINK_MSG_UNKNOWN:
 			msg = BCSP_LINK_MSG_SYNC;
-			mod_timer(&bcsp->resend_timer, HCI_BCSP_RESEND_TIMEOUT);
+			bcsp_set_resend_timeout(bcsp);
 			break;
 		case BCSP_LINK_MSG_SYNC:
 			msg = BCSP_LINK_MSG_SYNC_RSP;
@@ -683,13 +792,13 @@ static int bcsp_link_establishment(struct hci_bcsp *bcsp, struct sk_buff *rsp)
 		case BCSP_LINK_MSG_SYNC_RSP:
 			bcsp->state = HCI_BCSP_LINK_INITIALIZED;
 			msg = BCSP_LINK_MSG_CONF;
-			mod_timer(&bcsp->resend_timer, HCI_BCSP_RESEND_TIMEOUT);
+			bcsp_set_resend_timeout(bcsp);
 			break;
 		default:
 			TR_WARNING("UNINITIALIZED state: Invalid message(%s)\n",
 				message_to_str[rmsg]);
 			msg = BCSP_LINK_MSG_SYNC;
-			mod_timer(&bcsp->resend_timer, HCI_BCSP_RESEND_TIMEOUT);
+			bcsp_set_resend_timeout(bcsp);
 			break;
 		}
 		break;
@@ -698,7 +807,7 @@ static int bcsp_link_establishment(struct hci_bcsp *bcsp, struct sk_buff *rsp)
 		switch (rmsg) {
 		case BCSP_LINK_MSG_UNKNOWN:    /* Time out */
 			msg = BCSP_LINK_MSG_CONF;
-			mod_timer(&bcsp->resend_timer, HCI_BCSP_RESEND_TIMEOUT);
+			bcsp_set_resend_timeout(bcsp);
 			break;
 		case BCSP_LINK_MSG_SYNC:
 			msg = BCSP_LINK_MSG_SYNC_RSP;
@@ -727,7 +836,7 @@ static int bcsp_link_establishment(struct hci_bcsp *bcsp, struct sk_buff *rsp)
 		if (rmsg == BCSP_LINK_MSG_CONF)
 			bcsp->state = HCI_BCSP_LINK_ACTIVE;
 		/* fall through */
-		__attribute__((__fallthrough__));
+		FALL_THROUGH();
 	case HCI_BCSP_LINK_ACTIVE:
 	case HCI_BCSP_LINK_LOW_POWER:
 		switch (rmsg) {
@@ -750,11 +859,12 @@ static int bcsp_link_establishment(struct hci_bcsp *bcsp, struct sk_buff *rsp)
 		skb = bcsp_link_msg_build(bcsp, msg);
 		if (skb == NULL)
 			return 0;
+		SET_HCI_PKT_TYPE(skb, HCI_BCSP_TYPE_LINK_CONTROL);
 		skb_queue_tail(&bcsp->unrel_q, skb);
 		bcsp_link_peer_state_assume(bcsp, msg);
 	}
 
-	TR_DBG("%s is received, send %s (link state host=%s controller=%s)\n",
+	TR_INFO("%s is received, send %s (link state host=%s controller=%s)\n",
 		message_to_str[rmsg], message_to_str[msg],
 		state_to_str[bcsp->state], state_to_str[bcsp->peer_state]);
 
@@ -782,14 +892,22 @@ static int bcsp_link_low_power(struct hci_bcsp *bcsp, struct sk_buff *rsp)
 		}
 		skb_queue_head(&bcsp->unrel_q, skb);
 		/* fall through: WAKEUP reception means bt is already awake */
-		__attribute__((__fallthrough__));
+		FALL_THROUGH();
 	case BCSP_LINK_MSG_WOKEN:
-		bcsp->peer_state = HCI_BCSP_LINK_ACTIVE;
 		del_timer(&bcsp->wakeup_timer);
-		if (bcsp_cross_scenario_detected(bcsp)) {
-			BT_DBG("Cross scenario detected. "
-			       "The last packet have been lost.\n");
-			bcsp_reload_unacked_packets(bcsp);
+		if (bcsp->peer_state == HCI_BCSP_LINK_LOW_POWER) {
+			bcsp->peer_state = HCI_BCSP_LINK_ACTIVE;
+			if (bcsp->wakeup_timeout_cnt > 0) {
+				BT_DBG("woken! wakeup retried %d times\n",
+					bcsp->wakeup_timeout_cnt);
+				bcsp->wakeup_timeout_cnt = 0;
+			}
+
+			if (bcsp_cross_scenario_detected(bcsp)) {
+				BT_DBG("Cross scenario detected. "
+				       "The last packet have been lost.\n");
+				bcsp_reload_unacked_packets(bcsp);
+			}
 		}
 		break;
 	case BCSP_LINK_MSG_SLEEP:
@@ -797,8 +915,7 @@ static int bcsp_link_low_power(struct hci_bcsp *bcsp, struct sk_buff *rsp)
 		if (bcsp_cross_scenario_detected(bcsp)) {
 			BT_DBG("Cross scenario detected. "
 			       "BT should be woken in wakeup timeout.\n");
-			mod_timer(&bcsp->wakeup_timer,
-				  HCI_BCSP_RESEND_WAKEUP_MS);
+			bcsp_set_wakeup_timeout(bcsp, HCI_BCSP_RESEND_WAKEUP_AFTER_CROSS_MS);
 		}
 		break;
 	default:
@@ -825,7 +942,7 @@ static void bcsp_link_wakeup(struct hci_bcsp *bcsp)
 		if (skb == NULL)
 			return;
 		skb_queue_head(&bcsp->unrel_q, skb);
-		mod_timer(&bcsp->wakeup_timer, HCI_BCSP_RESEND_WAKEUP_MS);
+		bcsp_set_wakeup_timeout(bcsp, HCI_BCSP_RESEND_WAKEUP_MS);
 	}
 }
 
@@ -840,7 +957,7 @@ static int bcsp_link_control_handle(struct hci_bcsp *bcsp, struct sk_buff *rsp)
 		if (bcsp_link_low_power(bcsp, rsp) == 0)
 			return 0;
 		/* fall through */
-		__attribute__((__fallthrough__));
+		FALL_THROUGH();
 	case HCI_BCSP_LINK_UNINITITALIZED:
 	case HCI_BCSP_LINK_INITIALIZED:
 	case HCI_BCSP_LINK_WAIT_PEER_ACTIVE:
@@ -849,6 +966,26 @@ static int bcsp_link_control_handle(struct hci_bcsp *bcsp, struct sk_buff *rsp)
 	TR_WARNING("Link control packet is received in unexpected state\n");
 	return -EINVAL;
 }
+
+static int bcsp_vspmp_handle(struct hci_bcsp *bcsp, struct sk_buff *skb)
+{
+	/* The VSPMP should be handled at the upper layers, but only FASTPATH
+	 * channel is handled here due to its H5 dependency */
+	const char *p = skb->data + BCSP_HEADER_SIZE;
+	const int plen = skb->len - BCSP_HEADER_SIZE - (bcsp->use_crc ? 2 : 0);
+
+	if (plen < 0)
+		return -EINVAL;
+
+	switch (*p) {
+	case VSPMP_CHANNEL_FASTPATH:
+		TR_DBG("Fastpath control packet\n");
+		return fastpath_control_packet_handle(bcsp, p, plen);
+	}
+	return 0;
+}
+
+/******************************************************************************/
 
 static int bcsp_skb_send(struct hci_bcsp *bcsp, struct sk_buff *skb)
 {
@@ -884,32 +1021,23 @@ static inline bool sending_standby(struct hci_bcsp *bcsp)
 	    bcsp_cross_scenario_detected(bcsp))
 		return true;
 
-	return (!skb_queue_empty(&bcsp->unrel_q)) ||
-	       (!skb_queue_empty(&bcsp->rel_q) && bcsp->credit > 0);
+	if (!skb_queue_empty(&bcsp->unrel_q))
+		return true;
+
+	return (is_bcsp_link_activated(bcsp) &&
+		!skb_queue_empty(&bcsp->rel_q) &&
+		bcsp->credit > 0);
 }
 
-static int txwork_unreliable_channel(struct hci_bcsp *bcsp)
+static void txwork_unreliable_channel(struct hci_bcsp *bcsp)
 {
 	struct sk_buff *skb = skb_dequeue(&bcsp->unrel_q);
-	bool unlock = mutex_is_locked(&bcsp->lock);
 
-	/* When sending unreliable packets are a lot, there is no receiving
-	 * chance for long time. let it schedule receiving thread by
-	 * unlocking the mutex. This concept is only for data (LINK_ACTIVE).
-	 */
-	unlock = unlock && bcsp->state == HCI_BCSP_LINK_ACTIVE
-			&& bcsp->peer_state == HCI_BCSP_LINK_ACTIVE;
 	if (skb) {
-		TR_DBG("%d bytes, need to unlock: %d\n", skb->len, unlock);
-		if (unlock)
-			bcsp_unlock(bcsp);
+		TR_DBG("%d bytes\n", skb->len);
 		bcsp_skb_send(bcsp, skb);
 		kfree_skb(skb);
-		if (unlock)
-			return bcsp_valid_lock(bcsp);
 	}
-
-	return 0;
 }
 
 static void txwork_reliable_channel(struct hci_bcsp *bcsp)
@@ -927,7 +1055,7 @@ static void txwork_reliable_channel(struct hci_bcsp *bcsp)
 		bcsp->credit--;
 		skb_queue_tail(&bcsp->sent_q, skb);
 		TR_DBG("reset resend_timer to %lu\n", HCI_BCSP_RESEND_TIMEOUT);
-		mod_timer(&bcsp->resend_timer, HCI_BCSP_RESEND_TIMEOUT);
+		bcsp_set_resend_timeout(bcsp);
 	}
 }
 
@@ -945,13 +1073,10 @@ static void txwork_acknowledgement(struct hci_bcsp *bcsp)
 
 static void _bcsp_txwork(struct hci_bcsp *bcsp)
 {
-	atomic_set(&bcsp->tx_running, true);
 	while (sending_standby(bcsp)) {
 
 		/* 1. wake up */
 		if (bcsp->peer_state == HCI_BCSP_LINK_LOW_POWER) {
-			/* Unset flag first. This thread will be terminated. */
-			atomic_set(&bcsp->tx_running, false);
 			bcsp_link_wakeup(bcsp);
 			txwork_unreliable_channel(bcsp);
 			/* It needs at least a one character gap between the
@@ -965,14 +1090,12 @@ static void _bcsp_txwork(struct hci_bcsp *bcsp)
 		}
 
 		/* 2. unreliable packet */
-		if (txwork_unreliable_channel(bcsp) != 0)
-			return;
+		txwork_unreliable_channel(bcsp);
 
 		/* 3. reliable packet */
-		if (bcsp->peer_state == HCI_BCSP_LINK_ACTIVE)
+		if (is_bcsp_link_activated(bcsp))
 			txwork_reliable_channel(bcsp);
 	}
-	atomic_set(&bcsp->tx_running, false);
 
 	if (bcsp->ack_req)
 		txwork_acknowledgement(bcsp);
@@ -982,35 +1105,45 @@ static void bcsp_txwork_func(struct work_struct *work)
 {
 	struct hci_bcsp *bcsp = container_of(work, struct hci_bcsp, work_tx);
 
-	if (bcsp_valid_lock(bcsp) == 0) {
-		TR_DBG("credits=%u, unrel_q#=%u, rel_q#=%u\n", bcsp->credit,
-			skb_queue_len(&bcsp->unrel_q),
-			skb_queue_len(&bcsp->rel_q));
-
-		wake_lock(&bcsp->tx_wake_lock);
-		_bcsp_txwork(bcsp);
-
-		/* bcsp can be terminated during doing _bcsp_txwork().
-		 * It needs to verify bcsp again to use bcsp for wake_unlock.
-		 */
-		if (bcsp && wake_lock_active(&bcsp->tx_wake_lock))
-			wake_unlock(&bcsp->tx_wake_lock);
-		bcsp_unlock(bcsp);
+	if (!test_bit(HCI_BCSP_OPENED, &bcsp->flags)) {
+		TR_ERR("txwork is called after closing bcsp htr.\n");
+		return;
 	}
+
+	if (slsi_bt_err_status()) {
+		TR_WARNING("bt is in error status.\n");
+		del_timer(&bcsp->resend_timer);
+		del_timer(&bcsp->wakeup_timer);
+		return;
+	}
+
+	mutex_lock(&bcsp->lock);
+	TR_DBG("credits=%u, unrel_q#=%u, rel_q#=%u\n", bcsp->credit,
+		skb_queue_len(&bcsp->unrel_q), skb_queue_len(&bcsp->rel_q));
+
+	wake_lock(&bcsp->tx_wake_lock);
+	do {
+		clear_bit(HCI_BCSP_TX_WAKEUP, &bcsp->flags);
+		_bcsp_txwork(bcsp);
+		clear_bit(HCI_BCSP_SENDING, &bcsp->flags);
+	} while (test_bit(HCI_BCSP_TX_WAKEUP, &bcsp->flags));
+	wake_unlock(&bcsp->tx_wake_lock);
+
+	mutex_unlock(&bcsp->lock);
 	TR_DBG("exit\n");
 }
 
-static void bcsp_txwork_continue(struct hci_bcsp *bcsp)
+static void bcsp_write_wakeup(struct hci_bcsp *bcsp)
 {
-	/* This function is recommaned to be called in ciritical section that
-	 * protected area by bcsp->lock.
-	 */
-	if (!mutex_is_locked(&bcsp->lock))
-		TR_DBG("bcsp is not locked. packets can be pending\n");
+	if (!sending_standby(bcsp) && !bcsp->ack_req)
+		return;
 
-	if (sending_standby(bcsp) || bcsp->ack_req)
-		if (atomic_read(&bcsp->tx_running) == false)
-			queue_work(bcsp->wq, &bcsp->work_tx);
+	set_bit(HCI_BCSP_TX_WAKEUP, &bcsp->flags);
+	if (test_and_set_bit(HCI_BCSP_SENDING, &bcsp->flags))
+		return;
+
+	if (test_bit(HCI_BCSP_OPENED, &bcsp->flags))
+		schedule_work(&bcsp->work_tx);
 }
 
 static void bcsp_timeoutwork_func(struct work_struct *work)
@@ -1018,60 +1151,75 @@ static void bcsp_timeoutwork_func(struct work_struct *work)
 	struct hci_bcsp *bcsp = container_of(work, struct hci_bcsp,
 		work_timeout);
 
+	mutex_lock(&bcsp->lock);
 	TR_DBG("status=%s, resend count=%d, retry_limit=%d\n",
 		state_to_str[bcsp->state], bcsp->resend_cnt,
 		HCI_BCSP_RESEND_LIMIT);
 
-	if (bcsp_valid_lock(bcsp) == 0) {
-		if (bcsp->state < HCI_BCSP_LINK_ACTIVE) {
-			TR_DBG("link establishment timeout.\n");
-			bcsp_link_establishment(bcsp, NULL);
-		} else if (++bcsp->resend_cnt > HCI_BCSP_RESEND_LIMIT) {
-			TR_ERR("The retry limit has been reached\n");
-			slsi_bt_err(SLSI_BT_ERR_BCSP_RESEND_LIMIT);
-		} else
-			bcsp_reload_unacked_packets(bcsp);
+	if (bcsp->state < HCI_BCSP_LINK_ACTIVE) {
+		TR_DBG("link establishment timeout.\n");
+		bcsp_link_establishment(bcsp, NULL);
+	} else if (++bcsp->resend_cnt > HCI_BCSP_RESEND_LIMIT) {
+		TR_ERR("The retry limit has been reached\n");
+		slsi_bt_err(SLSI_BT_ERR_BCSP_RESEND_LIMIT);
+	} else
+		bcsp_reload_unacked_packets(bcsp);
 
-		bcsp_txwork_continue(bcsp);
-		bcsp_unlock(bcsp);
-	}
+	bcsp_write_wakeup(bcsp);
+	mutex_unlock(&bcsp->lock);
 }
 
 static void bcsp_send_timeout(struct timer_list *t)
 {
 	struct hci_bcsp *bcsp = from_timer(bcsp, t, resend_timer);
 
-	TR_WARNING("timeout: resend_timer is expired\n");
-	if (bcsp && bcsp->wq) {
-		atomic_inc(&bcsp->timer_running);
-		queue_work(bcsp->wq, &bcsp->work_timeout);
-		atomic_dec(&bcsp->timer_running);
+	if (test_bit(HCI_BCSP_OPENED, &bcsp->flags)) {
+		if (bcsp->state == HCI_BCSP_LINK_UNINITITALIZED)
+			TR_DBG("waiting for starting the controller\n");
+		else
+			TR_WARNING("timeout: resend_timer is expired\n");
+		schedule_work(&bcsp->work_timeout);
 	}
 }
 
 static void bcsp_wakeup_timeout(struct timer_list *t)
 {
 	struct hci_bcsp *bcsp = from_timer(bcsp, t, wakeup_timer);
+	const int warning_cnt = 5;
+	const int max_cnt = 20;
 
-	if (!bcsp || bcsp->peer_state != HCI_BCSP_LINK_LOW_POWER || !bcsp->htr)
+	if (!test_bit(HCI_BCSP_OPENED, &bcsp->flags))
 		return;
 
-	TR_WARNING("timeout: wakeup_timer has expired"
-		   " - peer has not responded\n");
-	atomic_inc(&bcsp->timer_running);
+	if (bcsp->peer_state != HCI_BCSP_LINK_LOW_POWER || !bcsp->htr)
+		return;
+
+	bcsp->wakeup_timeout_cnt++;
+	if (bcsp->wakeup_timeout_cnt == 1) {
+		TR_DBG("wakeup retry, attempt %d\n", bcsp->wakeup_timeout_cnt);
+
+	} else if (bcsp->wakeup_timeout_cnt >= max_cnt) {
+		TR_ERR("The wakeup retry limit has been reached (%d)\n",
+			bcsp->wakeup_timeout_cnt);
+		return;
+
+	} else if (bcsp->wakeup_timeout_cnt % warning_cnt == 0) {
+		TR_WARNING("wakeup retry, attempt %d\n",
+			bcsp->wakeup_timeout_cnt);
+	}
 
 	/* wakeup message will be resend in txwork. if txwork is still
 	 * working, wakeup timer start again to prevent missing retry.
 	 */
-	if (atomic_read(&bcsp->tx_running))
-		mod_timer(&bcsp->wakeup_timer, HCI_BCSP_RESEND_WAKEUP_MS);
+	if (test_bit(HCI_BCSP_SENDING, &bcsp->flags))
+		bcsp_set_wakeup_timeout(bcsp, HCI_BCSP_RESEND_WAKEUP_MS);
 	else
-		bcsp_txwork_continue(bcsp);
-	atomic_dec(&bcsp->timer_running);
+		bcsp_write_wakeup(bcsp);
 }
 
 static void bcsp_ack_handle(struct hci_bcsp *bcsp, unsigned char rack)
 {
+	struct sk_buff *skb;
 	unsigned char ack_cnt = ((rack + 8) - bcsp->rack) & 0x7;
 
 	if (bcsp->credit + ack_cnt == 0)
@@ -1085,11 +1233,21 @@ static void bcsp_ack_handle(struct hci_bcsp *bcsp, unsigned char rack)
 		bcsp_restore_credit(bcsp);
 		TR_DBG("del_timer\n");
 		del_timer(&bcsp->resend_timer);
+
+		slsi_bt_fastpath_acknowledgement_all();
 	} else {
-		TR_DBG("wait for %d of acks\n", skb_queue_len(&bcsp->sent_q));
-		while (ack_cnt-- && !skb_queue_empty(&bcsp->sent_q)) {
-			skb_dequeue(&bcsp->sent_q);
+		unsigned char key = (rack - ack_cnt) & 0x7;
+		unsigned char _cnt = ack_cnt;
+
+		TR_DBG("ack_cnt=%d, wait for %d of acks\n",
+			ack_cnt, skb_queue_len(&bcsp->sent_q));
+		while (_cnt-- && !skb_queue_empty(&bcsp->sent_q)) {
+			skb = skb_dequeue(&bcsp->sent_q);
 			bcsp->credit++;
+
+			slsi_bt_fastpath_acknowledgement(key);
+			key = (key + 1) & 0x7;
+			kfree_skb(skb);
 		}
 	}
 
@@ -1182,6 +1340,10 @@ static void bcsp_skb_recv(struct hci_bcsp *bcsp, struct sk_buff *skb)
 		TR_DBG("Link control packet\n");
 		bcsp_link_control_handle(bcsp, skb);
 		break;
+	case HCI_BCSP_TYPE_VENDOR:
+		if (bcsp_vspmp_handle(bcsp, skb))
+			return;
+		FALL_THROUGH();
 	default:
 		if (!is_bcsp_link_activated(bcsp)) {
 			TR_WARNING("Packet is received in inactive state\n");
@@ -1200,6 +1362,7 @@ static void bcsp_reload_unacked_packets(struct hci_bcsp *bcsp)
 
 	TR_DBG("reload %u packet(s) to rel_q\n", skb_queue_len(&bcsp->sent_q));
 	while ((skb = skb_dequeue_tail(&bcsp->sent_q)) != NULL) {
+		bcsp_update_fastpath_infor(skb, FASTPATH_INVALID_KEY);
 		skb_queue_head(&bcsp->rel_q, skb);
 		bcsp->seq = (bcsp->seq - 1) & 0x7;
 	}
@@ -1213,18 +1376,22 @@ static int hci_bcsp_skb_send(struct hci_trans *htr, struct sk_buff *skb)
 	if (htr == NULL || skb == NULL || bcsp == NULL)
 		return -EINVAL;
 
-	if (bcsp_valid_lock(bcsp) == 0) {
-		TR_DBG("hci packet type:%d, len:%u\n",
-			GET_HCI_PKT_TYPE(skb), skb->len);
+	mutex_lock(&bcsp->lock);
+	TR_DBG("hci packet type:%d, len:%u\n", GET_HCI_PKT_TYPE(skb), skb->len);
 
-		if (bcsp_check_reliable(GET_HCI_PKT_TYPE(skb)))
-			skb_queue_tail(&bcsp->rel_q, skb);
-		else
-			skb_queue_tail(&bcsp->unrel_q, skb);
-
-		bcsp_txwork_continue(bcsp);
-		bcsp_unlock(bcsp);
+	if (slsi_bt_fastpath_available(skb)) {
+		skb = change_to_fastpath(skb);
+		if (skb == NULL)
+			return -ENOMEM;
 	}
+
+	if (bcsp_check_reliable(GET_HCI_PKT_TYPE(skb)))
+		skb_queue_tail(&bcsp->rel_q, skb);
+	else
+		skb_queue_tail(&bcsp->unrel_q, skb);
+
+	bcsp_write_wakeup(bcsp);
+	mutex_unlock(&bcsp->lock);
 	return 0;
 }
 
@@ -1255,19 +1422,23 @@ static int hci_bcsp_skb_recv(struct hci_trans *htr, struct sk_buff *slip_skb)
 		return -ENOMEM;;
 	}
 
-	// rx bcsp
-	if (bcsp_valid_lock(bcsp) == 0) {
-		BTTR_TRACE_HEX(BTTR_TAG_BCSP_RX, skb);
-		if (bcsp_skb_recv_handle(bcsp, skb) == 0)
-			bcsp_skb_recv(bcsp, skb);
-		else {
-			BT_WARNING("bcsp has failed. "
-				   "The packet is discarded.\n");
-			ret = -EINVAL;
-		}
-		bcsp_txwork_continue(bcsp);
-		bcsp_unlock(bcsp);
+	if (!test_bit(HCI_BCSP_OPENED, &bcsp->flags)) {
+		kfree_skb(skb);
+		return -EIO;
 	}
+
+	// rx bcsp
+	mutex_lock(&bcsp->lock);
+	BTTR_TRACE_HEX(BTTR_TAG_BCSP_RX, skb);
+	if (bcsp_skb_recv_handle(bcsp, skb) == 0)
+		bcsp_skb_recv(bcsp, skb);
+	else {
+		BT_WARNING("bcsp has failed. "
+			   "The packet is discarded.\n");
+		ret = -EINVAL;
+	}
+	bcsp_write_wakeup(bcsp);
+	mutex_unlock(&bcsp->lock);
 
 	if (ret > 0 && GET_HCI_PKT_TR_TYPE(skb) == HCI_TRANS_HCI)
 		return hci_trans_recv_skb(htr, skb);
@@ -1285,31 +1456,35 @@ static ssize_t hci_bcsp_recv(struct hci_trans *htr, const char *data,
 	if (htr == NULL || bcsp == NULL || data == NULL)
 		return 0;
 
-	if (bcsp_valid_lock(bcsp) == 0) {
-		ret = slip_collect_pkt(&bcsp->collect_skb, data, count);
-		if (ret < 0) {
-			BT_WARNING("cannot collect SLIP packet: "
-				   "drop all bytes\n");
-			ret = count;
-			goto out;
-		} else if (bcsp->collect_skb == NULL) {
-			BT_WARNING("cannot collect SLIP packet: "
-				   "drop %zd bytes\n", ret);
-			goto out;
-		}
-
-		if (GET_HCI_PKT_TR_TYPE(bcsp->collect_skb) == HCI_TRANS_BCSP) {
-			// Collecting is completed
-			struct sk_buff *skb = bcsp->collect_skb;
-			bcsp->collect_skb = NULL;
-			bcsp_unlock(bcsp);
-
-			hci_bcsp_skb_recv(htr, skb);
-			return ret;
-		}
-out:
-		bcsp_unlock(bcsp);
+	if (!test_bit(HCI_BCSP_OPENED, &bcsp->flags)) {
+		return -EIO;
 	}
+
+	mutex_lock(&bcsp->lock);
+	ret = slip_collect_pkt(&bcsp->collect_skb, data, count);
+	if (ret < 0) {
+		BT_WARNING("cannot collect SLIP packet: "
+			   "drop all bytes\n");
+		ret = count;
+		goto out;
+	} else if (bcsp->collect_skb == NULL) {
+		BT_WARNING("cannot collect SLIP packet: "
+			   "drop %zd bytes\n", ret);
+		goto out;
+	}
+
+	if (GET_HCI_PKT_TR_TYPE(bcsp->collect_skb) == HCI_TRANS_BCSP) {
+		// Collecting is completed
+		struct sk_buff *skb = bcsp->collect_skb;
+
+		bcsp->collect_skb = NULL;
+		mutex_unlock(&bcsp->lock);
+
+		hci_bcsp_skb_recv(htr, skb);
+		return ret;
+	}
+out:
+	mutex_unlock(&bcsp->lock);
 	return ret;
 }
 
@@ -1317,13 +1492,12 @@ static int hci_bcsp_proc_show(struct hci_trans *htr, struct seq_file *m)
 {
 	struct hci_bcsp *bcsp = get_hci_bcsp(htr);
 
-	if (bcsp_valid_lock(bcsp) != 0)
-		return 0;
+	mutex_lock(&bcsp->lock);
 	seq_printf(m, "\n  %s:\n", hci_trans_get_name(htr));
 	seq_printf(m, "    bcsp locking state     = %u\n",
 		mutex_is_locked(&bcsp->lock));
 	seq_printf(m, "    TX Work running state  = %u\n",
-		atomic_read(&bcsp->tx_running));
+		test_bit(HCI_BCSP_SENDING, &bcsp->flags));
 	seq_puts(m, "\n");
 	seq_printf(m, "    Reliable queue length  = %u\n",
 		skb_queue_len(&bcsp->rel_q));
@@ -1346,33 +1520,94 @@ static int hci_bcsp_proc_show(struct hci_trans *htr, struct seq_file *m)
 	seq_puts(m, "\n");
 	seq_printf(m, "    BCSP Sequence number   = %u\n", bcsp->seq);
 	seq_printf(m, "    BCSP Acknowledgement   = %u\n", bcsp->ack);
-	seq_printf(m, "    BCSP Last recevied ack = %u\n", bcsp->rack);
+	seq_printf(m, "    BCSP Last received ack = %u\n", bcsp->rack);
 	seq_printf(m, "    BCSP Use CRC           = %d\n", bcsp->use_crc);
 	seq_printf(m, "    BCSP Current credits   = %u\n", bcsp->credit);
 	seq_printf(m, "    BCSP Ack requests      = %d\n", bcsp->ack_req);
-	bcsp_unlock(bcsp);
-	return 0;
+	mutex_unlock(&bcsp->lock);
+	return slsi_bt_fastpath_proc_show(m);
 }
 
-int hci_bcsp_init(struct hci_trans *htr)
+int hci_bcsp_open(struct hci_trans *htr)
 {
-	struct hci_bcsp *bcsp;
+	struct hci_bcsp *bcsp = &slsi_bt_bcsp;
 
 	if (htr == NULL)
 		return -EINVAL;
 
-	bcsp = kzalloc(sizeof(struct hci_bcsp), GFP_KERNEL);
-	if (bcsp == NULL)
-		return -ENOMEM;
-
-	bcsp->wq = create_singlethread_workqueue("bt_hci_bcsp_wq");
-	if (bcsp->wq == NULL) {
-		kfree(bcsp);
-		BT_ERR("Fail to create workqueue\n");
-		return -ENOMEM;
-	}
+	/* Setup HCI transport for bcsp */
+	htr->send_skb = hci_bcsp_skb_send;
+	htr->recv_skb = hci_bcsp_skb_recv;
+	htr->recv = hci_bcsp_recv;
+	htr->proc_show = hci_bcsp_proc_show;
+	htr->deinit = hci_bcsp_close;
+	htr->tdata = bcsp;
 
 	bcsp->htr = htr;
+	bcsp->wakeup_timeout_cnt = 0;
+	bcsp->seq = 0;
+	bcsp->ack = 0;
+	bcsp->rack = 0;
+	bcsp->ack_req = 0;
+
+	set_bit(HCI_BCSP_OPENED, &bcsp->flags);
+
+	/* Link Establishment */
+	bcsp_link_peer_state_assume(bcsp, HCI_BCSP_LINK_UNINITITALIZED);
+	bcsp_link_establishment(bcsp, NULL);
+	fastpath_enable(bcsp, true);
+	bcsp_write_wakeup(bcsp);
+
+	BT_INFO("done\n");
+	return 0;
+}
+
+void hci_bcsp_close(struct hci_trans *htr)
+{
+	struct hci_bcsp *bcsp = &slsi_bt_bcsp;
+
+	TR_INFO("close\n");
+
+	if (!test_bit(HCI_BCSP_OPENED, &bcsp->flags))
+		return;
+
+	clear_bit(HCI_BCSP_OPENED, &bcsp->flags);
+
+	if (slsi_bt_fastpath_supported())
+		slsi_bt_fastpath_activate(false);
+
+	del_timer(&bcsp->resend_timer);
+	del_timer(&bcsp->wakeup_timer);
+
+	clear_bit(HCI_BCSP_TX_WAKEUP, &bcsp->flags);
+	cancel_work_sync(&bcsp->work_tx);
+	cancel_work_sync(&bcsp->work_timeout);
+
+	mutex_lock(&bcsp->lock);
+	bcsp->htr->tdata = NULL;
+	bcsp->htr = NULL;
+
+	skb_queue_purge(&bcsp->rel_q);
+	skb_queue_purge(&bcsp->sent_q);
+	skb_queue_purge(&bcsp->unrel_q);
+	bcsp->ack_req = 0;
+
+	if (bcsp->collect_skb) {
+		kfree_skb(bcsp->collect_skb);
+		bcsp->collect_skb = NULL;
+	}
+
+	bcsp->state = HCI_BCSP_LINK_UNINITITALIZED;
+	bcsp->peer_state = HCI_BCSP_LINK_UNINITITALIZED;
+	bcsp->flags = 0;
+
+	mutex_unlock(&bcsp->lock);
+}
+
+int hci_bcsp_init(void)
+{
+	struct hci_bcsp *bcsp = &slsi_bt_bcsp;
+
 	bcsp->use_crc = false;
 	bcsp->cfg = HCI_BCSP_WINDOWSIZE & 0x7;
 	bcsp->cfg |= (HCI_BCSP_SW_FLOW_CTR & 0x1) << 3;
@@ -1391,94 +1626,20 @@ int hci_bcsp_init(struct hci_trans *htr)
 
 	timer_setup(&bcsp->resend_timer, bcsp_send_timeout, 0);
 	timer_setup(&bcsp->wakeup_timer, bcsp_wakeup_timeout, 0);
-	atomic_set(&bcsp->timer_running, 0);
 
-	/* Setup HCI transport for bcsp */
-	htr->send_skb = hci_bcsp_skb_send;
-	htr->recv_skb = hci_bcsp_skb_recv;
-	htr->recv = hci_bcsp_recv;
-	htr->proc_show = hci_bcsp_proc_show;
-	htr->deinit = hci_bcsp_deinit;
-	htr->tdata = bcsp;
-
-	/* Link Establishment */
-	bcsp_link_peer_state_assume(bcsp, HCI_BCSP_LINK_UNINITITALIZED);
-	bcsp_link_establishment(bcsp, NULL);
-	bcsp_txwork_continue(bcsp);
-
-	BT_INFO("done\n");
+	BT_INFO("Init completed\n");
 	return 0;
 }
 
-static void terminate_htr_and_timers(struct hci_bcsp *bcsp)
+void hci_bcsp_deinit(void)
 {
-	int wait_cnt = 10;
+	struct hci_bcsp *bcsp = &slsi_bt_bcsp;
 
-	/* Set htr to invalid and cancel timers */
-	del_timer(&bcsp->wakeup_timer);
-	del_timer(&bcsp->resend_timer);
+	hci_bcsp_close(NULL);
 
-	mutex_lock(&bcsp->lock);
-	bcsp->htr = NULL;
-	mutex_unlock(&bcsp->lock);
+	/* free resources */
+	mutex_destroy(&bcsp->lock);
+	wake_lock_destroy(&bcsp->tx_wake_lock);
 
-	/* wait for all timer handlers terminating */
-	while (atomic_read(&bcsp->timer_running) && --wait_cnt > 0)
-		udelay(30);
-	if (wait_cnt == 0)
-		BT_WARNING("A timer handler is still running.\n");
-
-	/* Confirm timers are deleted. */
-	if (timer_pending(&bcsp->resend_timer))
-		del_timer(&bcsp->resend_timer);
-	if (timer_pending(&bcsp->wakeup_timer))
-		del_timer(&bcsp->wakeup_timer);
-}
-
-static void terminate_workque_and_works(struct hci_bcsp *bcsp)
-{
-	int wait_cnt = 10;
-
-	flush_workqueue(bcsp->wq);
-#ifndef KUNIT_SLSI_BT_BCSP_EXCLUDE_DESTROY_WORKQUEUE
-	destroy_workqueue(bcsp->wq);
-#endif /* Ref. hci_bcsp_unittest.c for more information*/
-
-	bcsp->wq = NULL;
-	cancel_work_sync(&bcsp->work_tx);
-	cancel_work_sync(&bcsp->work_timeout);
-
-	/* wiat for txwork terminating */
-	while (atomic_read(&bcsp->tx_running) && --wait_cnt > 0)
-		udelay(30);
-	if (wait_cnt == 0)
-		BT_WARNING("txwork is still running.\n");
-}
-
-void hci_bcsp_deinit(struct hci_trans *htr)
-{
-	struct hci_bcsp *bcsp = get_hci_bcsp(htr);
-
-	TR_INFO("bcsp=%p\n", bcsp);
-	if (bcsp) {
-		terminate_htr_and_timers(bcsp);
-		terminate_workque_and_works(bcsp);
-
-		/* free resources */
-		mutex_lock(&bcsp->lock);
-		if (bcsp->collect_skb) {
-			kfree_skb(bcsp->collect_skb);
-			bcsp->collect_skb = NULL;
-		}
-		skb_queue_purge(&bcsp->rel_q);
-		skb_queue_purge(&bcsp->sent_q);
-		skb_queue_purge(&bcsp->unrel_q);
-		wake_lock_destroy(&bcsp->tx_wake_lock);
-		mutex_unlock(&bcsp->lock);
-		mutex_destroy(&bcsp->lock);
-		kfree(bcsp);
-
-	}
-	htr->tdata = NULL;
-	BT_INFO("done.\n");
+	BT_INFO("Deinit.\n");
 }

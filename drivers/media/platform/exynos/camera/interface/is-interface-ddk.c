@@ -217,7 +217,8 @@ void is_lib_camera_callback(void *this, enum lib_cb_event_type event_id,
 		frame = peek_frame(framemgr, FS_HW_WAIT_DONE);
 		framemgr_x_barrier_common(framemgr, 0, flags);
 
-		if (frame && frame->result) {
+		if (frame && frame->result
+				&& frame->result != IS_SHOT_CONFIG_LOCK_DELAY) {
 			if (frame_ndone(hw_ip, frame, frame->result, fcount))
 				mserr_hw("failure in hardware_frame_ndone", frame->instance, hw_ip);
 		} else {

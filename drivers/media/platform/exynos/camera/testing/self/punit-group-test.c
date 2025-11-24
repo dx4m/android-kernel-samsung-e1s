@@ -249,7 +249,7 @@ static int pgt_vops_done(struct is_video_ctx *vctx, u32 index, u32 state)
 
 static void pgt_init_frame(struct is_frame *frame, struct is_group *group)
 {
-	struct camera2_shot_ext *shot_ext = kvzalloc(sizeof(struct camera2_shot_ext), GFP_KERNEL);
+	struct camera2_shot_ext *shot_ext = pablo_zalloc(sizeof(struct camera2_shot_ext), GFP_KERNEL);
 
 	frame->shot_ext = shot_ext;
 	frame->shot = &shot_ext->shot;
@@ -261,7 +261,7 @@ static void pgt_init_frame(struct is_frame *frame, struct is_group *group)
 
 static void pgt_deinit_frame(struct is_frame *frame)
 {
-	kvfree(frame->shot_ext);
+	pablo_free(frame->shot_ext);
 	frame->shot_ext = NULL;
 	frame->shot = NULL;
 }
@@ -270,7 +270,7 @@ static int pgt_init_vctx(struct is_video_ctx *vctx, struct is_group *group, stru
 {
 	struct is_queue *queue;
 
-	queue = kvzalloc(sizeof(struct is_queue), GFP_KERNEL);
+	queue = pablo_zalloc(sizeof(struct is_queue), GFP_KERNEL);
 	if (ZERO_OR_NULL_PTR(queue)) {
 		mgerr("is_queue alloc fail", group, group);
 		return -ENOMEM;
@@ -300,7 +300,7 @@ static void pgt_deinit_vctx(struct is_video_ctx *vctx)
 
 	frame_manager_close(framemgr);
 
-	kvfree(vctx->queue);
+	pablo_free(vctx->queue);
 	vctx->queue = NULL;
 	vctx->group = NULL;
 	vctx->video = NULL;
@@ -541,7 +541,7 @@ static int pgt_start(u32 instance)
 	struct punit_group_test_ctx *t_ctx;
 	struct punit_group_test_static_info *st_info = &pgt_st_info[instance];
 
-	t_ctx = test_grp_ctx[instance] = kvzalloc(sizeof(struct punit_group_test_ctx), GFP_KERNEL);
+	t_ctx = test_grp_ctx[instance] = pablo_zalloc(sizeof(struct punit_group_test_ctx), GFP_KERNEL);
 	if (ZERO_OR_NULL_PTR(test_grp_ctx[instance])) {
 		mierr("not enough memory for test_grp_ctx", instance);
 		return -ENOMEM;
@@ -579,7 +579,7 @@ static int pgt_start(u32 instance)
 	return 0;
 
 err:
-	kvfree(test_grp_ctx[instance]);
+	pablo_free(test_grp_ctx[instance]);
 
 	return ret;
 }
@@ -627,7 +627,7 @@ static void pgt_stop(u32 instance)
 
 	punit_check_stop_criteria(instance);
 
-	kvfree(test_grp_ctx[instance]);
+	pablo_free(test_grp_ctx[instance]);
 }
 
 static int pgt_close(void)

@@ -311,7 +311,11 @@ static int exynos_pm_syscore_suspend(void)
 	pr_info("%s: prev mif_count:%d, apsoc_count:%d, seq_early_wakeup_count:%d\n",
 			EXYNOS_PM_PREFIX, pm_dbg->mifdn_cnt_prev,
 			pm_info->apdn_cnt_prev, pm_dbg->mifdn_early_wakeup_prev);
+#if IS_ENABLED(CONFIG_EXYNOS_MIF_REQUEST_PROFILER)
+	exynos_flexpmu_dbg_mif_req(true);
+#else
 	exynos_flexpmu_dbg_mif_req();
+#endif
 
 	return 0;
 }
@@ -359,9 +363,11 @@ static void exynos_pm_syscore_resume(void)
 		exynos_wakeup_sys_powerdown(pm_info->pcieon_suspend_mode_idx, pm_info->is_early_wakeup);
 	else
 		exynos_wakeup_sys_powerdown(pm_info->suspend_mode_idx, pm_info->is_early_wakeup);
-
+#if IS_ENABLED(CONFIG_EXYNOS_MIF_REQUEST_PROFILER)
+	exynos_flexpmu_dbg_mif_req(false);
+#else
 	exynos_flexpmu_dbg_mif_req();
-
+#endif
 	print_dbg_subsystem();
 	exynos_show_wakeup_reason(pm_info->is_early_wakeup);
 

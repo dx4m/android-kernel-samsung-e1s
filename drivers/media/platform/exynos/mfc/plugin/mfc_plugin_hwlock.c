@@ -286,7 +286,8 @@ static int __mfc_plugin_fg_just_run(struct mfc_core_ctx *core_ctx)
 				__mfc_plugin_fg_wait_done_queue(core);
 
 			__mfc_plugin_handle_buffer(ctx, mfc_buf);
-			mfc_plugin_release_hwlock(core_ctx);
+			if (core->fg_q_enable)
+				mfc_plugin_release_hwlock(core_ctx);
 			core->sched->clear_work(core, core_ctx);
 			return 0;
 		}
@@ -318,6 +319,8 @@ static int __mfc_plugin_fg_just_run(struct mfc_core_ctx *core_ctx)
 		mfc_plugin_pm_power_off(core);
 
 		mfc_err("[PLUGIN] failed to run frame\n");
+	} else {
+		core_ctx->fg_sent_cmd = true;
 	}
 
 	if (core->dev->pdata->support_fg_shadow)
@@ -393,6 +396,8 @@ int mfc_plugin_just_run(struct mfc_core_ctx *core_ctx)
 {
 	struct mfc_ctx *ctx = core_ctx->ctx;
 	int ret;
+
+	core_ctx->fg_sent_cmd = false;
 
 	if (ctx->plugin_type == MFC_PLUGIN_FILM_GRAIN) {
 		ret = __mfc_plugin_fg_just_run(core_ctx);

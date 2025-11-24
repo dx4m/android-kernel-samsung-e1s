@@ -569,6 +569,9 @@ void __mfc_dump_buffer_info(struct mfc_core *core)
 	int curr_ctx = mfc_get_curr_ctx(core);
 	struct mfc_ctx *ctx;
 	struct mfc_core_ctx *core_ctx;
+	struct mfc_buf *src_mb;
+	unsigned char *stream_vir = NULL;
+	unsigned int strm_size = 0;
 
 	dev_err(core->device, "-----------dumping MFC buffer info (fault at: %#llx)\n",
 			core->logging_data->fault_addr);
@@ -627,6 +630,19 @@ void __mfc_dump_buffer_info(struct mfc_core *core)
 		if (ctx->mv_size)
 			print_hex_dump(KERN_ERR, "MV buffer ", DUMP_PREFIX_OFFSET, 32, 4,
 					core->regs_base + MFC_REG_D_MV_BUFFER0, 0x100, false);
+
+		src_mb = mfc_get_buf(ctx, &core_ctx->src_buf_queue, MFC_BUF_NO_TOUCH_USED);
+		if (src_mb && !ctx->is_drm) {
+			strm_size = src_mb->vb.vb2_buf.planes[0].bytesused;
+			if (strm_size > 500)
+				strm_size = 500;
+			dev_err(core->device, "decoder src %#llx dump (size %d)\n",
+					src_mb->addr[0][0], strm_size);
+			stream_vir = vb2_plane_vaddr(&src_mb->vb.vb2_buf, 0);
+			if (stream_vir)
+				print_hex_dump(KERN_ERR, "src: ", DUMP_PREFIX_OFFSET, 32, 4,
+						stream_vir, strm_size, false);
+		}
 	} else if (ctx->type == MFCINST_ENCODER) {
 		dev_err(core->device, "Encoder SRC %dplane, [0]:%#llx++%#x, [1]:%#llx++%#x, [2]:%#llx++%#x\n",
 				ctx->src_fmt->num_planes,

@@ -19,10 +19,11 @@
 #include "pmio.h"
 #include "trace_pmio.h"
 #include "pablo-kernel-variant.h"
+#include "pablo-mem.h"
 
 static void *kvmemdup(const void *src, size_t len, gfp_t gfp)
 {
-	void *p = kvmalloc(len, gfp);
+	void *p = pablo_malloc(len, gfp);
 
 	if (p)
 		memcpy(p, src, len);
@@ -49,13 +50,13 @@ static int pmio_cache_flat_init(struct pablo_mmio *pmio)
 	if (!pmio || !pmio->max_register)
 		return -EINVAL;
 
-	pmio->cache = kvzalloc(sizeof *ctx, GFP_KERNEL);
+	pmio->cache = pablo_zalloc(sizeof(*ctx), GFP_KERNEL);
 	if (ZERO_OR_NULL_PTR(pmio->cache))
 		return -ENOMEM;
 
 	ctx = pmio->cache;
 	ctx->cache_count = pmio_get_index_by_order(pmio, pmio->max_register) + 1;
-	ctx->cache = kvcalloc(ctx->cache_count, sizeof(unsigned int), GFP_KERNEL);
+	ctx->cache = pablo_calloc(ctx->cache_count, sizeof(unsigned int), GFP_KERNEL);
 	if (!ctx->cache)
 		goto err_alloc_cache;
 
@@ -76,11 +77,11 @@ static int pmio_cache_flat_init(struct pablo_mmio *pmio)
 	return 0;
 
 err_alloc_cache_dirty_bitmap:
-	kvfree(ctx->cache);
+	pablo_free(ctx->cache);
 
 err_alloc_cache:
 	ctx->cache_count = 0;
-	kvfree(pmio->cache);
+	pablo_free(pmio->cache);
 	pmio->cache = NULL;
 
 	return -ENOMEM;
@@ -94,9 +95,9 @@ static int pmio_cache_flat_exit(struct pablo_mmio *pmio)
 		return 0;
 
 	bitmap_free(ctx->cache_dirty_bitmap);
-	kvfree(ctx->cache_default);
-	kvfree(ctx->cache);
-	kvfree(pmio->cache);
+	pablo_free(ctx->cache_default);
+	pablo_free(ctx->cache);
+	pablo_free(pmio->cache);
 	pmio->cache = NULL;
 
 	return 0;
@@ -343,7 +344,7 @@ static int pmio_cache_flat_corex_init(struct pablo_mmio *pmio)
 	if (!pmio->num_corexs || !pmio->corex_stride)
 		return -EINVAL;
 
-	pmio->cache = kvzalloc(sizeof *ctx, GFP_KERNEL);
+	pmio->cache = pablo_zalloc(sizeof(*ctx), GFP_KERNEL);
 	if (ZERO_OR_NULL_PTR(pmio->cache))
 		return -ENOMEM;
 
@@ -351,7 +352,7 @@ static int pmio_cache_flat_corex_init(struct pablo_mmio *pmio)
 	ctx->cache_count = pmio_get_index_by_order(pmio, pmio->max_register) + 1;
 
 	for (i = 0; i < pmio->num_corexs; i++) {
-		ctx->cache[i] = kvcalloc(ctx->cache_count, sizeof(unsigned int), GFP_KERNEL);
+		ctx->cache[i] = pablo_calloc(ctx->cache_count, sizeof(unsigned int), GFP_KERNEL);
 		if (!ctx->cache[i])
 			goto err_alloc_cache;
 	}
@@ -376,12 +377,12 @@ err_alloc_cache_dirty_bitmap:
 	while (i-- > 0)
 		bitmap_free(ctx->cache_dirty_bitmap[i]);
 	for (i = 0; i < pmio->num_corexs; i++)
-		kvfree(ctx->cache[i]);
+		pablo_free(ctx->cache[i]);
 
 err_alloc_cache:
 	while (i-- > 0)
-		kvfree(ctx->cache[i]);
-	kvfree(pmio->cache);
+		pablo_free(ctx->cache[i]);
+	pablo_free(pmio->cache);
 	pmio->cache = NULL;
 
 	return -ENOMEM;
@@ -397,10 +398,10 @@ static int pmio_cache_flat_corex_exit(struct pablo_mmio *pmio)
 
 	for (i = 0; i < pmio->num_corexs; i++) {
 		bitmap_free(ctx->cache_dirty_bitmap[i]);
-		kvfree(ctx->cache[i]);
+		pablo_free(ctx->cache[i]);
 	}
 
-	kvfree(pmio->cache);
+	pablo_free(pmio->cache);
 	pmio->cache = NULL;
 
 	return 0;
@@ -578,7 +579,7 @@ static int pmio_cache_hw_init(struct pablo_mmio *pmio)
 	}
 
 	pmio->num_reg_defaults = count;
-	pmio->reg_defaults = kvmalloc_array(count, sizeof(struct pmio_reg_def),
+	pmio->reg_defaults = pablo_malloc_array(count, sizeof(struct pmio_reg_def),
 					    GFP_KERNEL);
 	if (!pmio->reg_defaults)
 		return -ENOMEM;
@@ -588,7 +589,7 @@ static int pmio_cache_hw_init(struct pablo_mmio *pmio)
 		pr_debug("no cache defaults, reading back from HW\n");
 
 		pmio->cache_bypass = true;
-		tmp_buf = kvmalloc(pmio->cache_size_raw, GFP_KERNEL);
+		tmp_buf = pablo_malloc(pmio->cache_size_raw, GFP_KERNEL);
 		if (!tmp_buf) {
 			ret = -ENOMEM;
 			goto err_alloc_raw;
@@ -603,7 +604,7 @@ static int pmio_cache_hw_init(struct pablo_mmio *pmio)
 			print_hex_dump_debug("offset: ", DUMP_PREFIX_OFFSET,
 					16, 4, tmp_buf, pmio->cache_size_raw, false);
 		} else {
-			kvfree(tmp_buf);
+			pablo_free(tmp_buf);
 		}
 	}
 
@@ -642,7 +643,7 @@ static int pmio_cache_hw_init(struct pablo_mmio *pmio)
 
 err_read_to_fill:
 err_alloc_raw:
-	kvfree(pmio->reg_defaults);
+	pablo_free(pmio->reg_defaults);
 
 	return ret;
 }
@@ -722,9 +723,9 @@ int pmio_cache_init(struct pablo_mmio *pmio, const struct pmio_config *config)
 	return 0;
 
 err_cache_init:
-	kvfree(pmio->reg_defaults);
+	pablo_free(pmio->reg_defaults);
 	if (pmio->cache_free)
-		kvfree(pmio->reg_defaults_raw);
+		pablo_free(pmio->reg_defaults_raw);
 
 	return ret;
 }
@@ -735,9 +736,9 @@ void pmio_cache_exit(struct pablo_mmio *pmio)
 	if (pmio->cache_type == PMIO_CACHE_NONE)
 		return;
 
-	kvfree(pmio->reg_defaults);
+	pablo_free(pmio->reg_defaults);
 	if (pmio->cache_free)
-		kvfree(pmio->reg_defaults_raw);
+		pablo_free(pmio->reg_defaults_raw);
 
 	if (pmio->cache_ops && pmio->cache_ops->exit) {
 		pr_debug("destroying %s cache for %s\n", pmio->cache_ops->name, pmio->name);
