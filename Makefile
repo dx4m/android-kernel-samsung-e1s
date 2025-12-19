@@ -4,6 +4,7 @@ PATCHLEVEL = 1
 SUBLEVEL = 93
 EXTRAVERSION =
 NAME = Curry Ramen
+SAMPATCHVERSION = BYG2
 
 # *DOCUMENTATION*
 # To see a list of typical targets execute "make help"
@@ -303,7 +304,7 @@ clean-targets := %clean mrproper cleandocs
 no-dot-config-targets := $(clean-targets) \
 			 cscope gtags TAGS tags help% %docs check% coccicheck \
 			 $(version_h) headers headers_% archheaders archscripts \
-			 %asm-generic kernelversion %src-pkg dt_binding_check \
+			 %asm-generic kernelversion sampatchlevel %src-pkg dt_binding_check \
 			 outputmakefile rustavailable rustfmt rustfmtcheck
 # Installation targets should not require compiler. Unfortunately, vdso_install
 # is an exception where build artifacts may be updated. This must be fixed.
@@ -2165,6 +2166,9 @@ kernelrelease:
 
 kernelversion:
 	@echo $(KERNELVERSION)
+
+sampatchlevel:
+	@echo $(SAMPATCHVERSION)
 
 image_name:
 	@echo $(KBUILD_IMAGE)
