@@ -4,7 +4,7 @@ PATCHLEVEL = 1
 SUBLEVEL = 138
 EXTRAVERSION =
 NAME = Curry Ramen
-SAMPATCHVERSION = CYK2
+SAMPATCHVERSION = CYK8
 
 # *DOCUMENTATION*
 # To see a list of typical targets execute "make help"
