@@ -2188,7 +2188,7 @@ kernelversion:
 	@echo $(KERNELVERSION)
 
 sampatchlevel:
-	@echo $(SAMPATCHVERSION)
+	@echo $(SAMPATCHLEVEL)
 
 image_name:
 	@echo $(KBUILD_IMAGE)
