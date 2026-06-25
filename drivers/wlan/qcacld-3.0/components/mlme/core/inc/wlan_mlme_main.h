@@ -841,6 +841,7 @@ struct enhance_roam_info {
  * @mac_id: vdev mac_id
  * @ap_nss: AP advertised NSS
  * @keep_alive_period: KEEPALIVE period in seconds
+ * @is_acs_sap: True if this is an ACS SAP
  */
 struct mlme_legacy_priv {
 	bool chan_switch_in_progress;
@@ -917,6 +918,7 @@ struct mlme_legacy_priv {
 	uint32_t mac_id;
 	uint8_t ap_nss;
 	uint16_t keep_alive_period;
+	bool is_acs_sap;
 };
 
 /**
@@ -1994,13 +1996,11 @@ void wlan_mlme_set_vdev_mac_id(struct wlan_objmgr_pdev *pdev,
 
 /**
  * wlan_mlme_get_vdev_mac_id() - get mac id for the vdev
- * @pdev: pdev obj
- * @vdev_id: vdev id
+ * @vdev: vdev obj
  *
  *  Return: mac_id on which vdev is present
  */
-uint32_t wlan_mlme_get_vdev_mac_id(struct wlan_objmgr_pdev *pdev,
-				   uint8_t vdev_id);
+uint32_t wlan_mlme_get_vdev_mac_id(struct wlan_objmgr_vdev *vdev);
 
 /**
  * wlan_mlme_get_sap_psd_for_20mhz() - Get the PSD power for 20 MHz

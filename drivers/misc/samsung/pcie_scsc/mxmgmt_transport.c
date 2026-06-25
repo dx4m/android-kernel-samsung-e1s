@@ -10,6 +10,7 @@
 
 /** Implements */
 #include "mxmgmt_transport.h"
+#include "mxman.h"
 
 /** Uses */
 #include <pcie_scsc/scsc_logring.h>
@@ -500,7 +501,7 @@ void mxmgmt_transport_register_channel_handler(struct mxmgmt_transport *mxmgmt_t
 	mutex_unlock(&mxmgmt_transport->channel_handler_mutex);
 }
 
-#define WRITE_RETRY 3
+#define WRITE_RETRY 10
 void mxmgmt_transport_send(struct mxmgmt_transport *mxmgmt_transport, enum mxmgr_channels channel_id,
 			   void *message, uint32_t message_length)
 {
@@ -512,16 +513,26 @@ void mxmgmt_transport_send(struct mxmgmt_transport *mxmgmt_transport, enum mxmgr
 	const void           *bufs[2] = { &transport_msg.channel_id, message };
 	uint32_t             buf_lengths[2] = { sizeof(transport_msg.channel_id), message_length };
 
-	spin_lock_irqsave(&mxmgmt_transport->mxmgmt_spinlock, flags);
+	enum scsc_subsystem id;
+
 	while (i-- && res == false) {
+		spin_lock_irqsave(&mxmgmt_transport->mxmgmt_spinlock, flags);
 		res = mif_stream_write_gather(&mxmgmt_transport->mif_ostream, bufs, buf_lengths, 2);
+		spin_unlock_irqrestore(&mxmgmt_transport->mxmgmt_spinlock, flags);
 		if (res == false) {
 			SCSC_TAG_ERR(MXMGT_TRANS, "mif_stream_write_gather message error. Channel %d message_len %u. Retries %u left %u\n",
 						  channel_id, message_length, WRITE_RETRY, i);
 			mdelay(10);
 		}
 	}
-	spin_unlock_irqrestore(&mxmgmt_transport->mxmgmt_spinlock, flags);
+	if (mxmgmt_transport->mif_ostream.mx && !res) {
+		id = (mxmgmt_transport->target == SCSC_MIF_ABS_TARGET_WLAN) ? SCSC_SUBSYSTEM_WLAN : SCSC_SUBSYSTEM_WPAN;
+#if defined(CONFIG_SCSC_INDEPENDENT_SUBSYSTEM)
+		mxman_if_fail(scsc_mx_get_mxman(mxmgmt_transport->mx), SCSC_PANIC_CODE_HOST << 15, __func__, id);
+#else
+		mxman_fail(scsc_mx_get_mxman(mxmgmt_transport->mx), SCSC_PANIC_CODE_HOST << 15, __func__);
+#endif
+	}
 }
 
 void mxmgmt_print_sent_data_dump(void)

@@ -849,6 +849,10 @@ static int __npu_vertex_bootup(struct file *file, struct vs4l_ctrl *ctrl)
 		return -EINVAL;
 	}
 #endif
+	if (ctrl->value != NPU_HWDEV_ID_NPU && ctrl->value != NPU_HWDEV_ID_DSP) {
+		npu_ierr("invalid hw device id\n", vctx);
+		return -EINVAL;
+	}
 
 	/* check npu_device emergency error */
 	ret = check_emergency_vctx(vctx);

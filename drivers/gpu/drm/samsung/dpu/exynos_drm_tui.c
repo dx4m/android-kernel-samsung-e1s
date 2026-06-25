@@ -385,6 +385,7 @@ int exynos_atomic_exit_tui(void)
 	new_exynos_crtc_state->tui_status = false;
 	new_exynos_crtc_state->tui_changed = true;
 	new_exynos_crtc_state->dqe_fd = -1;
+	new_exynos_crtc_state->skip_update = true;
 	if (!(op_mode & MIPI_DSI_MODE_VIDEO)) {
 		new_exynos_crtc_state->reserved_win_mask = 0;
 		new_exynos_crtc_state->freed_win_mask = 0;

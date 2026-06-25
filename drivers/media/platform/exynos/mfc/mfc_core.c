@@ -20,7 +20,6 @@
 #include <linux/debugfs.h>
 #include <linux/seq_file.h>
 #include <linux/poll.h>
-#include <linux/vmalloc.h>
 #include <linux/iommu.h>
 
 #include "mfc_core_ops.h"
@@ -786,9 +785,7 @@ static int mfc_core_probe(struct platform_device *pdev)
 
 #if IS_ENABLED(CONFIG_MFC_USE_COREDUMP)
 	core->dbg_info.size = MFC_DUMP_BUF_SIZE;
-	core->dbg_info.addr = vmalloc(core->dbg_info.size);
-	if (!core->dbg_info.addr)
-		dev_err(&pdev->dev, "failed to alloc for debug buffer\n");
+	mfc_mem_vmem_alloc(dev, &core->dbg_info.addr, core->dbg_info.size, "dbg_info");
 #endif
 
 	mfc_core_info("%s is completed\n", core->name);
@@ -837,8 +834,7 @@ static int mfc_core_remove(struct platform_device *pdev)
 
 	mfc_core_info("++%s remove\n", core->name);
 
-	if (core->dbg_info.addr)
-		vfree(core->dbg_info.addr);
+	mfc_mem_vmem_free(core->dev, &core->dbg_info.addr, "dbg_info");
 #if IS_ENABLED(CONFIG_EXYNOS_SYSTEM_EVENT)
 	mfc_core_sysevent_desc_deinit(core);
 #endif

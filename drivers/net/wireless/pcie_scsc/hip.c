@@ -226,7 +226,7 @@ int slsi_hip_pre_allocate_hip_priv(struct slsi_dev *sdev)
 void slsi_hip_free_hip_priv(struct slsi_dev *sdev)
 {
 	spin_lock_bh(&sdev->hip.hip_priv->tx_lock);
-	atomic_set(&sdev->hip.is_hip_priv_invalid, 1);
+	atomic_set(&sdev->hip.is_hip_priv_valid, 0);
 	spin_unlock_bh(&sdev->hip.hip_priv->tx_lock);
 
 	if (sdev->hip_priv_buffer) {

@@ -1,11 +1,11 @@
-#define PACKET_SIZE MXMGR_MESSAGE_PAYLOAD_SIZE
-#define NUM_PACKET 10
-#define MIN(a, b) (((a) < (b)) ? (a) : (b))
+/****************************************************************************
+ *
+ * Copyright (c) 2024 - 2024 Samsung Electronics Co., Ltd. All rights reserved
+ *
+ ****************************************************************************/
 
-struct cmd_msg_packet {
-	char msg[PACKET_SIZE];
-};
-
-
-int scsc_mx_cmd_driver_create(void);
-void scsc_mx_cmd_driver_destory(void);
+ int scsc_mx_cmd_driver_create(void);
+ void scsc_mx_cmd_driver_destroy(void);
+ int scsc_mx_cmd_driver_create_wpan(void);
+ void scsc_mx_cmd_driver_destroy_wpan(void);
+ 

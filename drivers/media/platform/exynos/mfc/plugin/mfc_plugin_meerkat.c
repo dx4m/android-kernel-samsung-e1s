@@ -76,9 +76,44 @@ static void __mfc_plugin_dump_regs(struct mfc_core *core)
 		mfc_plugin_pm_clock_off(core);
 }
 
+static void __mfc_plugin_dump_trace(struct mfc_core *core)
+{
+	struct mfc_dev *dev = core->dev;
+	int i, cnt, trace_cnt;
+	int trace_count_print = MFC_TRACE_COUNT_PRINT;
+
+	if (!dev->pdata->debug_mode && !dev->debugfs.debug_mode_en)
+		trace_count_print = MFC_TRACE_COUNT_PRINT_LONG;
+
+	dev_err(core->device, "-----------dumping MFC trace info-----------\n");
+
+	trace_cnt = atomic_read(&dev->trace_ref);
+	for (i = trace_count_print - 1; i >= 0; i--) {
+		cnt = ((trace_cnt + MFC_TRACE_COUNT_MAX) - i) % MFC_TRACE_COUNT_MAX;
+		if (dev->mfc_trace[cnt].time == 0)
+			continue;
+		dev_err(core->device, "MFC trace[%d]: time=%llu, str=%s", cnt,
+				dev->mfc_trace[cnt].time, dev->mfc_trace[cnt].str);
+	}
+
+	dev_err(core->device, "-----------dumping MFC RM trace info-----------\n");
+
+	trace_cnt = atomic_read(&dev->trace_ref_rm);
+	for (i = trace_count_print - 1; i >= 0; i--) {
+		cnt = ((trace_cnt + MFC_TRACE_COUNT_MAX) - i) % MFC_TRACE_COUNT_MAX;
+		if (dev->mfc_trace_rm[cnt].time == 0)
+			continue;
+		dev_err(core->device, "MFC RM trace[%d]: time=%llu, str=%s", cnt,
+				dev->mfc_trace_rm[cnt].time, dev->mfc_trace_rm[cnt].str);
+	}
+}
+
 static void __mfc_plugin_dump_info_without_regs(struct mfc_core *core)
 {
 	struct mfc_core_ctx *core_ctx = core->core_ctx[core->curr_core_ctx];
+	struct mfc_ctx *ctx = core_ctx->ctx;
+	struct mfc_dec *dec = ctx->dec_priv;
+	struct mfc_buf *mfc_buf = NULL;
 	int i;
 
 	dev_err(core->device, "-----------dumping Film grain info-----------\n");
@@ -101,13 +136,18 @@ static void __mfc_plugin_dump_info_without_regs(struct mfc_core *core)
 				i, core->fg_q_handle->ctx_num_table[i]);
 	}
 
-	if (core_ctx)
-		mfc_print_dpb_queue(core_ctx, core_ctx->ctx->dec_priv);
-	/* TODO: print trace */
+	dev_err(core->device, "-----------dumping Filmgrain queue-----------\n");
+	if (!list_empty(&ctx->plugin_buf_queue.head))
+		list_for_each_entry(mfc_buf, &ctx->plugin_buf_queue.head, list)
+			dev_err(core->device, "plugin_buf src[%d] %#llx, dst[%d] %#llx, used: %d\n",
+				mfc_buf->dpb_index, dec->dpb[mfc_buf->dpb_index].addr[0],
+				mfc_buf->vb.vb2_buf.index, mfc_buf->addr[0][0], mfc_buf->used);
 }
 
 static void __mfc_plugin_dump_info(struct mfc_core *core)
 {
+	mfc_dump_state(core->dev);
+	__mfc_plugin_dump_trace(core);
 	__mfc_plugin_dump_info_without_regs(core);
 	__mfc_plugin_dump_regs(core);
 }

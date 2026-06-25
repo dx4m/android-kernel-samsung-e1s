@@ -160,6 +160,22 @@ static int vts_dma_trigger(struct snd_soc_component *component,
 				vts_pcm_dump_reset(PCM_DUMP_NODE_TRI);
 #endif
 		} else {
+			if((data->vts_data->syssel_rate == DMIC_IF_SYS_SEL_AUD) &&
+				(MIC_IN_CH_WITH_ABOX_REC != MIC_IN_CH_NORMAL)) {
+				values[0] = VTS_MIC_INPUT_CH;
+				values[1] = data->vts_data->mic_input_ch;
+				values[2] = 0;
+				result = vts_start_ipc_transaction(dev, data->vts_data,
+						VTS_IRQ_AP_COMMAND,
+						&values, 0, 1);
+				if (result < 0) {
+					vts_dev_err(dev, "%s: vts ipc VTS_IRQ_AP_COMMAND failed: %d\n",
+						__func__, result);
+				} else {
+					vts_dev_info(dev, "%s: sent mic_input_ch(%d)\n", __func__, data->vts_data->mic_input_ch);
+				}
+			}
+
 			vts_dev_dbg(dev, "%s VTS_IRQ_AP_START_REC\n", __func__);
 			result = vts_start_ipc_transaction(dev, data->vts_data,
 				VTS_IRQ_AP_START_REC, &values, 1, 1);

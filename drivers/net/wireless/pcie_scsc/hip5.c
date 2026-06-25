@@ -176,6 +176,8 @@ static int q_idx_layout[24][2] = {
 #define FB_NO_SPC_SLEEP_MS   10
 #define FB_NO_SPC_DELAY_US   1000
 #define NAPI_NO_SPC_DELAY_US 1000
+#define FLUSH_PCIE_WORK_RETRY 3
+#define FLUSH_PCIE_DELAY_US 1000
 
 #ifdef CONFIG_SCSC_PCIE_CHIP
 void slsi_trigger_pcie_claim(u32 intr_host, struct slsi_hip *hip, enum slsi_pcie_claim_reason reason)
@@ -183,7 +185,7 @@ void slsi_trigger_pcie_claim(u32 intr_host, struct slsi_hip *hip, enum slsi_pcie
 	struct hip_priv	*hip_priv	= hip->hip_priv;
 	struct slsi_dev	*sdev		= container_of(hip, struct slsi_dev, hip);
 
-	if (atomic_read(&hip->is_hip_priv_invalid)) {
+	if (!atomic_read(&hip->is_hip_priv_valid)) {
 		SLSI_WARN_NODEV("hip_priv is null. cannot queue work\n");
 		return;
 	}
@@ -2043,7 +2045,6 @@ static void hip5_traffic_monitor_cb(void *client_ctx, u32 state, u32 tput_tx, u3
 		schedule_work(&hip->hip_priv->pm_qos_work);
 }
 #endif
-
 #ifdef CONFIG_SCSC_PCIE_CHIP
 void slsi_print_pcie_lock_cnt(struct slsi_dev *sdev, struct hip_priv *hip_priv)
 {
@@ -2055,12 +2056,44 @@ void slsi_print_pcie_lock_cnt(struct slsi_dev *sdev, struct hip_priv *hip_priv)
 		  atomic_read(&hip_priv->pcie_claim_intrbit_mask_cnt));
 }
 
+void slsi_pcie_lock_cnt_increase(struct hip_priv *hip_priv, enum slsi_pcie_claim_reason reason)
+{
+	if (reason == SLSI_IRQ_SET_BIT)
+		atomic_inc(&hip_priv->pcie_claim_intrbit_set_cnt);
+	else if (reason == SLSI_IRQ_MASK_BIT)
+		atomic_inc(&hip_priv->pcie_claim_intrbit_mask_cnt);
+	else if (reason == SLSI_IRQ_UNMASK_BIT)
+		atomic_inc(&hip_priv->pcie_claim_intrbit_unmask_cnt);
+	else
+		atomic_inc(&hip_priv->pcie_claim_non_irq_cnt);
+}
+
+void slsi_pcie_lock_cnt_decrease(struct hip_priv *hip_priv, enum slsi_pcie_claim_reason reason)
+{
+	if (reason == SLSI_IRQ_SET_BIT)
+		atomic_dec(&hip_priv->pcie_claim_intrbit_set_cnt);
+	else if (reason == SLSI_IRQ_MASK_BIT)
+		atomic_dec(&hip_priv->pcie_claim_intrbit_mask_cnt);
+	else if (reason == SLSI_IRQ_UNMASK_BIT)
+		atomic_dec(&hip_priv->pcie_claim_intrbit_unmask_cnt);
+	else
+		atomic_dec(&hip_priv->pcie_claim_non_irq_cnt);
+}
+
 bool slsi_pcie_lock(struct slsi_hip *hip, enum slsi_pcie_claim_reason reason)
 {
 	struct hip_priv	*hip_priv	= hip->hip_priv;
 	struct slsi_dev *sdev		= container_of(hip, struct slsi_dev, hip);
+	u8 retry			= FLUSH_PCIE_WORK_RETRY;
+	bool queued			= false;
+	bool flushed			= false;
 
-	if (atomic_read(&hip->is_hip_priv_invalid)) {
+	if (!hip_priv) {
+		SLSI_WARN_NODEV("hip_priv is null\n");
+		return false;
+	}
+
+	if (!atomic_read(&hip->is_hip_priv_valid)) {
 		SLSI_WARN_NODEV("hip_priv is null. cannot queue work\n");
 		return false;
 	}
@@ -2071,26 +2104,23 @@ bool slsi_pcie_lock(struct slsi_hip *hip, enum slsi_pcie_claim_reason reason)
 	}
 
 	read_lock_bh(&hip->hip_priv->rw_pcie);
-	if (reason == SLSI_IRQ_SET_BIT)
-		atomic_inc(&hip_priv->pcie_claim_intrbit_set_cnt);
-	else if (reason == SLSI_IRQ_MASK_BIT)
-		atomic_inc(&hip_priv->pcie_claim_intrbit_mask_cnt);
-	else if (reason == SLSI_IRQ_UNMASK_BIT)
-		atomic_inc(&hip_priv->pcie_claim_intrbit_unmask_cnt);
-	else
-		atomic_inc(&hip_priv->pcie_claim_non_irq_cnt);
-
-	if (!test_bit(0, hip_priv->pcie_claim_bit)) {
-		read_unlock_bh(&hip->hip_priv->rw_pcie);
-		SLSI_DBG1(sdev, SLSI_HIP, "PCIE claimed by user\n");
-		slsi_print_pcie_lock_cnt(sdev, hip_priv);
-		queue_work(hip_priv->pcie_wq, &hip_priv->pcie_ctrl.pcie_work);
+	slsi_pcie_lock_cnt_increase(hip_priv, reason);
+	read_unlock_bh(&hip->hip_priv->rw_pcie);
+	SLSI_DBG1(sdev, SLSI_HIP, "PCIE claimed by user\n");
+	slsi_print_pcie_lock_cnt(sdev, hip_priv);
+	while (retry > 0) {
+		if (retry == 0)
+			SLSI_ERR(sdev, "Pcie work is not flushed successfully\n");
+		queued = queue_work(hip_priv->pcie_wq, &hip_priv->pcie_ctrl.pcie_work);
 		/* wait for a work to finish above queueing instance for sync. */
-		flush_work(&hip_priv->pcie_ctrl.pcie_work);
-	} else {
-		SLSI_DBG1(sdev, SLSI_HIP, "PCIE already has claimed\n");
-		slsi_print_pcie_lock_cnt(sdev, hip_priv);
-		read_unlock_bh(&hip->hip_priv->rw_pcie);
+		flushed = flush_work(&hip_priv->pcie_ctrl.pcie_work);
+		SLSI_DBG3(sdev, SLSI_HIP, "pcie_work: queued=%d flushed=%d\n", queued, flushed);
+		if (!test_bit(0, hip_priv->pcie_claim_bit)) {
+			retry--;
+			udelay(FLUSH_PCIE_DELAY_US);
+		} else {
+			break;
+		}
 	}
 
 	return test_bit(0, hip_priv->pcie_claim_bit);
@@ -2101,7 +2131,7 @@ static void slsi_pcie_lock_atomic(struct slsi_hip *hip, enum slsi_pcie_claim_rea
 	struct hip_priv	*hip_priv	= hip->hip_priv;
 	struct slsi_dev *sdev		= container_of(hip, struct slsi_dev, hip);
 
-	if (atomic_read(&hip->is_hip_priv_invalid)) {
+	if (!atomic_read(&hip->is_hip_priv_valid)) {
 		SLSI_WARN_NODEV("hip_priv is null. cannot queue work\n");
 		return;
 	}
@@ -2111,16 +2141,8 @@ static void slsi_pcie_lock_atomic(struct slsi_hip *hip, enum slsi_pcie_claim_rea
 		return;
 	}
 
-	if (reason == SLSI_IRQ_SET_BIT)
-		atomic_inc(&hip_priv->pcie_claim_intrbit_set_cnt);
-	else if (reason == SLSI_IRQ_MASK_BIT)
-		atomic_inc(&hip_priv->pcie_claim_intrbit_mask_cnt);
-	else if (reason == SLSI_IRQ_UNMASK_BIT)
-		atomic_inc(&hip_priv->pcie_claim_intrbit_unmask_cnt);
-	else
-		atomic_inc(&hip_priv->pcie_claim_non_irq_cnt);
-
 	SLSI_DBG1(sdev, SLSI_HIP, "PCIE claimed by user\n");
+	slsi_pcie_lock_cnt_increase(hip_priv, reason);
 	slsi_print_pcie_lock_cnt(sdev, hip_priv);
 }
 
@@ -2129,7 +2151,7 @@ void slsi_pcie_unlock(struct slsi_hip *hip, enum slsi_pcie_claim_reason reason)
 	struct hip_priv	*hip_priv	= hip->hip_priv;
 	struct slsi_dev *sdev		= container_of(hip, struct slsi_dev, hip);
 
-	if (atomic_read(&hip->is_hip_priv_invalid)) {
+	if (!atomic_read(&hip->is_hip_priv_valid)) {
 		SLSI_WARN_NODEV("hip_priv is null. cannot queue work\n");
 		return;
 	}
@@ -2144,44 +2166,48 @@ void slsi_pcie_unlock(struct slsi_hip *hip, enum slsi_pcie_claim_reason reason)
 		if (!atomic_read(&hip_priv->pcie_claim_non_irq_cnt)) {
 			SLSI_WARN(sdev, "PCIE claim / release is not in pair.\n");
 		} else {
-			atomic_dec(&hip_priv->pcie_claim_non_irq_cnt);
-			SLSI_DBG1(sdev, SLSI_HIP, "PCIE released by user. claimed cnt: %d reason: %d\n",
-				  atomic_read(&hip_priv->pcie_claim_non_irq_cnt), reason);
+			slsi_pcie_lock_cnt_decrease(hip_priv, reason);
 			if (!atomic_read(&hip_priv->pcie_claim_non_irq_cnt))
 				queue_work(hip_priv->pcie_wq, &hip_priv->pcie_ctrl.pcie_work);
+
+			SLSI_DBG1(sdev, SLSI_HIP, "PCIE released by user. claimed cnt: %d reason: %d\n",
+				  atomic_read(&hip_priv->pcie_claim_non_irq_cnt), reason);
 		}
 		break;
 	case SLSI_IRQ_SET_BIT:
 		if (!atomic_read(&hip_priv->pcie_claim_intrbit_set_cnt)) {
 			SLSI_WARN(sdev, "PCIE claim / release is not in pair.\n");
 		} else {
-			atomic_dec(&hip_priv->pcie_claim_intrbit_set_cnt);
-			SLSI_DBG1(sdev, SLSI_HIP, "PCIE released by user. claimed cnt: %d reason: %d\n",
-				  atomic_read(&hip_priv->pcie_claim_intrbit_set_cnt), reason);
+			slsi_pcie_lock_cnt_decrease(hip_priv, reason);
 			if (!atomic_read(&hip_priv->pcie_claim_intrbit_set_cnt))
 				queue_work(hip_priv->pcie_wq, &hip_priv->pcie_ctrl.pcie_work);
+
+			SLSI_DBG1(sdev, SLSI_HIP, "PCIE released by user. claimed cnt: %d reason: %d\n",
+				  atomic_read(&hip_priv->pcie_claim_intrbit_set_cnt), reason);
 		}
 		break;
 	case SLSI_IRQ_MASK_BIT:
 		if (!atomic_read(&hip_priv->pcie_claim_intrbit_mask_cnt)) {
 			SLSI_WARN(sdev, "PCIE claim / release is not in pair.\n");
 		} else {
-			atomic_dec(&hip_priv->pcie_claim_intrbit_mask_cnt);
-			SLSI_DBG1(sdev, SLSI_HIP, "PCIE released by user. claimed cnt: %d reason: %d\n",
-				  atomic_read(&hip_priv->pcie_claim_intrbit_mask_cnt), reason);
+			slsi_pcie_lock_cnt_decrease(hip_priv, reason);
 			if (!atomic_read(&hip_priv->pcie_claim_intrbit_mask_cnt))
 				queue_work(hip_priv->pcie_wq, &hip_priv->pcie_ctrl.pcie_work);
+
+			SLSI_DBG1(sdev, SLSI_HIP, "PCIE released by user. claimed cnt: %d reason: %d\n",
+				  atomic_read(&hip_priv->pcie_claim_intrbit_mask_cnt), reason);
 		}
 		break;
 	case SLSI_IRQ_UNMASK_BIT:
 		if (!atomic_read(&hip_priv->pcie_claim_intrbit_unmask_cnt)) {
 			SLSI_WARN(sdev, "PCIE claim / release is not in pair.\n");
 		} else {
-			atomic_dec(&hip_priv->pcie_claim_intrbit_unmask_cnt);
-			SLSI_DBG1(sdev, SLSI_HIP, "PCIE released by user. claimed cnt: %d reason: %d\n",
-				  atomic_read(&hip_priv->pcie_claim_intrbit_unmask_cnt), reason);
+			slsi_pcie_lock_cnt_decrease(hip_priv, reason);
 			if (!atomic_read(&hip_priv->pcie_claim_intrbit_unmask_cnt))
 				queue_work(hip_priv->pcie_wq, &hip_priv->pcie_ctrl.pcie_work);
+
+			SLSI_DBG1(sdev, SLSI_HIP, "PCIE released by user. claimed cnt: %d reason: %d\n",
+				  atomic_read(&hip_priv->pcie_claim_intrbit_unmask_cnt), reason);
 		}
 		break;
 	default:
@@ -2299,7 +2325,7 @@ static void pcie_traffic_monitor_cb(void *client_ctx, u32 state, u32 tput_tx, u3
 	}
 	hip = hip_priv->hip;
 
-	if (atomic_read(&hip->is_hip_priv_invalid)) {
+	if (!atomic_read(&hip->is_hip_priv_valid)) {
 		SLSI_WARN_NODEV("hip_priv is null. cannot queue work\n");
 		return;
 	}
@@ -2678,7 +2704,7 @@ int slsi_hip_init(struct slsi_hip *hip)
 	memset(hip->hip_priv, 0, sizeof(struct hip_priv));
 
 	spin_lock_bh(&hip->hip_priv->tx_lock);
-	atomic_set(&hip->is_hip_priv_invalid, 0);
+	atomic_set(&hip->is_hip_priv_valid, 1);
 	spin_unlock_bh(&hip->hip_priv->tx_lock);
 
 	/* Initially set HIP as closed state.
@@ -3133,7 +3159,8 @@ bool hip5_opt_aggr_check(struct slsi_dev *sdev, struct slsi_hip *hip, struct sk_
 	spin_lock_bh(&hip_priv->tx_lock);
 	for (i = 0; i < SLSI_HIP_HIP5_OPT_TX_Q_MAX; i++) {
 		/* find a match */
-		if (fapi_get_vif(skb) == hip_priv->hip5_opt_tx_q[i].vif_index &&
+		if (hip_priv->hip5_opt_tx_q[i].active &&
+			fapi_get_vif(skb) == hip_priv->hip5_opt_tx_q[i].vif_index &&
 			fapi_get_u16(skb, u.ma_unitdata_req.flow_id) == hip_priv->hip5_opt_tx_q[i].flow_id &&
 			fapi_get_u16(skb, u.ma_unitdata_req.configuration_option) == hip_priv->hip5_opt_tx_q[i].configuration_option) {
 			if (ether_addr_equal(fapi_get_buff(skb, u.ma_unitdata_req.address), hip_priv->hip5_opt_tx_q[i].addr3)) {
@@ -3145,7 +3172,8 @@ bool hip5_opt_aggr_check(struct slsi_dev *sdev, struct slsi_hip *hip, struct sk_
 	}
 	/* find an empty place */
 	for (i = 0; i < SLSI_HIP_HIP5_OPT_TX_Q_MAX; i++) {
-		if (!hip_priv->hip5_opt_tx_q[i].flow_id) {
+		if (!hip_priv->hip5_opt_tx_q[i].active) {
+			hip_priv->hip5_opt_tx_q[i].active = true;
 			hip_priv->hip5_opt_tx_q[i].flow_id = fapi_get_u16(skb, u.ma_unitdata_req.flow_id);
 			hip_priv->hip5_opt_tx_q[i].vif_index = fapi_get_vif(skb);
 			hip_priv->hip5_opt_tx_q[i].configuration_option = fapi_get_u16(skb, u.ma_unitdata_req.configuration_option);
@@ -3163,7 +3191,7 @@ bool hip5_opt_aggr_check(struct slsi_dev *sdev, struct slsi_hip *hip, struct sk_
 							MAC2STR(hip_priv->hip5_opt_tx_q[i].addr3),
 							hip_priv->hip5_opt_tx_q[i].vif_index,
 							hip_priv->hip5_opt_tx_q[i].flow_id);
-					hip_priv->hip5_opt_tx_q[i].flow_id = 0;
+					hip_priv->hip5_opt_tx_q[i].active = false;
 				}
 			}
 		}
@@ -3200,14 +3228,12 @@ int hip5_opt_tx_frame(struct slsi_hip *hip, struct sk_buff *skb, bool ctrl_packe
 	struct slsi_skb_cb *cb = slsi_skb_cb_get(skb);
 
 	memset(&tx_dma_desc, 0, sizeof(struct hip5_tx_dma_desc));
-	spin_lock_bh(&hip->hip_priv->tx_lock);
-
-	if (atomic_read(&hip->is_hip_priv_invalid)) {
+	if (!atomic_read(&hip->is_hip_priv_valid)) {
 		SLSI_WARN_NODEV("hip_priv is null. stop tx process\n");
-		spin_unlock_bh(&hip->hip_priv->tx_lock);
 		return -EFAULT;
 	}
 
+	spin_lock_bh(&hip->hip_priv->tx_lock);
 	atomic_set(&hip->hip_priv->in_tx, 1);
 
 	if (!slsi_wake_lock_active(&hip->hip_priv->wake_lock_tx))
@@ -3614,7 +3640,8 @@ static int hip5_rx_zero_copy_init_skb_buffers(struct slsi_dev *sdev, struct slsi
 
 	/* Update the scoreboard */
 	hip5_update_index(hip, HIP5_MIF_Q_FH_SKB0, widx, idx_w);
-	scsc_service_mifintrbit_bit_set(service, hip->hip_priv->intr_from_host_ctrl, SCSC_MIFINTR_TARGET_WLAN);
+
+	slsi_ctrl_intrbit(hip->hip_priv->intr_from_host_ctrl, hip, SLSI_IRQ_SET_BIT);
 	return 0;
 }
 
@@ -3826,7 +3853,7 @@ void slsi_hip_deinit(struct slsi_hip *hip)
 	destroy_workqueue(hip->hip_priv->hip_workq);
 
 	spin_lock_bh(&hip->hip_priv->tx_lock);
-	atomic_set(&hip->is_hip_priv_invalid, 1);
+	atomic_set(&hip->is_hip_priv_valid, 0);
 	spin_unlock_bh(&hip->hip_priv->tx_lock);
 
 #ifdef CONFIG_SCSC_PCIE_CHIP

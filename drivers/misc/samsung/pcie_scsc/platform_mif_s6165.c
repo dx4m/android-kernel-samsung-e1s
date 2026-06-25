@@ -656,7 +656,7 @@ static int platform_mif_pcie_control_fsm(void *data)
 
 static int __platform_mif_send_event_to_fsm(struct platform_mif *platform, int event, bool comp)
 {
-	u32 val;
+	u32 val = 0;
 	struct event_record ev;
 
 	unsigned long flags;
@@ -665,16 +665,17 @@ static int __platform_mif_send_event_to_fsm(struct platform_mif *platform, int e
 	ev.event = event;
 	ev.complete = comp;
 	ev.event_time = ktime_get();
-	/**
-	 * TODO: we can move pcie_wakeup_cb, pcie_wakeup_cb_data_service, and pcie_wakeup_cb_data_dev
-	 * from platform MIF
-	 */
 
-	val = kfifo_in(&platform->ev_fifo, &ev, sizeof(ev));
-	wake_up_interruptible(&platform->event_wait_queue);
+	if (kfifo_avail(&platform->ev_fifo)) {
+		kfifo_in(&platform->ev_fifo, &ev, sizeof(ev));
+		wake_up_interruptible(&platform->event_wait_queue);
+	} else {
+		SCSC_TAG_INFO_DEV(PLAT_MIF, platform->dev, "kfifo is full, fail to send event : %s\n", events[event]);
+		val = -EAGAIN;
+	}
+
 	spin_unlock_irqrestore(&platform->kfifo_lock, flags);
-
-	return 0;
+	return val;
 }
 
 static int platform_mif_send_event_to_fsm(struct platform_mif *platform, enum pcie_event_type event)
@@ -2459,7 +2460,7 @@ error_iommu:
 	init_completion(&platform->kthread_parked);
 	init_waitqueue_head(&platform->event_wait_queue);
 
-	err = kfifo_alloc(&platform->ev_fifo, 256 * sizeof(struct event_record), GFP_KERNEL);
+	err = kfifo_alloc(&platform->ev_fifo, 512 * sizeof(struct event_record), GFP_KERNEL);
 	if (err)
 		goto error_exit;
 
@@ -2578,18 +2579,22 @@ EXPORT_SYMBOL(scsc_pcie_register_print);
 
 int scsc_pcie_claim(void)
 {
-	int ret = 1;
+	int complete = 0;
+	int err = 0;
 	unsigned long flags;
 
 	/* TODO, this should be fixed and come from a mx instance!*/
 	spin_lock_irqsave(&g_platform->cb_sync, flags);
 	if (g_platform->off_req == false && get_pcie_link_state(g_platform->pcie) == PCIE_LINK_STATE_ON) {
-		platform_mif_send_event_to_fsm(g_platform, PCIE_EVT_CLAIM);
+		err = platform_mif_send_event_to_fsm(g_platform, PCIE_EVT_CLAIM);
 	} else {
-		ret = platform_mif_send_event_to_fsm_wait_completion(g_platform, PCIE_EVT_CLAIM);
+		complete = 1;
+		err = platform_mif_send_event_to_fsm_wait_completion(g_platform, PCIE_EVT_CLAIM);
 	}
 	spin_unlock_irqrestore(&g_platform->cb_sync, flags);
-	return ret;
+	if (err)
+		return err;
+	return complete;
 }
 EXPORT_SYMBOL(scsc_pcie_claim);
 

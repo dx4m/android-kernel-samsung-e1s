@@ -118,6 +118,7 @@ void slsi_netif_remove_locked(struct slsi_dev *sdev, struct net_device *dev, boo
 int slsi_netif_add_locked(struct slsi_dev *sdev, const char *name, int ifnum);
 int slsi_netif_register_locked(struct slsi_dev *sdev, struct net_device *dev, bool is_cfg80211);
 #ifdef CONFIG_SCSC_WIFI_NAN_ENABLE
+bool slsi_get_mac_from_ns_pkt(struct sk_buff *skb, u8 *mac, u8 *h_source);
 void slsi_net_randomize_nmi_ndi(struct slsi_dev *sdev);
 #endif
 #ifdef CONFIG_SCSC_WLAN_NAPI_PER_NETDEV

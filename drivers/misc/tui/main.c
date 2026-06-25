@@ -32,6 +32,7 @@
 #include "stui_hal.h"
 #include "stui_inf.h"
 #include "stui_ioctl.h"
+#include "stui_log.h"
 #ifdef CONFIG_SAMSUNG_TUI_LOWLEVEL
 #include "iwd_agent.h"
 #endif /* CONFIG_SAMSUNG_TUI_LOWLEVEL */
@@ -43,55 +44,52 @@ struct miscdevice tui;
 static void stui_wq_func(struct work_struct *param)
 {
 	struct delayed_work *wq = container_of(param, struct delayed_work, work);
-	pr_debug(TUIHW_LOG_TAG " %s >>\n", __func__);
+	STUI_CALL_TRACE();
 	mutex_lock(&stui_mode_mutex);
 	stui_close_touch();
 	stui_close_display();
 	kfree(wq);
 	mutex_unlock(&stui_mode_mutex);
-	pr_debug(TUIHW_LOG_TAG " %s <<\n", __func__);
 }
 
 static int stui_open(struct inode *inode, struct file *filp)
 {
 	int ret = 0;
-	pr_debug(TUIHW_LOG_TAG " %s >>\n", __func__);
+	STUI_CALL_TRACE();
 	mutex_lock(&stui_mode_mutex);
 	filp->private_data = NULL;
 	if (stui_get_mode() & STUI_MODE_ALL) {
 		ret = -EBUSY;
-		pr_err(TUIHW_LOG_TAG " Device is busy\n");
+		log_error("Device is busy\n");
 	}
 	mutex_unlock(&stui_mode_mutex);
-	pr_debug(TUIHW_LOG_TAG " %s <<\n", __func__);
 	return ret;
 }
 
 static int stui_release(struct inode *inode, struct file *filp)
 {
 	struct delayed_work *work;
-	pr_debug(TUIHW_LOG_TAG " %s >>\n", __func__);
+	STUI_CALL_TRACE();
 	mutex_lock(&stui_mode_mutex);
 	if ((stui_get_mode() & STUI_MODE_ALL) && filp->private_data) {
-		pr_err(TUIHW_LOG_TAG " Device close while TUI session is active\n");
+		log_error("Device close while TUI session is active\n");
 		work = kmalloc(sizeof(struct delayed_work), GFP_KERNEL);
 		if (!work) {
 			mutex_unlock(&stui_mode_mutex);
-			pr_err(TUIHW_LOG_TAG " %s memory allocation error\n", __func__);
+			log_error("memory allocation error\n");
 			return -ENOMEM;
 		}
 		INIT_DELAYED_WORK(work, stui_wq_func);
 		schedule_delayed_work(work, msecs_to_jiffies(4000));
 	}
 	mutex_unlock(&stui_mode_mutex);
-	pr_debug(TUIHW_LOG_TAG " %s <<\n", __func__);
 	return 0;
 }
 
 static long stui_ioctl(struct file *f, unsigned int cmd, unsigned long arg)
 {
 	long ret;
-	pr_debug(TUIHW_LOG_TAG " %s >>\n", __func__);
+	STUI_CALL_TRACE();
 	mutex_lock(&stui_mode_mutex);
 	ret = stui_process_cmd(f, cmd, arg);
 	if (stui_get_mode() & STUI_MODE_ALL)
@@ -99,17 +97,17 @@ static long stui_ioctl(struct file *f, unsigned int cmd, unsigned long arg)
 	else
 		f->private_data = (void *)0UL;
 	mutex_unlock(&stui_mode_mutex);
-	pr_debug(TUIHW_LOG_TAG " %s << ret=%ld\n", __func__, ret);
+	log_debug("ret=%ld\n", ret);
 	return ret;
 }
 
 static int exynos_teegris_tui_probe(struct platform_device *pdev)
 {
+	STUI_CALL_TRACE();
+	(void)pdev;
 	dev_tui = &pdev->dev;
-
 	pdev->dev.dma_mask = &pdev->dev.coherent_dma_mask;
 	dma_set_mask(&pdev->dev, DMA_BIT_MASK(36));
-	pr_debug(TUIHW_LOG_TAG " TUI probe done.\n");
 	return 0;
 }
 
@@ -131,11 +129,11 @@ static int __init teegris_tui_init(void)
 {
 	int ret;
 
-	pr_info(TUIHW_LOG_TAG " =============== Running TEEgris TUI  ===============");
+	log_info(" =============== Running TEEgris TUI  ===============\n");
 
 	ret = misc_register(&tui);
 	if (ret) {
-		pr_err(TUIHW_LOG_TAG " tui can't register misc on minor=%d\n",
+		log_error(" tui can't register misc on minor=%d\n",
 				MISC_DYNAMIC_MINOR);
 		return ret;
 	}
@@ -150,7 +148,7 @@ static int __init teegris_tui_init(void)
 
 static void __exit teegris_tui_exit(void)
 {
-	pr_info(TUIHW_LOG_TAG " Unloading teegris tui module.");
+	log_info("Unloading teegris tui module.\n");
 #ifdef CONFIG_SAMSUNG_TUI_LOWLEVEL
 	uninit_iwd_agent();
 	__uninit_iwd_agent();

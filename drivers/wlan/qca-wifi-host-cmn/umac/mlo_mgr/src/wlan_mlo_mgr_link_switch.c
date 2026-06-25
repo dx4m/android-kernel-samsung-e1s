@@ -31,6 +31,8 @@
 #endif
 #include "host_diag_core_event.h"
 
+#define WLAN_MLO_SINGLE_LINK 1
+
 static QDF_STATUS
 mlo_mgr_update_link_rej_mac_addr_resp(struct wlan_objmgr_vdev *vdev,
 				      struct wlan_mlo_link_reject_req *link_rej_info)
@@ -128,6 +130,7 @@ void mlo_mgr_update_ap_link_info(struct wlan_objmgr_vdev *vdev, uint8_t link_id,
 		link_info++;
 	}
 
+
 	/* Find first free link index if link does not exists */
 	if (!link_exist) {
 		link_info = &vdev->mlo_dev_ctx->link_ctx->links_info[0];
@@ -148,7 +151,9 @@ void mlo_mgr_update_ap_link_info(struct wlan_objmgr_vdev *vdev, uint8_t link_id,
 	qdf_mem_copy(link_info->link_chan_info, &channel, sizeof(channel));
 	link_info->link_status_flags = 0;
 	link_info->link_id = link_id;
-	link_info->is_link_active = false;
+	/* Mark link as active link in case of SLO */
+	if (link_info_iter == WLAN_MLO_SINGLE_LINK)
+		link_info->is_link_active = true;
 
 	mlo_debug("Update AP Link info for link_id: %d, vdev_id:%d, link_addr:" QDF_MAC_ADDR_FMT,
 		  link_info->link_id, link_info->vdev_id,
@@ -273,6 +278,7 @@ void mlo_mgr_reset_ap_link_info(struct wlan_objmgr_vdev *vdev)
 			     sizeof(*link_info->link_chan_info));
 		link_info->link_id = WLAN_INVALID_LINK_ID;
 		link_info->link_status_flags = 0;
+		link_info->is_link_active = false;
 		link_info++;
 	}
 }
@@ -1620,21 +1626,96 @@ QDF_STATUS mlo_mgr_link_switch_request_params(struct wlan_objmgr_psoc *psoc,
 	return status;
 }
 
+#ifdef WLAN_FEATURE_11BE_MLO_ADV_FEATURE
+/**
+ * mlo_mgr_update_policy_mgr_disabled_links_info() - Update the policy manager
+ * with the info on inactive links and move the inactive links to disabled table
+ * @psoc: Pointer to PSOC object
+ * @vdev_id: Vdev id
+ * @link_id: link id
+ * @is_link_active: If link is active or inactive
+ *
+ * Return: None
+ */
+static void
+mlo_mgr_update_policy_mgr_disabled_links_info(struct wlan_objmgr_psoc *psoc,
+					      uint8_t vdev_id, uint8_t link_id,
+					      bool is_link_active)
+{
+	if (policy_mgr_is_hw_dbs_capable(psoc))
+		return;
+
+	/* Dont update the policy manager for standby link */
+	if (link_id == WLAN_INVALID_LINK_ID)
+		return;
+
+	if (is_link_active) {
+		policy_mgr_move_vdev_from_disabled_to_connection_tbl(psoc,
+								     vdev_id);
+		return;
+	}
+
+	policy_mgr_move_vdev_from_connection_to_disabled_tbl(psoc, vdev_id);
+}
+#else
+static inline void
+mlo_mgr_update_policy_mgr_disabled_links_info(struct wlan_objmgr_psoc *psoc,
+					      uint8_t vdev_id, uint8_t link_id,
+					      bool is_link_active)
+{}
+#endif
+
 #define IS_LINK_SET(link_bitmap, link_id) ((link_bitmap) & (BIT(link_id)))
 
-static void mlo_mgr_update_link_state(struct wlan_mlo_dev_context *mld_ctx,
+static void mlo_mgr_update_link_state(struct wlan_objmgr_psoc *psoc,
+				      struct wlan_mlo_dev_context *mld_ctx,
 				      uint32_t active_link_bitmap)
 {
-	uint8_t i;
+	uint8_t i, vdev_id, num_links = 0;
 	struct mlo_link_info *link_info;
+	struct mlo_mgr_context *mlo_ctx = wlan_objmgr_get_mlo_ctx();
+	bool is_cb_register = false;
 
+	if (mlo_ctx && mlo_ctx->osif_ops &&
+	    mlo_ctx->osif_ops->mlo_mgr_osif_update_link_state)
+		is_cb_register = true;
+
+	num_links = mlo_get_sta_num_links(mld_ctx);
 	for (i = 0; i < WLAN_MAX_ML_BSS_LINKS; i++) {
 		link_info = &mld_ctx->link_ctx->links_info[i];
+
+		if (qdf_is_macaddr_zero(&link_info->ap_link_addr) ||
+		    qdf_is_macaddr_zero(&link_info->link_addr))
+			continue;
 
 		if (IS_LINK_SET(active_link_bitmap, link_info->link_id))
 			link_info->is_link_active = true;
 		else
 			link_info->is_link_active = false;
+
+		vdev_id = link_info->vdev_id;
+		mlo_debug("vdev:%d is_link_active:%d num_links:%d", vdev_id,
+			  link_info->is_link_active, num_links);
+		/*
+		 * Teardown TDLS for non-DBS target when number of
+		 * connected links is > 1, so that it can be formed again on
+		 * active link.
+		 */
+		if (num_links > WLAN_MLO_SINGLE_LINK &&
+		    !link_info->is_link_active &&
+		    mlo_ctx->mlme_ops &&
+		    mlo_ctx->mlme_ops->mlo_mlme_ext_teardown_tdls)
+			mlo_ctx->mlme_ops->mlo_mlme_ext_teardown_tdls(psoc,
+								      vdev_id);
+
+		mlo_mgr_update_policy_mgr_disabled_links_info(
+				psoc, vdev_id, link_info->link_id,
+				link_info->is_link_active);
+
+		if (is_cb_register)
+			mlo_ctx->osif_ops->mlo_mgr_osif_update_link_state(
+						link_info->vdev_id,
+						link_info->is_link_active);
 	}
 }
 
@@ -1644,7 +1725,6 @@ mlo_mgr_link_state_switch_info_handler(struct wlan_objmgr_psoc *psoc,
 {
 	uint8_t i;
 	struct wlan_mlo_dev_context *mld_ctx = NULL;
-	struct mlo_mgr_context *mlo_ctx = wlan_objmgr_get_mlo_ctx();
 	QDF_STATUS status = QDF_STATUS_SUCCESS;
 
 	wlan_mlo_get_mlpeer_by_peer_mladdr(
@@ -1661,17 +1741,9 @@ mlo_mgr_link_state_switch_info_handler(struct wlan_objmgr_psoc *psoc,
 				psoc,
 				&info->link_switch_param[i]);
 		mlo_mgr_update_link_state(
-				mld_ctx,
+				psoc, mld_ctx,
 				info->link_switch_param[i].active_link_bitmap);
 	}
-
-	/*
-	 * Teardown TDLS for non-DBS target so that it can be bring up on
-	 * active link.
-	 */
-	if (mlo_ctx && mlo_ctx->mlme_ops &&
-	    mlo_ctx->mlme_ops->mlo_mlme_ext_teardown_tdls)
-		status = mlo_ctx->mlme_ops->mlo_mlme_ext_teardown_tdls(psoc);
 
 	return status;
 }

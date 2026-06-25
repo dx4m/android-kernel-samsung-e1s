@@ -4488,7 +4488,7 @@ static ssize_t dp_test_show(struct class *class,
 	return size;
 }
 
-#define MIN(x, y) (x > y ? y : x)
+//#define MIN(x, y) (x > y ? y : x)
 static ssize_t dp_test_store(struct class *dev,
 		struct class_attribute *attr,
 		const char *buf, size_t size)

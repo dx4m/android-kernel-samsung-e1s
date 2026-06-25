@@ -530,6 +530,9 @@ struct sme_context {
 	QDF_STATUS (*sme_vdev_del_cb)(mac_handle_t mac_handle,
 				      struct wlan_objmgr_vdev *vdev);
 	void (*set_disconnect_link_info_cb)(uint8_t vdev_id);
+#ifdef DRIVER_PASSTHRU_MODE
+	void (*passthrough_mode_cb)(uint8_t vdev_id, bool is_up);
+#endif
 };
 
 #endif /* #if !defined( __SMEINTERNAL_H ) */

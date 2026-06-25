@@ -3824,7 +3824,7 @@ void slsi_handle_nan_rx_event_log_ind(struct slsi_dev *sdev, struct net_device *
 static void dump_roam_scan_result(struct slsi_dev *sdev, struct net_device *dev,
 				  bool *candidate, char *bssid, int freq,
 				  int rssi, short cu,
-				  int score, int tp_score, bool eligible_value, bool mld_ap)
+				  int score, int tp_score, u16 eligible_value, bool mld_ap)
 {
 	slsi_conn_log2us_roam_scan_result(sdev, dev, *candidate, bssid,
 					  freq, rssi,
@@ -3832,9 +3832,9 @@ static void dump_roam_scan_result(struct slsi_dev *sdev, struct net_device *dev,
 					  tp_score, eligible_value, mld_ap);
 	if (*candidate) {
 		SLSI_INFO(sdev, "WIFI_EVENT_ROAM_SCAN_RESULT, Candidate AP, BSSID:" MACSTR
-			  ", RSSI:%d, CU:%d, Score:%d.%02d, TP Score:%d, Eligible:%s\n",
+			  ", RSSI:%d, CU:%d, Score:%d.%02d, TP Score:%d, Eligible:%s, reason:%u\n",
 			  MAC2STR(bssid), rssi, cu, score / 100, score % 100, tp_score,
-			  eligible_value ? "true" : "false");
+			  (eligible_value == 1) ? "true" : "false", eligible_value);
 	} else {
 		SLSI_INFO(sdev, "WIFI_EVENT_ROAM_SCAN_RESULT, Current AP, BSSID:" MACSTR
 			  ", RSSI:%d, CU:%d, Score:%d.%02d, TP Score:%d MLD_AP:%d\n",
@@ -3863,7 +3863,7 @@ struct slsi_rx_evt_vd_info {
 	u32 tp_score_val;
 	int mgmt_frame_subtype;
 	int is_roaming;
-	bool eligible_value;
+	u16 eligible_value;
 	u8 full_scan_count;
 	short cu_rssi_thresh;
 	u16 cu_thresh;
@@ -4044,7 +4044,7 @@ static int slsi_rx_event_log_parse(struct slsi_dev *sdev, struct net_device *dev
 					evt_info->vd.chan_utilisation = 0;
 					evt_info->vd.score_val = 0;
 					evt_info->vd.tp_score_val = 0;
-					evt_info->vd.eligible_value = false;
+					evt_info->vd.eligible_value = 0;
 				}
 				break;
 			case SLSI_WIFI_TAG_VD_FULL_SCAN_COUNT:
@@ -4239,7 +4239,7 @@ static int slsi_get_roam_reason_for_fw_reason(int roam_reason)
 	}
 }
 
-/* if the Expired_Timer_Value is not set to 0,1,2,3, the Roam_Reason is set to UNKNOWN. */
+/* if the Expired_Timer_Value is not set to 0,1,2,3,4 the Roam_Reason is set to UNKNOWN. */
 static int slsi_get_roam_reason_from_expired_tv(int roam_reason, int expired_timer_value)
 {
 	if (expired_timer_value == SLSI_SOFT_ROAMING_TRIGGER_EVENT_DEFAULT)
@@ -4247,7 +4247,8 @@ static int slsi_get_roam_reason_from_expired_tv(int roam_reason, int expired_tim
 	else if (expired_timer_value == SLSI_SOFT_ROAMING_TRIGGER_EVENT_INACTIVITY_TIMER)
 		return 8;
 	else if (expired_timer_value == SLSI_SOFT_ROAMING_TRIGGER_EVENT_RESCAN_TIMER ||
-		 expired_timer_value == SLSI_SOFT_ROAMING_TRIGGER_EVENT_BACKGROUND_RESCAN_TIMER)
+		 expired_timer_value == SLSI_SOFT_ROAMING_TRIGGER_EVENT_BACKGROUND_RESCAN_TIMER ||
+		 expired_timer_value == SLSI_SOFT_ROAMING_TRIGGER_EVENT_EXPIRED_TIMER)
 		return 9;
 	else
 		return 0;
@@ -4305,6 +4306,7 @@ static void slsi_rx_event_log_print(struct slsi_dev *sdev, struct net_device *de
 	struct netdev_vif *ndev_vif = netdev_priv(dev);
 	char *string = NULL;
 	int roam_reason = 0;
+	struct ieee80211_channel *channel = NULL;
 
 	switch (event_id) {
 	case FAPI_EVENT_WIFI_EVENT_FW_EAPOL_FRAME_TRANSMIT_START:
@@ -4439,7 +4441,7 @@ static void slsi_rx_event_log_print(struct slsi_dev *sdev, struct net_device *de
 		SLSI_INFO(sdev, "WIFI_EVENT_FW_NR_FRAME_REQUEST Send Radio Measurement Frame"
 			  " (Neighbor Report Req) Sent from Mobile\n");
 		slsi_conn_log2us_nr_frame_req(sdev, dev, evt_info->vd.dialog_token, evt_info->ssid,
-					      evt_info->vd.mlo_band);
+					      evt_info->vd.mlo_band, evt_info->vd.reason);
 		break;
 	case FAPI_EVENT_WIFI_EVENT_FW_RM_FRAME_RESPONSE:
 		SLSI_INFO(sdev, "WIFI_EVENT_FW_RM_FRAME_RESPONSE Received Radio Measurement "
@@ -4509,19 +4511,18 @@ static void slsi_rx_event_log_print(struct slsi_dev *sdev, struct net_device *de
 		SLSI_INFO(sdev, "WIFI_EVENT_ROAM_SEARCH_STOPPED, Reason:%d\n", evt_info->reason_code);
 		break;
 	case FAPI_EVENT_WIFI_EVENT_FW_BEACON_REPORT_REQUEST:
-		string = slsi_print_channel_list(evt_info->channel_list, evt_info->channel_count);
+		channel = ieee80211_get_channel(sdev->wiphy, SLSI_FREQ_FW_TO_HOST(evt_info->chan_frequency));
 		SLSI_INFO(sdev,
-			  "WIFI_EVENT_FW_BEACON_REPORT_REQUEST, Token:%d,Operating Class:%d,channel list:%s,"
+			  "WIFI_EVENT_FW_BEACON_REPORT_REQUEST, Token:%d,Operating Class:%d,channel:%d,"
 			  "Measurement Duration:%d,Measurement Mode:%s,BSSID:" MACSTR ",SSID:%s\n",
-			  evt_info->vd.dialog_token, evt_info->vd.operating_class, (!string ? "-1" : string),
+			  evt_info->vd.dialog_token, evt_info->vd.operating_class, (!channel ? 0 : channel->hw_value),
 			  evt_info->vd.measure_duration, slsi_get_measure_mode(evt_info->vd.measure_mode),
 			  MAC2STR(evt_info->mac_addr), evt_info->ssid);
 		slsi_conn_log2us_beacon_report_request(sdev, dev,
 						       evt_info->vd.dialog_token, evt_info->vd.operating_class,
-						       (!string ? "-1" : string), evt_info->vd.measure_duration,
+						       (!channel ? 0 : channel->hw_value), evt_info->vd.measure_duration,
 						       slsi_get_measure_mode(evt_info->vd.measure_mode),
 						       evt_info->vd.request_mode, evt_info->vd.mlo_band);
-		kfree(string);
 		break;
 	case FAPI_EVENT_WIFI_EVENT_FW_BEACON_REPORT_RESPONSE:
 		if (evt_info->reason_code) {
@@ -4534,7 +4535,7 @@ static void slsi_rx_event_log_print(struct slsi_dev *sdev, struct net_device *de
 		}
 		slsi_conn_log2us_beacon_report_response(sdev, dev,
 							evt_info->vd.dialog_token, evt_info->vd.ap_count,
-							evt_info->vd.mlo_band);
+							evt_info->vd.mlo_band, evt_info->reason_code);
 		break;
 	case FAPI_EVENT_WIFI_EVENT_FW_FTM_RANGE_REQUEST:
 		SLSI_INFO(sdev, "WIFI_EVENT_FW_FTM_RANGE_REQUEST, Min Ap Count:%d, Candidate List Count:%d\n",
@@ -5917,9 +5918,11 @@ static u32 slsi_uc_add_channels(struct wiphy *wiphy, enum nl80211_band band, str
 #ifdef CONFIG_SCSC_WLAN_SUPPORT_6G
 		if (band == NL80211_BAND_6GHZ) {
 			for (j = 0; j < collection->reg_rule_num; j++) {
+				if (collection->reg_rule[j]->flags & SLSI_REGULATORY_DUP_RULE)
+					continue;
+
 				if ((center_freq >= collection->reg_rule[j]->freq_range->start_freq &&
-				    center_freq <= collection->reg_rule[j]->freq_range->end_freq) ||
-				    collection->reg_rule[j]->flags & SLSI_REGULATORY_DUP_RULE)
+				    center_freq <= collection->reg_rule[j]->freq_range->end_freq))
 					break;
 			}
 			if (j == collection->reg_rule_num) {
@@ -6823,6 +6826,12 @@ slsi_wlan_vendor_nan_policy[NAN_REQ_ATTR_MAX + 1] = {
 	[NAN_PASN_SET_KEY_NM_KEK] = {.type = NLA_BINARY},
 	[NAN_PASN_SET_KEY_CIPHER] = {.type = NLA_U32},
 	[NAN_REQ_ATTR_FOLLOWUP_SHARED_KEY_DESC_FLAG] = {.type = NLA_U8},
+	[NAN_REQ_ATTR_GTK_PROTECTION] = {.type = NLA_U8},
+	[NAN_REQ_ATTR_ENABLE_UNSYNC_SRVDSC] = {.type = NLA_U8},
+	[NAN_REQ_ATTR_SDEA_PARAM_ENABLE_FSD_GAS] = {.type = NLA_U8},
+	[NAN_REQ_ATTR_SDEA_PARAM_ENABLE_FSD_REQ] = {.type = NLA_U8},
+	[NAN_PASN_SET_KEY_ND_PMK_LEN] = {.type = NLA_U8},
+	[NAN_PASN_SET_KEY_ND_PMK] = {.type = NLA_BINARY},
 };
 #endif
 #endif

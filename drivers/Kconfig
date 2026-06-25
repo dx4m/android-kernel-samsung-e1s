@@ -260,6 +260,7 @@ source "drivers/wlan/platform/cnss_prealloc/Kconfig"
 source "drivers/wlan/platform/cnss_genl/Kconfig"
 source "drivers/wlan/platform/cnss2/Kconfig"
 source "drivers/wlan/qcacld-3.0/Kconfig"
+source "drivers/wlan/wonder/Kconfig"
 
 source "drivers/sec_panel_notifier_v2/Kconfig" # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
 source "drivers/usb/typec/manager/Kconfig" # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT

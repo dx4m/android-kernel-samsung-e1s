@@ -136,6 +136,7 @@ enum unix_vertex_index {
 };
 
 static unsigned long unix_vertex_unvisited_index = UNIX_VERTEX_INDEX_MARK1;
+static unsigned long unix_vertex_max_scc_index = UNIX_VERTEX_INDEX_START;
 
 static void unix_add_edge(struct scm_fp_list *fpl, struct unix_edge *edge)
 {
@@ -144,13 +145,14 @@ static void unix_add_edge(struct scm_fp_list *fpl, struct unix_edge *edge)
 	if (!vertex) {
 		vertex = list_first_entry(&fpl->vertices, typeof(*vertex), entry);
 		vertex->index = unix_vertex_unvisited_index;
+		vertex->scc_index = ++unix_vertex_max_scc_index;
 		vertex->out_degree = 0;
 		INIT_LIST_HEAD(&vertex->edges);
 		INIT_LIST_HEAD(&vertex->scc_entry);
 
 		list_move_tail(&vertex->entry, &unix_unvisited_vertices);
 		edge->predecessor->vertex = vertex;
-					}
+	}
 
 	vertex->out_degree++;
 	list_add_tail(&edge->vertex_entry, &vertex->edges);
@@ -171,7 +173,7 @@ static void unix_del_edge(struct scm_fp_list *fpl, struct unix_edge *edge)
 	if (!vertex->out_degree) {
 		edge->predecessor->vertex = NULL;
 		list_move_tail(&vertex->entry, &fpl->vertices);
-				}
+	}
 }
 
 static void unix_free_vertices(struct scm_fp_list *fpl)
@@ -181,7 +183,7 @@ static void unix_free_vertices(struct scm_fp_list *fpl)
 	list_for_each_entry_safe(vertex, next_vertex, &fpl->vertices, entry) {
 		list_del(&vertex->entry);
 		kfree(vertex);
-			}
+	}
 }
 
 static DEFINE_SPINLOCK(unix_gc_lock);
@@ -241,7 +243,7 @@ void unix_del_edges(struct scm_fp_list *fpl)
 	if (!fpl->dead) {
 		receiver = fpl->edges[0].successor;
 		receiver->scm_stat.nr_unix_fds -= fpl->count_unix;
-			}
+	}
 	WRITE_ONCE(unix_tot_inflight, unix_tot_inflight - fpl->count_unix);
 out:
 	WRITE_ONCE(fpl->user->unix_inflight, fpl->user->unix_inflight - fpl->count);
@@ -264,7 +266,7 @@ void unix_update_edges(struct unix_sock *receiver)
 		unix_update_graph(unix_sk(receiver->listener)->vertex);
 		receiver->listener = NULL;
 		spin_unlock(&unix_gc_lock);
-		}
+	}
 }
 
 int unix_prepare_fpl(struct scm_fp_list *fpl)
@@ -307,7 +309,7 @@ void unix_destroy_fpl(struct scm_fp_list *fpl)
 static bool unix_vertex_dead(struct unix_vertex *vertex)
 {
 	struct unix_edge *edge;
-		struct unix_sock *u;
+	struct unix_sock *u;
 	long total_ref;
 
 	list_for_each_entry(edge, &vertex->edges, vertex_entry) {
@@ -319,10 +321,10 @@ static bool unix_vertex_dead(struct unix_vertex *vertex)
 
 		/* The vertex's fd can be received by an inflight socket in
 		 * another SCC.
-			 */
+		 */
 		if (next_vertex->scc_index != vertex->scc_index)
 			return false;
-		}
+	}
 
 	/* No receiver exists out of the same SCC. */
 
@@ -341,18 +343,6 @@ enum unix_recv_queue_lock_class {
 	U_RECVQ_LOCK_NORMAL,
 	U_RECVQ_LOCK_EMBRYO,
 };
-
-static void unix_collect_queue(struct unix_sock *u, struct sk_buff_head *hitlist)
-{
-	skb_queue_splice_init(&u->sk.sk_receive_queue, hitlist);
-
-#if IS_ENABLED(CONFIG_AF_UNIX_OOB)
-	if (u->oob_skb) {
-		WARN_ON_ONCE(skb_unref(u->oob_skb));
-		u->oob_skb = NULL;
-	}
-#endif
-}
 
 static void unix_collect_skb(struct list_head *scc, struct sk_buff_head *hitlist)
 {
@@ -375,13 +365,12 @@ static void unix_collect_skb(struct list_head *scc, struct sk_buff_head *hitlist
 			skb_queue_walk(queue, skb) {
 				struct sk_buff_head *embryo_queue = &skb->sk->sk_receive_queue;
 
-				/* listener -> embryo order, the inversion never happens. */
-				spin_lock_nested(&embryo_queue->lock, U_RECVQ_LOCK_EMBRYO);
-				unix_collect_queue(unix_sk(skb->sk), hitlist);
+				spin_lock(&embryo_queue->lock);
+				skb_queue_splice_init(embryo_queue, hitlist);
 				spin_unlock(&embryo_queue->lock);
 			}
 		} else {
-			unix_collect_queue(u, hitlist);
+			skb_queue_splice_init(queue, hitlist);
 		}
 
 		spin_unlock(&queue->lock);
@@ -438,10 +427,10 @@ next_vertex:
 
 		if (next_vertex->index == unix_vertex_unvisited_index) {
 			/* Iterative deepening depth first search
-	 *
+			 *
 			 *   1. Push a forward edge to edge_stack and set
 			 *      the successor to vertex for the next iteration.
-	 */
+			 */
 			list_add(&edge->stack_entry, &edge_stack);
 
 			vertex = next_vertex;
@@ -472,8 +461,8 @@ prev_vertex:
 			vertex->scc_index = min(vertex->scc_index, next_vertex->scc_index);
 		} else {
 			/* The successor was already grouped as another SCC */
-			}
 		}
+	}
 
 	if (vertex->index == vertex->scc_index) {
 		struct unix_vertex *v;
@@ -481,10 +470,10 @@ prev_vertex:
 		bool scc_dead = true;
 
 		/* SCC finalised.
-	 *
+		 *
 		 * If the scc_index was not updated, all the vertices above on
 		 * vertex_stack are in the same SCC.  Group them using scc_entry.
-	 */
+		 */
 		__list_cut_position(&scc, &vertex_stack, &vertex->scc_entry);
 
 		list_for_each_entry_reverse(v, &scc, scc_entry) {
@@ -498,10 +487,15 @@ prev_vertex:
 				scc_dead = unix_vertex_dead(v);
 		}
 
-		if (scc_dead)
+		if (scc_dead) {
 			unix_collect_skb(&scc, hitlist);
-		else if (!unix_graph_maybe_cyclic)
-			unix_graph_maybe_cyclic = unix_scc_cyclic(&scc);
+		} else {
+			if (unix_vertex_max_scc_index < vertex->scc_index)
+				unix_vertex_max_scc_index = vertex->scc_index;
+
+			if (!unix_graph_maybe_cyclic)
+				unix_graph_maybe_cyclic = unix_scc_cyclic(&scc);
+		}
 
 		list_del(&scc);
 	}
@@ -516,6 +510,7 @@ static void unix_walk_scc(struct sk_buff_head *hitlist)
 	unsigned long last_index = UNIX_VERTEX_INDEX_START;
 
 	unix_graph_maybe_cyclic = false;
+	unix_vertex_max_scc_index = UNIX_VERTEX_INDEX_START;
 
 	/* Visit every vertex exactly once.
 	 * __unix_walk_scc() moves visited vertices to unix_visited_vertices.

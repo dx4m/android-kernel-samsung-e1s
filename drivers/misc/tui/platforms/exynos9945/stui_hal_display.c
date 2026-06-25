@@ -10,6 +10,7 @@
 
 #include "../../stui_core.h"
 #include "../../stui_hal.h"
+#include "../../stui_log.h"
 #include <linux/input/stui_inf.h>
 
 #include <linux/version.h>
@@ -62,7 +63,8 @@ static int fb_protection_for_tui(bool tui_en)
 	struct device *fb_dev;
 	int ret = 0;
 
-	pr_debug(TUIHW_LOG_TAG "%s - state %d start\n", __func__, tui_en);
+	STUI_CALL_TRACE();
+	log_debug("tui_en=%d\n", tui_en);
 
 	fb_dev = get_fb_dev_for_tui();
 	if (!fb_dev)
@@ -71,20 +73,20 @@ static int fb_protection_for_tui(bool tui_en)
 	if (tui_en) {
 		ret = exynos_atomic_enter_tui();
 		if (ret)
-			pr_err(TUIHW_LOG_TAG "%s - protect error - %d\n", __func__, ret);
+			log_error("protect error - %d\n", ret);
 	} else {
 		ret = exynos_atomic_exit_tui();
 		if (ret)
-			pr_err(TUIHW_LOG_TAG "unprotect error - %d\n", ret);
+			log_error("unprotect error - %d\n", ret);
 	}
 
 	exynos_tui_set_stui_funcs(stui_get_buf_info, stui_free_video_space);
-	pr_info(TUIHW_LOG_TAG "%s - state %d end\n", __func__, tui_en);
 	return ret;
 }
 
 void stui_free_video_space(void)
 {
+	STUI_CALL_TRACE();
 	if (g_attachment && g_sgt) {
 		dma_buf_unmap_attachment(g_attachment, g_sgt, DMA_BIDIRECTIONAL);
 		g_sgt = NULL;
@@ -97,8 +99,6 @@ void stui_free_video_space(void)
 		dma_buf_put(g_dma_buf);
 		g_dma_buf = NULL;
 	}
-
-	pr_info(TUIHW_LOG_TAG "<< %s <<\n", __func__);
 }
 
 int stui_alloc_video_space(struct tui_hw_buffer *buffer)
@@ -108,9 +108,10 @@ int stui_alloc_video_space(struct tui_hw_buffer *buffer)
 	size_t workbuf_size;
 	struct resolution_info lcd_info = {};
 
+	STUI_CALL_TRACE();
 	exynos_tui_get_resolution(&lcd_info);
 
-	pr_info(TUIHW_LOG_TAG " resolution %d * %d,mode %d\n", lcd_info.xres, lcd_info.yres, lcd_info.mode);
+	log_info(" resolution %d * %d,mode %d\n", lcd_info.xres, lcd_info.yres, lcd_info.mode);
 	framebuf_size = (lcd_info.xres * lcd_info.yres * (DEFAULT_BPP >> 3));
 	framebuf_size = STUI_ALIGN_UP(framebuf_size, STUI_ALIGN_4kB_SZ);
 	workbuf_size = (lcd_info.xres * lcd_info.yres * ((DEFAULT_BPP >> 3) + 1));
@@ -118,27 +119,29 @@ int stui_alloc_video_space(struct tui_hw_buffer *buffer)
 
 	dma_heap = dma_heap_find("tui-secure");
 	if (!dma_heap) {
-		pr_err(TUIHW_LOG_TAG "%s - fail to get dma_heap for tui\n", __func__);
+		log_error("fail to get dma_heap for tui\n");
 		goto err_alloc;
 	}
 
 	g_dma_buf = dma_heap_buffer_alloc(dma_heap, framebuf_size + workbuf_size + STUI_ALIGN_4kB_SZ, 0, 0);
 	if (IS_ERR(g_dma_buf)) {
-		pr_err(TUIHW_LOG_TAG "fail to allocate dma buffer\n");
+		log_error("fail to allocate dma buffer\n");
 		goto err_alloc;
 	}
 
 	g_attachment = dma_buf_attach(g_dma_buf, dev_tui);
 	if (IS_ERR_OR_NULL(g_attachment)) {
-		pr_err(TUIHW_LOG_TAG " fail to dma buf attachment\n");
+		log_error(" fail to dma buf attachment\n");
 		goto err_attach;
 	}
 
 	g_sgt = dma_buf_map_attachment(g_attachment, DMA_BIDIRECTIONAL);
 	if (IS_ERR_OR_NULL(g_sgt)) {
-		pr_err(TUIHW_LOG_TAG " fail to map attachment\n");
+		log_error(" fail to map attachment\n");
 		goto err_attachment;
 	}
+
+	log_info("xres=%d, yres=%d, mode=%d\n", lcd_info.xres, lcd_info.yres, lcd_info.mode);
 
 	phys_addr = sg_phys(g_sgt->sgl);
 	phys_addr = STUI_ALIGN_UP(phys_addr, STUI_ALIGN_4kB_SZ);
@@ -153,7 +156,7 @@ int stui_alloc_video_space(struct tui_hw_buffer *buffer)
 #ifdef CONFIG_EXYNOS_DPU_USE_DUAL_DRV
 	buffer->disp_if &= DISP_IF_MASK;
 	buffer->disp_if |= DISP_FLAG_PACK(lcd_info.disp_flag);
-	pr_info(TUIHW_LOG_TAG "xres=%d, yres=%d, mode=%d, disp_flag=%08x\n",
+	log_info("xres=%d, yres=%d, mode=%d, disp_flag=%08x\n",
 		lcd_info.xres, lcd_info.yres, lcd_info.mode, lcd_info.disp_flag);
 #endif //CONFIG_EXYNOS_DPU_USE_DUAL_DRV
 	g_stui_buf_info.pa[0] = buffer->fb_physical;
@@ -185,7 +188,7 @@ int stui_get_resolution(struct tui_hw_buffer *buffer)
 #ifdef CONFIG_EXYNOS_DPU_USE_DUAL_DRV
 	buffer->disp_if &= DISP_IF_MASK;
 	buffer->disp_if |= DISP_FLAG_PACK(lcd_info.disp_flag);
-	pr_info(TUIHW_LOG_TAG "xres=%d, yres=%d, mode=%d, disp_flag=%08x\n",
+	log_info("xres=%d, yres=%d, mode=%d, disp_flag=%08x\n",
 		lcd_info.xres, lcd_info.yres, lcd_info.mode, lcd_info.disp_flag);
 #endif //CONFIG_EXYNOS_DPU_USE_DUAL_DRV
 	return 0;
@@ -193,15 +196,15 @@ int stui_get_resolution(struct tui_hw_buffer *buffer)
 
 int stui_prepare_tui(void)
 {
-	pr_info(TUIHW_LOG_TAG " %s - start\n", __func__);
+	STUI_CALL_TRACE();
 	return fb_protection_for_tui(true);
 }
 
 void stui_finish_tui(void)
 {
-	pr_info(TUIHW_LOG_TAG " %s - start\n", __func__);
+	STUI_CALL_TRACE();
 	if (fb_protection_for_tui(false))
-		pr_err(TUIHW_LOG_TAG " failed to unprotect tui\n");
+		log_error(" failed to unprotect tui\n");
 }
 
 struct stui_buf_info *stui_get_buf_info(void)
@@ -214,11 +217,11 @@ int stui_get_lcd_info(uint64_t *lcd_buf, int size)
 	int ret = 0;
 	unsigned int i;
 
-	pr_info(TUIHW_LOG_TAG " %s - start\n", __func__);
+	STUI_CALL_TRACE();
 	ret = exynos_tui_get_panel_info(lcd_buf, size);
 	if (!ret) {
 		for (i = 0; i < size; i++)
-			pr_info("lcd info[%d] = %lld \n", i, lcd_buf[i]);
+			log_info("lcd info[%d] = %lld\n", i, lcd_buf[i]);
 	}
 	return ret;
 }

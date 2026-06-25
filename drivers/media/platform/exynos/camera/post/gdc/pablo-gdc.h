@@ -123,8 +123,7 @@ int gdc_get_log_level(void);
  * idx 0: default
  * idx 1~ 64: multi-buffer
  */
-#define GET_GDC_IDX(x) ((x) + 1)
-
+#define GET_GDC_IDX(x) ((x) % (GDC_MAX_BUFS - 1) + 1)
 
 enum gdc_clk_status {
 	GDC_CLK_ON,

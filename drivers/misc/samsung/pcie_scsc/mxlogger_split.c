@@ -1527,10 +1527,11 @@ int mxlogger_init(struct scsc_mx *mx, struct mxlogger *mxlogger, uint32_t mem_sz
 #else
 		SCSC_TAG_INFO(MXMAN, "Detected global %d observer[s]\n", active_global_observers);
 #endif
-	mutex_unlock(&global_lock);
+
 
 	mn->mxl = mxlogger;
 	list_add_tail(&mn->list, &mxlogger_list.list);
+	mutex_unlock(&global_lock);
 
 	mxlogger->configured = true;
 	SCSC_TAG_INFO(MXMAN, "MXLOGGER Configured\n");
@@ -1740,6 +1741,7 @@ void mxlogger_deinit(struct scsc_mx *mx, struct mxlogger *mxlogger)
 	mxlogger_deinit_channel(mxlogger, SCSC_MIF_ABS_TARGET_WLAN);
 	mxlogger_deinit_channel(mxlogger, SCSC_MIF_ABS_TARGET_WPAN);
 
+	mutex_lock(&global_lock);
 	mutex_lock(&mxlogger->lock);
 
 	list_for_each_entry_safe (mn, next, &mxlogger_list.list, list) {
@@ -1755,6 +1757,7 @@ void mxlogger_deinit(struct scsc_mx *mx, struct mxlogger *mxlogger)
 
 	SCSC_TAG_INFO(MXMAN, "End\n");
 	mutex_unlock(&mxlogger->lock);
+	mutex_unlock(&global_lock);
 }
 
 int mxlogger_register_observer(struct mxlogger *mxlogger, char *name)

@@ -2116,6 +2116,24 @@ static void __mfc_core_nal_q_get_img_size(struct mfc_core *core, struct mfc_ctx 
 	}
 }
 
+static void __mfc_core_nal_q_get_crop_info(struct mfc_core *core, struct mfc_ctx *ctx,
+			DecoderOutputStr *pOutStr) {
+	struct mfc_dec *dec = ctx->dec_priv;
+	u32 left, right, top, bottom;
+
+	left = pOutStr->DisplayCropInfo1;
+	right = left >> MFC_REG_D_SHARED_CROP_RIGHT_SHIFT;
+	left = left & MFC_REG_D_SHARED_CROP_LEFT_MASK;
+	top = pOutStr->DisplayCropInfo2;
+	bottom = top >> MFC_REG_D_SHARED_CROP_BOTTOM_SHIFT;
+	top = top & MFC_REG_D_SHARED_CROP_TOP_MASK;
+
+	dec->cr_left = left;
+	dec->cr_right = right;
+	dec->cr_top = top;
+	dec->cr_bot = bottom;
+}
+
 static struct mfc_buf *__mfc_core_nal_q_handle_frame_output_del(struct mfc_core *core,
 		struct mfc_ctx *ctx, DecoderOutputStr *pOutStr)
 {
@@ -2132,6 +2150,7 @@ static struct mfc_buf *__mfc_core_nal_q_handle_frame_output_del(struct mfc_core 
 	unsigned int is_disp_res_change = 0;
 	unsigned int is_hdr10_plus_full = 0;
 	unsigned int is_uncomp = 0;
+	unsigned int is_crop_info_change = 0;
 	int i, index, idr_flag;
 
 	if (MFC_FEATURE_SUPPORT(dev, dev->pdata->color_aspect_dec)) {
@@ -2282,6 +2301,19 @@ static struct mfc_buf *__mfc_core_nal_q_handle_frame_output_del(struct mfc_core 
 			ctx->wait_state = WAIT_G_FMT;
 			__mfc_core_nal_q_get_img_size(core, ctx, pOutStr, MFC_GET_RESOL_SIZE);
 			mfc_set_mb_flag(dst_mb, MFC_FLAG_DISP_RES_CHANGE);
+			mutex_unlock(&ctx->drc_wait_mutex);
+		}
+
+		is_crop_info_change = (pOutStr->DisplayStatus
+					>> MFC_REG_DISP_STATUS_CROP_INFO_CHANGE_SHIFT)
+					& MFC_REG_DISP_STATUS_CROP_INFO_CHANGE_MASK;
+		if (is_crop_info_change) {
+			mfc_ctx_info("[NALQ][FRAME][DRC] crop info changed\n");
+			mutex_lock(&ctx->drc_wait_mutex);
+			ctx->wait_state = WAIT_G_FMT;
+			__mfc_core_nal_q_get_crop_info(core, ctx, pOutStr);
+			mfc_set_mb_flag(dst_mb, MFC_FLAG_DISP_RES_CHANGE);
+			dec->disp_drc.disp_crop_change = 1;
 			mutex_unlock(&ctx->drc_wait_mutex);
 		}
 

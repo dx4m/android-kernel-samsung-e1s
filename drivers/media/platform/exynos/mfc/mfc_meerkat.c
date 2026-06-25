@@ -13,7 +13,7 @@
 
 #include "mfc_rm.h"
 
-#include "mfc_core_meerkat.h"
+#include "base/mfc_utils.h"
 
 static void __mfc_dump_trace_longterm(struct mfc_dev *dev)
 {

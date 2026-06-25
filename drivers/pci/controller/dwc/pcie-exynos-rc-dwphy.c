@@ -1351,7 +1351,7 @@ static void exynos_pcie_setup_rc(struct exynos_pcie *exynos_pcie)
 {
 	struct dw_pcie_rp *pp = &exynos_pcie->pci->pp;
 	u32 pcie_cap_off = exynos_pcie->pci_cap[PCI_CAP_ID_EXP];
-	u32 val;
+	u32 val, max_payload_sz;
 
 	/* Set Device Type to RC */
 	val = exynos_ctrl_read(exynos_pcie, PCIE_CTRL_SS_RW_9);
@@ -1396,15 +1396,19 @@ static void exynos_pcie_setup_rc(struct exynos_pcie *exynos_pcie)
 	pcie_dbg("%s: after device_ctrl_status(0x98) = 0x%x\n", __func__, val);
 
 	/* RC Payload configuration to MAX value */
-	if (exynos_pcie->pci_dev) {
-		exynos_pcie_rc_rd_own_conf(pp,
-				pcie_cap_off + PCI_EXP_DEVCAP, 4, &val);
+	exynos_pcie_rc_rd_own_conf(pp,
+			pcie_cap_off + PCI_EXP_DEVCAP, 4, &val);
 
-		val &= PCI_EXP_DEVCAP_PAYLOAD;
-		pcie_dbg("%s: Set supported payload size : %dbyte\n",
-			  __func__, 128 << val);
-		pcie_set_mps(exynos_pcie->pci_dev, 128 << val);
-	}
+	val &= PCI_EXP_DEVCAP_PAYLOAD;
+	max_payload_sz = val;
+	pcie_dbg("%s: Set supported payload size : %dbyte\n",
+			__func__, 128 << val);
+
+	exynos_pcie_rc_rd_own_conf(pp,
+			pcie_cap_off + PCI_EXP_DEVCTL, 4, &val);
+	val &= ~(PCI_EXP_DEVCTL_PAYLOAD);
+	val |= (max_payload_sz << 5);
+	exynos_pcie_rc_wr_own_conf(pp, pcie_cap_off + PCI_EXP_DEVCTL, 4, val);
 
 	exynos_pcie_rc_rd_own_conf(pp, GEN3_RELATED_OFF, 4, &val);
 	val &= ~(GEN3_RELATED_OFF_GEN3_ZRXDC_NONCOMPL);

@@ -213,6 +213,8 @@
 	((IS_VP8_ENC(ctx) || IS_VP9_ENC(ctx)) && p->ivf_header_disable))
 
 #define HDR10_PLUS_ADDR(base, idx)	(base + ((idx) * HDR10_PLUS_DATA_SIZE))
+#define IS_NEED_BUTLER(ctx, core_ctx) (IS_TWO_MODE2(ctx) && (core_ctx->state == MFCINST_RUNNING)) || \
+				(!IS_SINGLE_MODE(ctx) && ON_RES_CHANGE(core_ctx))
 
 /*
  levels with maximum property values

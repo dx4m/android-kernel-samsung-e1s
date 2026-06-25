@@ -26,13 +26,14 @@
 #if IS_ENABLED(CONFIG_QCOM_MINIDUMP)
 #include <soc/qcom/minidump.h>
 #endif
+#include <linux/component.h>
 
 #if IS_ENABLED(CONFIG_CNSS_EXYNOS)
 #include <linux/exynos-pci-ctrl.h>
 #include "pci.h"
 #endif
 #include "cnss_plat_ipc_qmi.h"
-#include "../inc/cnss_utils.h"
+#include "cnss_utils.h"
 #include "main.h"
 #include "bus.h"
 #include "debug.h"
@@ -5628,6 +5629,8 @@ static const struct platform_device_id cnss_platform_id_table[] = {
 	{ .name = "peach", .driver_data = PEACH_DEVICE_ID, },
 	{ .name = "cologne", .driver_data = COLOGNE_DEVICE_ID, },
 	{ .name = "qcaconv", .driver_data = 0, },
+	{ .name = "vendor-wlan-wonder",
+	  .driver_data = WONDER_VENDOR_DEVICE_ID, },
 	{ },
 };
 
@@ -5659,6 +5662,9 @@ static const struct of_device_id cnss_of_match_table[] = {
 	{
 		.compatible = "qcom,cnss-qca-converged",
 		.data = (void *)&cnss_platform_id_table[8]},
+	{
+		.compatible = "qcom,cnss-vendor-wlan-wonder",
+		.data = (void *)&cnss_platform_id_table[9]},
 	{ },
 };
 MODULE_DEVICE_TABLE(of, cnss_of_match_table);
@@ -6067,6 +6073,105 @@ cnss_get_cpumask_for_wlan_txrx_intr(struct cnss_plat_data *plat_priv)
 	plat_priv->cpumask_for_tx_comp_intrs = cpumask[1];
 }
 
+/**
+ * cnss_vendor_wonder_comp_bind - vendor wonder device component bind
+ *  callback
+ * @comp: vendor wonder device
+ * @master: master device
+ * @master_data: master data
+ *
+ * Return: 0 on success else errno
+ */
+static
+int cnss_vendor_wonder_comp_bind(struct device *comp, struct device *master,
+				 void *master_data)
+{
+	cnss_pr_info("vendor wonder bound to master device %s\n",
+		     dev_name(master));
+	return 0;
+}
+
+/**
+ * cnss_vendor_wonder_comp_unbind - vendor wonder device component unbind
+ *  callback
+ * @comp: vendor wonder device
+ * @master: master device
+ * @master_data: master data
+ *
+ * Return: None
+ */
+static
+void cnss_vendor_wonder_comp_unbind(struct device *comp, struct device *master,
+				    void *master_data)
+{
+	cnss_pr_info("vendor wonder unbound to master device\n");
+}
+
+static struct platform_device *wonder_plat_dev;
+static const void *wonder_priv_data;
+
+static const struct component_ops wonder_comp_ops = {
+	.bind = cnss_vendor_wonder_comp_bind,
+	.unbind = cnss_vendor_wonder_comp_unbind,
+};
+
+static inline int cnss_add_vendor_wonder_component(void)
+{
+	platform_set_drvdata(wonder_plat_dev, (void *)wonder_priv_data);
+
+	return component_add(&wonder_plat_dev->dev, &wonder_comp_ops);
+}
+
+static inline void cnss_del_vendor_wonder_component(void)
+{
+	component_del(&wonder_plat_dev->dev, &wonder_comp_ops);
+	platform_set_drvdata(wonder_plat_dev, NULL);
+}
+
+int cnss_set_vendor_wonder_priv_data(const void *priv_data)
+{
+	wonder_priv_data = priv_data;
+
+	if (!wonder_plat_dev) {
+		cnss_pr_info("vendor wonder plat device not available\n");
+		return 0;
+	}
+
+	if (wonder_priv_data)
+		cnss_add_vendor_wonder_component();
+	else
+		cnss_del_vendor_wonder_component();
+
+	return 0;
+}
+EXPORT_SYMBOL(cnss_set_vendor_wonder_priv_data);
+
+static int cnss_vendor_wonder_dev_probe(struct platform_device *plat_dev)
+{
+	if (!wonder_plat_dev) {
+		cnss_pr_info("wlan vendor wonder device probed!\n");
+		wonder_plat_dev = plat_dev;
+
+		if (wonder_priv_data)
+			return cnss_add_vendor_wonder_component();
+
+		return 0;
+	} else {
+		cnss_pr_info("wlan vendor wonder device already exists!\n");
+		return -EEXIST;
+	}
+}
+
+static void cnss_vendor_wonder_dev_remove(void)
+{
+	if (wonder_plat_dev && wonder_priv_data)
+		cnss_del_vendor_wonder_component();
+
+	cnss_pr_info("wlan vendor wonder device removed!\n");
+	wonder_plat_dev = NULL;
+	wonder_priv_data = NULL;
+}
+
 static int cnss_probe(struct platform_device *plat_dev)
 {
 	int ret = 0;
@@ -6074,6 +6179,18 @@ static int cnss_probe(struct platform_device *plat_dev)
 	const struct of_device_id *of_id;
 	const struct platform_device_id *device_id;
 	static bool prealloc_initialized;
+
+	of_id = of_match_device(cnss_of_match_table, &plat_dev->dev);
+	if (!of_id || !of_id->data) {
+		cnss_pr_err("Failed to find of match device!\n");
+		ret = -ENODEV;
+		goto out;
+	}
+
+	device_id = of_id->data;
+	if (device_id->driver_data == WONDER_VENDOR_DEVICE_ID) {
+		return cnss_vendor_wonder_dev_probe(plat_dev);
+	}
 
 	if (cnss_get_plat_priv(plat_dev)) {
 		cnss_pr_err("Driver is already initialized!\n");
@@ -6084,15 +6201,6 @@ static int cnss_probe(struct platform_device *plat_dev)
 	ret = cnss_plat_env_available();
 	if (ret)
 		goto out;
-
-	of_id = of_match_device(cnss_of_match_table, &plat_dev->dev);
-	if (!of_id || !of_id->data) {
-		cnss_pr_err("Failed to find of match device!\n");
-		ret = -ENODEV;
-		goto out;
-	}
-
-	device_id = of_id->data;
 
 	plat_priv = devm_kzalloc(&plat_dev->dev, sizeof(*plat_priv),
 				 GFP_KERNEL);
@@ -6271,6 +6379,27 @@ out:
 static int cnss_remove(struct platform_device *plat_dev)
 {
 	struct cnss_plat_data *plat_priv = platform_get_drvdata(plat_dev);
+	const struct of_device_id *of_id;
+	const struct platform_device_id *device_id;
+	int ret = 0;
+
+	if (!plat_priv) {
+		cnss_pr_err("plat priv is null\n");
+		goto out;
+	}
+
+	of_id = of_match_device(cnss_of_match_table, &plat_dev->dev);
+	if (!of_id || !of_id->data) {
+		cnss_pr_err("cnss remove failed to find of match device!\n");
+		ret = -ENODEV;
+		goto out;
+	}
+
+	device_id = of_id->data;
+	if (device_id->driver_data == WONDER_VENDOR_DEVICE_ID) {
+		cnss_vendor_wonder_dev_remove();
+		goto out;
+	}
 
 	plat_priv->audio_iommu_domain = NULL;
 #if IS_ENABLED(CONFIG_CNSS_EXYNOS) || defined(CONFIG_INTERCONNECT)
@@ -6295,7 +6424,8 @@ static int cnss_remove(struct platform_device *plat_dev)
 	platform_set_drvdata(plat_dev, NULL);
 	cnss_clear_plat_priv(plat_priv);
 
-	return 0;
+out:
+	return ret;
 }
 
 static struct platform_driver cnss_platform_driver = {

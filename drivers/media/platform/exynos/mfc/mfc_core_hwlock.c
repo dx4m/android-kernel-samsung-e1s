@@ -843,11 +843,7 @@ void mfc_core_hwlock_handler_irq(struct mfc_core *core, struct mfc_ctx *ctx,
 	/* For handling DRC, when state is RES_CHANGE_INIT or RES_CHANGE_FLUSH,
 	 * we need to make need_butler = 1. Then, rm_request_work will be called.
 	 */
-	if ((IS_MULTI_MODE(ctx) && ((core_ctx->state == MFCINST_RUNNING) ||
-			(core_ctx->state == MFCINST_RES_CHANGE_INIT))) ||
-			(ctx->handle_drc_multi_mode &&
-			(core_ctx->state == MFCINST_RES_CHANGE_FLUSH ||
-			core_ctx->state == MFCINST_RES_CHANGE_FLUSH_FINISHED)))
+	if (IS_NEED_BUTLER(ctx, core_ctx))
 		need_butler = 1;
 
 	if (core->hwlock.owned_by_irq) {

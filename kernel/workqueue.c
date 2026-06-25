@@ -53,10 +53,6 @@
 #include <linux/kvm_para.h>
 #include <linux/sec_debug.h>
 
-#include <linux/sched/debug.h>
-#include <linux/sched/cputime.h>
-#include "sched/sched.h"
-
 #include "workqueue_internal.h"
 
 #include <trace/hooks/wqlockup.h>
@@ -1985,6 +1981,9 @@ static struct worker *create_worker(struct worker_pool *pool)
 		goto fail;
 
 	set_user_nice(worker->task, pool->attrs->nice);
+
+	/* The hook is placed here because it needs to use the nice value */
+	trace_android_rvh_create_worker(worker->task, pool->attrs);
 	kthread_bind_mask(worker->task, pool->attrs->cpumask);
 
 	/* successful, attach the worker to the pool */
@@ -4785,7 +4784,6 @@ static void show_pwq(struct pool_workqueue *pwq)
 	}
 	if (has_in_flight) {
 		bool comma = false;
-		struct task_struct *p;
 
 		pr_info("    in-flight:");
 		hash_for_each(pool->busy_hash, bkt, worker, hentry) {
@@ -4799,14 +4797,6 @@ static void show_pwq(struct pool_workqueue *pwq)
 			list_for_each_entry(work, &worker->scheduled, entry)
 				pr_cont_work(false, work);
 			comma = true;
-
-			p = worker->task;
-#ifdef CONFIG_SCHEDSTATS			
-			pr_info("%s [%u, %llu, %llu, %llu, %llu, %llu, %llu, %llu, %llu]\n", __func__, cpu_rq(task_cpu(p))->nr_running, task_sched_runtime(p),
-					p->stats.wait_start, p->stats.wait_sum, p->stats.iowait_sum, p->stats.sleep_start,
-					p->stats.sum_sleep_runtime, p->stats.block_start, p->stats.sum_block_runtime);
-#endif			
-			sched_show_task(p);
 		}
 		pr_cont("\n");
 	}

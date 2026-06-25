@@ -2370,7 +2370,7 @@ exit_with_vif:
 	slsi_vif_deactivated(sdev, dev);
 exit_with_bss:
 	if (ndev_vif->sta.sta_bss) {
-		slsi_cfg80211_put_bss(wiphy, ndev_vif->sta.sta_bss);
+		cfg80211_unlink_bss(wiphy, ndev_vif->sta.sta_bss);
 		ndev_vif->sta.sta_bss = NULL;
 	}
 exit_with_error:
@@ -2448,6 +2448,7 @@ int slsi_disconnect(struct wiphy *wiphy, struct net_device *dev,
 		 * waiting for the MLME-DISCONNECT-IND (if the CFM is successful)
 		 */
 
+		ndev_vif->sta.disconnect_reason = SLSI_DISCONNECT_BY_FRWK;
 #ifdef CONFIG_SCSC_WLAN_EHT
 		r = slsi_mlme_disconnect(sdev, dev, peer->address,  reason_code, true, &mlo_vif);
 		if (r != 0)

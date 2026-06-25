@@ -522,8 +522,9 @@ static bool sap_chan_sel_init(struct mac_context *mac,
 			}
 		}
 
-		if (!policy_mgr_is_sap_freq_allowed(mac->psoc,
-			wlan_vdev_mlme_get_opmode(sap_ctx->vdev), *ch_list)) {
+		if (!policy_mgr_is_unsafe_freq_allowed(mac->psoc,
+							   sap_ctx->vdev_id,
+							   *ch_list)) {
 			if (sap_acs_is_puncture_applicable(sap_ctx->acs_cfg)) {
 				ch_support_puncture = true;
 				len += qdf_scnprintf(
@@ -2072,7 +2073,7 @@ sap_sort_chl_weight_80_mhz(struct mac_context *mac_ctx,
 			if (chan_info[j + i].valid)
 				has_valid = true;
 
-			if (!policy_mgr_is_sap_freq_allowed(mac_ctx->psoc, mode,
+			if (!policy_mgr_is_unsafe_freq_allowed(mac_ctx->psoc, mode,
 							    chan_info[j + i].chan_freq))
 				all_ch_safe = false;
 		}
@@ -2266,7 +2267,7 @@ sap_sort_chl_weight_160_mhz(struct mac_context *mac_ctx,
 			if (chan_info[j + i].valid)
 				has_valid = true;
 
-			if (!policy_mgr_is_sap_freq_allowed(mac_ctx->psoc, mode,
+			if (!policy_mgr_is_unsafe_freq_allowed(mac_ctx->psoc, mode,
 							    chan_info[j + i].chan_freq))
 				all_ch_safe = false;
 		}
@@ -2561,7 +2562,7 @@ sap_sort_chl_weight_320_mhz(struct mac_context *mac_ctx,
 			if (chan_info[j + i].valid)
 				has_valid = true;
 
-			if (!policy_mgr_is_sap_freq_allowed(mac_ctx->psoc, mode,
+			if (!policy_mgr_is_unsafe_freq_allowed(mac_ctx->psoc, mode,
 							    chan_info[j + i].chan_freq))
 				all_ch_safe = false;
 		}
@@ -2942,7 +2943,7 @@ sap_sort_chl_weight_40_mhz(struct mac_context *mac_ctx,
 			if (chan_info[j + i].valid)
 				has_valid = true;
 
-			if (!policy_mgr_is_sap_freq_allowed(mac_ctx->psoc, mode,
+			if (!policy_mgr_is_unsafe_freq_allowed(mac_ctx->psoc, mode,
 							    chan_info[j + i].chan_freq))
 				all_ch_safe = false;
 		}

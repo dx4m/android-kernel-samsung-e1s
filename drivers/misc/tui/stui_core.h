@@ -19,6 +19,7 @@
 
 #define STUI_ALIGN_4kB_SZ	0x1000		/*   4kB */
 #define STUI_ALIGN_8kB_SZ	0x2000		/*   8kB */
+#define STUI_ALIGN_16kB_SZ	0x4000		/*  16kB */
 #define STUI_ALIGN_64kB_SZ	0x10000		/*  64kB */
 #define STUI_ALIGN_128kB_SZ	0x20000		/* 128kB */
 #define STUI_ALIGN_1MB_SZ	0x100000	/*   1MB */
@@ -28,8 +29,6 @@
 #define STUI_ALIGN_UP(size, block) ((((size) + (block) - 1) / (block)) * (block))
 
 #define STUI_DEV_NAME "tuihw"
-
-#define TUIHW_LOG_TAG "tuill_hw "
 
 int stui_open_touch(void);
 int stui_open_display(struct tui_hw_buffer *buffer);

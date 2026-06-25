@@ -1298,8 +1298,9 @@ static int slsi_rx_napi_process(struct slsi_dev *sdev, struct sk_buff *skb)
 
 	ndev_vif = netdev_priv(dev);
 	if (!ndev_vif->activated) {
-		SLSI_NET_INFO(dev, "Packet dropped (vif is not activated)\n");
-		return -EINVAL;
+		SLSI_NET_INFO(dev, "Packet dropped (vif:%d is not activated)\n", vif);
+		kfree_skb(skb);
+		return 0;
 	}
 
 #ifdef CONFIG_SCSC_WLAN_NAPI_PER_NETDEV

@@ -13,6 +13,8 @@
 #include <linux/bitrev.h>
 #include <linux/seq_file.h>
 #include <linux/delay.h>
+#include <linux/workqueue.h>
+#include <linux/slab.h>
 
 #include "scsc_mx_module.h"
 #include IN_SCSC_INC(scsc_wakelock.h)
@@ -31,8 +33,9 @@
 static struct hci_bcsp {
 	struct hci_trans                *htr;
 
-	struct work_struct              work_tx;
-	struct work_struct              work_timeout;
+	struct workqueue_struct         *wq;
+	struct delayed_work              work_tx;
+	struct delayed_work              work_timeout;
 
 	struct mutex                    lock;
 	struct scsc_wake_lock           tx_wake_lock;
@@ -1103,7 +1106,8 @@ static void _bcsp_txwork(struct hci_bcsp *bcsp)
 
 static void bcsp_txwork_func(struct work_struct *work)
 {
-	struct hci_bcsp *bcsp = container_of(work, struct hci_bcsp, work_tx);
+	struct delayed_work *dwork = to_delayed_work(work);
+	struct hci_bcsp *bcsp = container_of(dwork, struct hci_bcsp, work_tx);
 
 	if (!test_bit(HCI_BCSP_OPENED, &bcsp->flags)) {
 		TR_ERR("txwork is called after closing bcsp htr.\n");
@@ -1142,13 +1146,16 @@ static void bcsp_write_wakeup(struct hci_bcsp *bcsp)
 	if (test_and_set_bit(HCI_BCSP_SENDING, &bcsp->flags))
 		return;
 
-	if (test_bit(HCI_BCSP_OPENED, &bcsp->flags))
-		schedule_work(&bcsp->work_tx);
+	if (test_bit(HCI_BCSP_OPENED, &bcsp->flags)) {
+		mod_delayed_work(bcsp->wq, &bcsp->work_tx, 0);
+		TR_DBG("bcsp work_tx is scheduled.\n");
+	}
 }
 
 static void bcsp_timeoutwork_func(struct work_struct *work)
 {
-	struct hci_bcsp *bcsp = container_of(work, struct hci_bcsp,
+	struct delayed_work *dwork = to_delayed_work(work);
+	struct hci_bcsp *bcsp = container_of(dwork, struct hci_bcsp,
 		work_timeout);
 
 	mutex_lock(&bcsp->lock);
@@ -1178,7 +1185,9 @@ static void bcsp_send_timeout(struct timer_list *t)
 			TR_DBG("waiting for starting the controller\n");
 		else
 			TR_WARNING("timeout: resend_timer is expired\n");
-		schedule_work(&bcsp->work_timeout);
+
+		mod_delayed_work(bcsp->wq, &bcsp->work_timeout, 0);
+		TR_DBG("bcsp work_timeout is scheduled.\n");
 	}
 }
 
@@ -1580,8 +1589,8 @@ void hci_bcsp_close(struct hci_trans *htr)
 	del_timer(&bcsp->wakeup_timer);
 
 	clear_bit(HCI_BCSP_TX_WAKEUP, &bcsp->flags);
-	cancel_work_sync(&bcsp->work_tx);
-	cancel_work_sync(&bcsp->work_timeout);
+	cancel_delayed_work_sync(&bcsp->work_tx);
+	cancel_delayed_work_sync(&bcsp->work_timeout);
 
 	mutex_lock(&bcsp->lock);
 	bcsp->htr->tdata = NULL;
@@ -1615,8 +1624,15 @@ int hci_bcsp_init(void)
 	bcsp->cfg |= (HCI_BCSP_VERSION & 0x3) << 5;
 
 	wake_lock_init(NULL, &bcsp->tx_wake_lock.ws, "bt_tx_wake_lock");
-	INIT_WORK(&bcsp->work_tx, bcsp_txwork_func);
-	INIT_WORK(&bcsp->work_timeout, bcsp_timeoutwork_func);
+	bcsp->wq = alloc_workqueue("bcsp_high_priority_wq", WQ_UNBOUND | WQ_HIGHPRI, 0);
+
+	if (!bcsp->wq) {
+		TR_ERR("Failed to create high priority workqueue for bcsp.\n");
+		return -ENOMEM;
+	}
+
+	INIT_DELAYED_WORK(&bcsp->work_tx, bcsp_txwork_func);
+	INIT_DELAYED_WORK(&bcsp->work_timeout, bcsp_timeoutwork_func);
 
 	mutex_init(&bcsp->lock);
 
@@ -1640,6 +1656,7 @@ void hci_bcsp_deinit(void)
 	/* free resources */
 	mutex_destroy(&bcsp->lock);
 	wake_lock_destroy(&bcsp->tx_wake_lock);
+	destroy_workqueue(bcsp->wq);
 
 	BT_INFO("Deinit.\n");
 }

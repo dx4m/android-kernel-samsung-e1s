@@ -80,8 +80,8 @@ struct slsi_hip {
 
 	struct hip_priv        *hip_priv;
 	scsc_mifram_ref         hip_ref;
-	/* to prevent the use of the resources of the hip_priv when the hip_priv is invalid. */
-	atomic_t		is_hip_priv_invalid;
+	/* to prevent the use of the resources of the hip_priv when the hip_priv is valid or not. */
+	atomic_t		is_hip_priv_valid;
 #ifdef CONFIG_SCSC_WLAN_HIP5
 	struct hip5_hip_control *hip_control;
 #if defined(CONFIG_WLBT_RX_CACHEABLE)

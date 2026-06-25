@@ -385,14 +385,9 @@ static int __mfc_force_close_inst(struct mfc_core *core, struct mfc_ctx *ctx)
 	if (MFC_FEATURE_SUPPORT(dev, dev->pdata->metadata_interface))
 		mfc_release_metadata_buffer(ctx);
 
-	if (dec->hdr10_plus_full)
-		vfree(dec->hdr10_plus_full);
-
-	if (dec->hdr10_plus_info)
-		vfree(dec->hdr10_plus_info);
-
-	if (dec->av1_film_grain_info)
-		vfree(dec->av1_film_grain_info);
+	mfc_mem_vmem_free(dev, &dec->hdr10_plus_full, "HDR10+");
+	mfc_mem_vmem_free(dev, (void *)&dec->hdr10_plus_info, "HDR10+info");
+	mfc_mem_vmem_free(dev, (void *)&dec->av1_film_grain_info, "filmgrain");
 
 	return 0;
 }
@@ -658,27 +653,21 @@ static int __mfc_core_instance_open_dec(struct mfc_ctx *ctx,
 	}
 
 	/* sh_handle: HDR10+ (HEVC or AV1) SEI meta */
-	if ((IS_HEVC_DEC(ctx) || IS_AV1_DEC(ctx))) {
-		if (MFC_FEATURE_SUPPORT(dev, dev->pdata->hdr10_plus_full) && dec->sh_handle_hdr.vaddr) {
-			dec->hdr10_plus_full = vmalloc(dec->sh_handle_hdr.data_size);
-			if (!dec->hdr10_plus_full)
-				mfc_err("failed to allocate hdr10 plus full information data");
-		} else if (dec->sh_handle_hdr.vaddr) {
-			dec->hdr10_plus_info = vmalloc(dec->sh_handle_hdr.data_size);
-			if (!dec->hdr10_plus_info)
-				mfc_err("failed to allocate hdr10 plus information data");
+	if ((IS_HEVC_DEC(ctx) || IS_AV1_DEC(ctx)) && dec->sh_handle_hdr.vaddr) {
+		if (MFC_FEATURE_SUPPORT(dev, dev->pdata->hdr10_plus_full)) {
+			mfc_mem_vmem_alloc(dev, &dec->hdr10_plus_full,
+				dec->sh_handle_hdr.data_size, "HDR10+");
+		} else {
+			mfc_mem_vmem_alloc(dev, (void *)&dec->hdr10_plus_info,
+				dec->sh_handle_hdr.data_size, "HDR10+info");
 		}
 	}
 
 	/* sh_handle: AV1 Film Grain SEI meta */
 	if (MFC_FEATURE_SUPPORT(dev, dev->pdata->av1_film_grain) &&
-			IS_AV1_DEC(ctx)) {
-		if (dec->sh_handle_av1_film_grain.vaddr) {
-			dec->av1_film_grain_info = vmalloc(dec->sh_handle_av1_film_grain.data_size);
-			if (!dec->av1_film_grain_info)
-				mfc_err("failed to allocate AV1 film grain information data");
-		}
-	}
+		IS_AV1_DEC(ctx) && dec->sh_handle_av1_film_grain.vaddr)
+		mfc_mem_vmem_alloc(dev, (void *)&dec->av1_film_grain_info,
+			dec->sh_handle_av1_film_grain.data_size, "filmgrain");
 
 	return 0;
 }

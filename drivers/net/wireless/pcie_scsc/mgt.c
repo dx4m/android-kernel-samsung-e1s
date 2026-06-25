@@ -1557,6 +1557,8 @@ void slsi_vif_cleanup(struct slsi_dev *sdev, struct net_device *dev, bool hw_ava
 		SLSI_DBG2(sdev, SLSI_INIT_DEINIT, "Station active: hw_available=%d\n", hw_available);
 		if (hw_available) {
 			if (ndev_vif->sta.sta_bss) {
+				ndev_vif->sta.disconnect_reason = SLSI_DISCONNECT_BY_DRIVER |
+								  (SLSI_DRIVER_DISCONNECT_NETSTOP << 16);
 #ifdef CONFIG_SCSC_WLAN_EHT
 				u16 mlo_vif = 0;
 
@@ -4012,7 +4014,7 @@ void slsi_vif_deactivated(struct slsi_dev *sdev, struct net_device *dev)
 		if (ndev_vif->sta.tdls_enabled)
 			WLBT_WARN(ndev_vif->sta.tdls_peer_sta_records, "vif:%d, tdls_peer_sta_records:%d", ndev_vif->ifnum, ndev_vif->sta.tdls_peer_sta_records);
 		if (ndev_vif->sta.sta_bss) {
-			slsi_cfg80211_put_bss(sdev->wiphy, ndev_vif->sta.sta_bss);
+			cfg80211_unlink_bss(sdev->wiphy, ndev_vif->sta.sta_bss);
 			ndev_vif->sta.sta_bss = NULL;
 		}
 		ndev_vif->sta.tdls_enabled = false;
@@ -4104,7 +4106,7 @@ void slsi_vif_deactivated(struct slsi_dev *sdev, struct net_device *dev)
 			WLBT_WARN(ndev_vif->sta.tdls_peer_sta_records, "vif:%d, tdls_peer_sta_records:%d",
 			     ndev_vif->ifnum, ndev_vif->sta.tdls_peer_sta_records);
 		if (ndev_vif->sta.sta_bss) {
-			slsi_cfg80211_put_bss(sdev->wiphy, ndev_vif->sta.sta_bss);
+			cfg80211_unlink_bss(sdev->wiphy, ndev_vif->sta.sta_bss);
 			ndev_vif->sta.sta_bss = NULL;
 		}
 		ndev_vif->sta.tdls_enabled = false;
@@ -4115,38 +4117,37 @@ void slsi_vif_deactivated(struct slsi_dev *sdev, struct net_device *dev)
 	slsi_rx_ba_update_timer(sdev, dev, SLSI_RX_BA_EVENT_VIF_TERMINATED);
 }
 
-int slsi_sta_ieee80211_mode(struct net_device *dev, u16 current_bss_channel_frequency)
+int slsi_sta_ieee80211_mode(u16 current_bss_channel_frequency, const u8 *ies, int len)
 {
-	struct netdev_vif    *ndev_vif = netdev_priv(dev);
 	const u8             *ie;
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 18, 0))
-	ie = (u8*)cfg80211_find_ext_elem(WLAN_EID_EXT_EHT_OPERATION, ndev_vif->sta.sta_bss->ies->data,
-					 ndev_vif->sta.sta_bss->ies->len);
+	ie = (u8*)cfg80211_find_ext_elem(WLAN_EID_EXT_EHT_OPERATION, ies,
+					 len);
 	if (ie)
 		return SLSI_80211_MODE_11BE;
 #endif
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0))
-	ie = (u8*)cfg80211_find_ext_elem(WLAN_EID_EXT_HE_OPERATION, ndev_vif->sta.sta_bss->ies->data,
-					 ndev_vif->sta.sta_bss->ies->len);
+	ie = (u8*)cfg80211_find_ext_elem(WLAN_EID_EXT_HE_OPERATION, ies,
+					 len);
 	if (ie)
 		return SLSI_80211_MODE_11AX;
 #endif
 
-	ie = cfg80211_find_ie(WLAN_EID_VHT_OPERATION, ndev_vif->sta.sta_bss->ies->data,
-			      ndev_vif->sta.sta_bss->ies->len);
+	ie = cfg80211_find_ie(WLAN_EID_VHT_OPERATION, ies,
+			      len);
 	if (ie)
 		return SLSI_80211_MODE_11AC;
 
-	ie = cfg80211_find_ie(WLAN_EID_HT_OPERATION, ndev_vif->sta.sta_bss->ies->data, ndev_vif->sta.sta_bss->ies->len);
+	ie = cfg80211_find_ie(WLAN_EID_HT_OPERATION, ies, len);
 	if (ie)
 		return SLSI_80211_MODE_11N;
 
 	if (current_bss_channel_frequency > 5000)
 		return  SLSI_80211_MODE_11A;
 
-	ie = cfg80211_find_ie(WLAN_EID_SUPP_RATES, ndev_vif->sta.sta_bss->ies->data, ndev_vif->sta.sta_bss->ies->len);
+	ie = cfg80211_find_ie(WLAN_EID_SUPP_RATES, ies, len);
 	if (ie)
 		return slsi_get_supported_mode(ie);
 	return -EINVAL;
@@ -4260,8 +4261,9 @@ int slsi_populate_bss_record(struct net_device *dev)
 
 	SLSI_ETHER_COPY(ndev_vif->sta.last_connected_bss.address, ndev_vif->sta.sta_bss->bssid);
 
-	ndev_vif->sta.last_connected_bss.mode = slsi_sta_ieee80211_mode(dev,
-									   ndev_vif->sta.last_connected_bss.channel_freq);
+	ndev_vif->sta.last_connected_bss.mode = slsi_sta_ieee80211_mode(ndev_vif->sta.last_connected_bss.channel_freq,
+									ndev_vif->sta.sta_bss->ies->data,
+									ndev_vif->sta.sta_bss->ies->len);
 	if (ndev_vif->sta.last_connected_bss.mode == -EINVAL) {
 		SLSI_ERR(sdev, "slsi_get_bss_info : Supported Rates IE is null");
 		return -EINVAL;
@@ -4691,7 +4693,8 @@ static bool slsi_ml_get_sta_bss(struct slsi_dev *sdev, struct net_device *dev)
 				     (int)ssid.ssid_len, ssid.ssid, MAC2STR(ndev_vif->sta.sme.bssid),
 				     ndev_vif->sta.sme.channel->center_freq);
 	}
-	cfg80211_put_bss(sdev->wiphy, ndev_vif->sta.sta_bss);
+	if (ndev_vif->sta.sta_bss)
+		cfg80211_unlink_bss(sdev->wiphy, ndev_vif->sta.sta_bss);
 	ndev_vif->sta.sta_bss = sta_bss;
 	if (sta_bss)
 		return true;
@@ -4924,12 +4927,7 @@ int slsi_handle_disconnect(struct slsi_dev *sdev, struct net_device *dev, u8 *pe
 			if (!peer_address)
 				SLSI_NET_WARN(dev, "Connection failure\n");
 		} else if (ndev_vif->sta.vif_status == SLSI_VIF_STATUS_CONNECTED) {
-			if (reason == FAPI_REASONCODE_SYNCHRONISATION_LOSS) {
-				reason = 0;
-				slsi_conn_log2us_disconnect(sdev, dev, ndev_vif->sta.bssid, reason);
-			}
-				/* reason code to recognise beacon loss */
-			else if (reason == FAPI_REASONCODE_KEEP_ALIVE_FAILURE)
+			if (reason == FAPI_REASONCODE_KEEP_ALIVE_FAILURE)
 				reason = WLAN_REASON_DEAUTH_LEAVING;
 				/* Change to a standard reason code */
 #if !(defined(SCSC_SEP_VERSION) && SCSC_SEP_VERSION < 11)
@@ -4981,6 +4979,12 @@ int slsi_handle_disconnect(struct slsi_dev *sdev, struct net_device *dev, u8 *pe
 #endif
 			SLSI_NET_WARN(dev, "disconnect in wrong state vif_status(%d)\n", ndev_vif->sta.vif_status);
 		}
+		if (reason == FAPI_REASONCODE_SYNCHRONISATION_LOSS)
+			ndev_vif->sta.disconnect_reason = SLSI_DISCONNECT_BY_BEACON_LOSS;
+		if (ndev_vif->sta.disconnect_reason)
+			slsi_conn_log2us_disconnect(sdev, dev, ndev_vif->sta.bssid,
+						    ndev_vif->sta.disconnect_reason);
+		ndev_vif->sta.disconnect_reason = 0;
 
 		ndev_vif->sta.is_wps = false;
 		/* Populate bss records on incase of disconnection.
@@ -5342,6 +5346,7 @@ static int slsi_disconnect_on_band_update(struct slsi_dev *sdev, struct net_devi
 	}
 
 	// Do not wait for disconnect ind.
+	ndev_vif->sta.disconnect_reason = SLSI_DISCONNECT_BY_DRIVER | (SLSI_DRIVER_DISCONNECT_BAND_UPDATE << 16);
 #ifdef CONFIG_SCSC_WLAN_EHT
 	r = slsi_mlme_disconnect(sdev, dev, ndev_vif->sta.sta_bss->bssid, WLAN_REASON_DEAUTH_LEAVING, true, &mlo_vif);
 	if (r != 0)
@@ -6247,6 +6252,9 @@ next_scan:
 		/* Select the channel to use */
 		for (i = 0, j = 0; i < SLSI_AP_AUTO_CHANLS_LIST_FROM_HOSTAPD_MAX; i++, j = j + 5) {
 			SLSI_NET_DBG3(dev, SLSI_CFG80211, "score[%d]:%d\n", i, scan_result_count[i]);
+			if (!channels[j])
+				continue;
+
 			if (scan_result_count[i] <= scan_result_count[min_index]) {
 				min_index = i;
 				selected_index = j;
@@ -8777,7 +8785,8 @@ static int slsi_update_retry_params(struct slsi_dev *sdev, struct net_device *de
 	slsi_update_sta_sme(sdev, dev, ssid_info->ssid.ssid, ssid_info->ssid.ssid_len,
 			    bssid_info->bssid,
 			    ieee80211_get_channel(sdev->wiphy, (bssid_info->freq / 2)));
-	cfg80211_put_bss(sdev->wiphy, ndev_vif->sta.sta_bss);
+	if (ndev_vif->sta.sta_bss)
+		cfg80211_unlink_bss(sdev->wiphy, ndev_vif->sta.sta_bss);
 	ndev_vif->sta.sta_bss = NULL;
 	return 0;
 }
@@ -9799,6 +9808,12 @@ void slsi_collect_chipset_logs(struct work_struct *work)
 	}
 
 	SLSI_MUTEX_LOCK(sdev->start_stop_mutex);
+#ifdef CONFIG_SCSC_PCIE_CHIP
+	if (!slsi_pcie_lock(&sdev->hip, SLSI_NON_IRQ)) {
+		SLSI_INFO(sdev, "Cannot pcie lock\n");
+		goto pcie_err;
+	}
+#endif
 	if (!sdev->service) {
 		SLSI_ERR(sdev, "service is NULL\n");
 		goto chipset_logging_done;
@@ -9897,6 +9912,10 @@ void slsi_collect_chipset_logs(struct work_struct *work)
 		SLSI_ERR(sdev, "byte written to buffer is NULL\n");
 	}
 chipset_logging_done:
+#ifdef CONFIG_SCSC_PCIE_CHIP
+	slsi_pcie_unlock(&sdev->hip, SLSI_NON_IRQ);
+pcie_err:
+#endif
 	SLSI_MUTEX_UNLOCK(sdev->start_stop_mutex);
 trigger_sable:
 	dump_in_progress = 0;

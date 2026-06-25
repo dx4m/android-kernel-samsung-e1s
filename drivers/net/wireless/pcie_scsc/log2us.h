@@ -47,7 +47,7 @@ void slsi_conn_log2us_connecting_fail(struct slsi_dev *sdev, struct net_device *
 				      const unsigned char *bssid,
 				      int freq, int reason);
 void slsi_conn_log2us_disconnect(struct slsi_dev *sdev, struct net_device *dev,
-				 const unsigned char *bssid, int reason);
+				 const unsigned char *bssid, u32 reason);
 void slsi_conn_log2us_eapol_gtk(struct slsi_dev *sdev, struct net_device *dev, int eapol_msg_type, u8 mlo_band);
 void slsi_conn_log2us_eapol_ptk(struct slsi_dev *sdev, struct net_device *dev, int eapol_msg_type, u8 mlo_band);
 void slsi_conn_log2us_roam_scan_start(struct slsi_dev *sdev, struct net_device *dev, int reason,
@@ -86,7 +86,7 @@ void slsi_conn_log2us_roam_scan_done(struct slsi_dev *sdev, struct net_device *d
 void slsi_conn_log2us_roam_scan_result(struct slsi_dev *sdev, struct net_device *dev, bool candidate,
 				       char *bssid, int freq,
 				       int rssi, short cu,
-				       int score, int tp_score, bool eligible, bool mld_ap);
+				       int score, int tp_score, u16 eligible, bool mld_ap);
 void slsi_conn_log2us_btm_query(struct slsi_dev *sdev, struct net_device *dev,
 				int dialog, int reason, u8 mlo_band);
 void slsi_conn_log2us_btm_req(struct slsi_dev *sdev, struct net_device *dev,
@@ -113,14 +113,14 @@ void slsi_log2us_handle_frame_tx_status(struct slsi_dev *sdev, struct net_device
 void slsi_conn_log2us_roam_scan_save(struct slsi_dev *sdev, struct net_device *dev, int scan_type,
 				     int freq_count, int *freq_list);
 void slsi_conn_log2us_nr_frame_req(struct slsi_dev *sdev, struct net_device *dev, int dialog_token, char *ssid,
-				   u8 mlo_band);
+				   u8 mlo_band, u8 status);
 void slsi_conn_log2us_nr_frame_resp(struct slsi_dev *sdev, struct net_device *dev,  int dialog_token, int freq_count,
 				    int *freq_list, int report_number, u8 mlo_band);
 void slsi_conn_log2us_beacon_report_request(struct slsi_dev *sdev, struct net_device *dev,
-					    int dialog_token, int operating_class, char *string,
+					    int dialog_token, int operating_class, u16 channel,
 					    int measure_duration, char *measure_mode, u8 request_mode, u8 mlo_band);
 void slsi_conn_log2us_beacon_report_response(struct slsi_dev *sdev, struct net_device *dev, int dialog_token,
-					     int report_number, u8 mlo_band);
+					     int report_number, u8 mlo_band, u32 reason_code);
 
 void slsi_conn_log2us_ncho_mode(struct slsi_dev *sdev, struct net_device *dev, int enable);
 void slsi_conn_log2us_roam_cancelled(struct slsi_dev *sdev, struct net_device *dev, int reason_code, char *reason_desc);

@@ -155,7 +155,8 @@ QDF_STATUS mlme_register_vdev_mgr_ops(struct vdev_mlme_obj *vdev_mlme)
 
 	if (mlme_is_vdev_in_beaconning_mode(vdev->vdev_mlme.vdev_opmode))
 		vdev_mlme->ops = &ap_mlme_ops;
-	else if (vdev->vdev_mlme.vdev_opmode == QDF_MONITOR_MODE)
+	else if (vdev->vdev_mlme.vdev_opmode == QDF_MONITOR_MODE ||
+		 vdev->vdev_mlme.vdev_opmode == QDF_PASSTHRU_MODE)
 		vdev_mlme->ops = &mon_mlme_ops;
 	else
 		vdev_mlme->ops = &sta_mlme_ops;
@@ -886,6 +887,24 @@ QDF_STATUS mlme_set_chan_switch_in_progress(struct wlan_objmgr_vdev *vdev,
 	return QDF_STATUS_SUCCESS;
 }
 
+QDF_STATUS mlme_set_is_acs_sap(struct wlan_objmgr_vdev *vdev, bool val)
+{
+	struct mlme_legacy_priv *mlme_priv;
+
+	mlme_priv = wlan_vdev_mlme_get_ext_hdl(vdev);
+	if (!mlme_priv) {
+		mlme_legacy_err("vdev legacy private object is NULL");
+		return QDF_STATUS_E_FAILURE;
+	}
+
+	mlme_priv->is_acs_sap = val;
+
+	mlme_legacy_debug("Set is_acs_sap: %d vdev %d",
+			  val, wlan_vdev_get_id(vdev));
+
+	return QDF_STATUS_SUCCESS;
+}
+
 #ifdef WLAN_FEATURE_MSCS
 QDF_STATUS mlme_set_is_mscs_req_sent(struct wlan_objmgr_vdev *vdev, bool val)
 {
@@ -927,6 +946,19 @@ bool mlme_is_chan_switch_in_progress(struct wlan_objmgr_vdev *vdev)
 	}
 
 	return mlme_priv->chan_switch_in_progress;
+}
+
+bool mlme_is_acs_sap(struct wlan_objmgr_vdev *vdev)
+{
+	struct mlme_legacy_priv *mlme_priv;
+
+	mlme_priv = wlan_vdev_mlme_get_ext_hdl(vdev);
+	if (!mlme_priv) {
+		mlme_legacy_err("vdev legacy private object is NULL");
+		return false;
+	}
+
+	return mlme_priv->is_acs_sap;
 }
 
 QDF_STATUS
@@ -1574,6 +1606,9 @@ static QDF_STATUS mlme_get_vdev_types(enum QDF_OPMODE mode, uint8_t *type,
 	case QDF_NAN_DISC_MODE:
 		*type = WLAN_VDEV_MLME_TYPE_NAN;
 		break;
+	case QDF_PASSTHRU_MODE:
+		*type = WLAN_VDEV_MLME_TYPE_PASSTHRU;
+		break;
 	default:
 		mlme_err("Invalid device mode %d", mode);
 		status = QDF_STATUS_E_INVAL;
@@ -1912,6 +1947,14 @@ static QDF_STATUS mon_mlme_vdev_stop_send(struct vdev_mlme_obj *vdev_mlme,
 	return wma_mon_mlme_vdev_stop_send(vdev_mlme, data_len, data);
 }
 
+static QDF_STATUS mon_mlme_vdev_stop_resp(struct vdev_mlme_obj *vdev_mlme,
+					  struct vdev_stop_response *rsp)
+{
+	mlme_legacy_debug("vdev id = %d",
+			  vdev_mlme->vdev->vdev_objmgr.vdev_id);
+	return wma_mon_mlme_vdev_stop_resp(vdev_mlme);
+}
+
 /**
  * mon_mlme_vdev_down_send() - callback to send vdev down req
  * @vdev_mlme: vdev mlme object
@@ -1925,17 +1968,18 @@ static QDF_STATUS mon_mlme_vdev_stop_send(struct vdev_mlme_obj *vdev_mlme,
 static QDF_STATUS mon_mlme_vdev_down_send(struct vdev_mlme_obj *vdev_mlme,
 					  uint16_t data_len, void *data)
 {
-	mlme_legacy_debug("vdev id = %d",
-			  vdev_mlme->vdev->vdev_objmgr.vdev_id);
-	return wma_mon_mlme_vdev_down_send(vdev_mlme, data_len, data);
-}
+	QDF_STATUS status;
 
-static QDF_STATUS mon_mlme_vdev_stop_resp(struct vdev_mlme_obj *vdev_mlme,
-					  struct vdev_stop_response *rsp)
-{
 	mlme_legacy_debug("vdev id = %d",
 			  vdev_mlme->vdev->vdev_objmgr.vdev_id);
-	return wma_mon_mlme_vdev_stop_resp(vdev_mlme);
+
+	status = wma_mon_mlme_vdev_down_send(vdev_mlme, data_len, data);
+
+	if (QDF_IS_STATUS_ERROR(status) &&
+	    wlan_vdev_mlme_get_opmode(vdev_mlme->vdev) == QDF_PASSTHRU_MODE)
+		mon_mlme_vdev_stop_resp(vdev_mlme, NULL);
+
+	return status;
 }
 
 static void mon_mlme_vdev_down(struct vdev_mlme_obj *vdev_mlme)
@@ -2282,6 +2326,7 @@ bool mlme_vdev_uses_self_peer(uint32_t vdev_type, uint32_t vdev_subtype)
 
 	case WMI_VDEV_TYPE_MONITOR:
 	case WMI_VDEV_TYPE_OCB:
+	case WMI_VDEV_TYPE_WIFI_PASSTHRU:
 		return true;
 
 	default:

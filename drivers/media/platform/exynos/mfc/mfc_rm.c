@@ -1054,6 +1054,14 @@ static int __mfc_rm_switch_to_multi_mode(struct mfc_ctx *ctx)
 		return -EINVAL;
 	}
 
+	if (ON_RES_CHANGE(core_ctx)) {
+		mfc_ctx_debug(2, "[RM][DRC] changing resolution\n");
+		MFC_TRACE_RM("changing resolution\n");
+		mfc_core_release_hwlock_dev(maincore);
+		mfc_core_release_hwlock_dev(subcore);
+		return 0;
+	}
+
 	mutex_lock(&ctx->op_mode_mutex);
 
 	if (ctx->op_mode == MFC_OP_SWITCH_BUT_MODE2) {
@@ -1496,9 +1504,8 @@ int mfc_rm_instance_init(struct mfc_dev *dev, struct mfc_ctx *ctx)
 		num_qos_steps = core->core_pdata->num_encoder_qos_steps;
 	else
 		num_qos_steps = core->core_pdata->num_default_qos_steps;
-	ctx->mfc_qos_portion = vmalloc(sizeof(unsigned int) * num_qos_steps);
-	if (!ctx->mfc_qos_portion)
-		mfc_ctx_err("failed to allocate qos portion data\n");
+	mfc_mem_vmem_alloc(core->dev, (void *)&ctx->mfc_qos_portion,
+		sizeof(unsigned int) * num_qos_steps, "qos_portion");
 
 err_inst_init:
 	mfc_release_corelock_ctx(ctx);
@@ -1559,7 +1566,7 @@ int mfc_rm_instance_deinit(struct mfc_dev *dev, struct mfc_ctx *ctx)
 err_inst_deinit:
 	if (core)
 		mfc_qos_get_portion(core, ctx);
-	vfree(ctx->mfc_qos_portion);
+	mfc_mem_vmem_free(dev, (void *)&ctx->mfc_qos_portion, "qos_portion");
 	mfc_release_corelock_ctx(ctx);
 
 	mfc_ctx_debug_leave();

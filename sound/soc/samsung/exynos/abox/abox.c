@@ -566,6 +566,11 @@ int abox_request_ipc(struct device *dev,
 	struct abox_data *data = dev_get_drvdata(dev);
 	int ret;
 
+	if (data->failsafe) {
+		abox_info(dev, "%s: Don't send ipc during the recovery time\n", __func__);
+		return 0;
+	}
+
 	if (atomic && sync) {
 		ret = abox_ipc_send_atomic(dev, msg, size, NULL, 0);
 	} else {

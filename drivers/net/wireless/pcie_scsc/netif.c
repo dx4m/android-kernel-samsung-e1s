@@ -8,6 +8,7 @@
 #include <linux/etherdevice.h>
 #include <linux/rtnetlink.h>
 #include <net/sch_generic.h>
+#include <net/ndisc.h>
 #include <linux/if_ether.h>
 #ifdef CONFIG_SLSI_WLAN_PACKET_FILETR_V2
 #include <linux/igmp.h>
@@ -179,6 +180,93 @@ static struct sk_buff *slsi_netif_tcp_ack_suppression_pkt(struct net_device *dev
 #endif
 
 #ifdef CONFIG_SCSC_WIFI_NAN_ENABLE
+/**
+ * slsi_ipv6_eui64_to_mac - Convert IPv6 EUI-64 address to MAC address.
+ * @ip6: Pointer to the IPv6 address structure.
+ * @out_mac: Output MAC address array (6 bytes).
+ *
+ * This function converts an IPv6 address in EUI-64 format to a corresponding MAC address.
+ * It checks if the IPv6 address follows the EUI-64 format (FFFE prefix in the interface identifier).
+ * If the format is valid, it performs a bitwise XOR operation on the first byte of the EUI-64
+ * and 0x02 to generate the MAC address.
+ *
+ * The function:
+ *   1. Extracts the EUI-64 portion from the IPv6 address.
+ *   2. Verifies the EUI-64 prefix (FFFE).
+ *   3. Converts the EUI-64 to a MAC address by XORing the first byte with 0x02.
+ *   4. Copies the remaining bytes of EUI-64 to the MAC address.
+ *
+ * Return: true if the conversion is successful (EUI-64 format is valid), false otherwise.
+ */
+static inline bool slsi_ipv6_eui64_to_mac(const struct in6_addr *ip6, u8 *out_mac)
+{
+	/* eui = 8th index of ipv6 address */
+	const u8 *eui = &ip6->s6_addr[8];
+
+	if (eui[3] != 0xff || eui[4] != 0xfe)
+		return false;
+
+	out_mac[0] = eui[0] ^ 0x02;
+	out_mac[1] = eui[1];
+	out_mac[2] = eui[2];
+	out_mac[3] = eui[5];
+	out_mac[4] = eui[6];
+	out_mac[5] = eui[7];
+
+	return true;
+}
+
+/**
+ * slsi_get_mac_from_ns_pkt - Extract MAC address from a Neighbor Solicitation (NS) packet.
+ * @skb: Pointer to the socket buffer containing the NS packet.
+ * @mac: Output MAC address array (6 bytes).
+ * @h_source: Pointer to the source MAC address array (6 bytes).
+ *
+ * This function extracts the destination MAC address from a Neighbor Solicitation (NS)
+ * packet and compares it with the source MAC address. It's designed for SLSI devices
+ * and relies on a custom ICMP6 packet type and structure.
+ *
+ * The function:
+ *   1. Retrieves the IPv6 header from the socket buffer.
+ *   2. Verifies that the next header is a custom SLSI ICMP6 packet.
+ *   3. Checks if the ICMP6 type is SLSI_ICMP6_PACKET_TYPE_NS (Neighbor Solicitation).
+ *   4. Extracts the target IPv6 address from the NS message.
+ *   5. Converts the IPv6 address to a MAC address using `slsi_ipv6_eui64_to_mac`.
+ *   6. Compares the extracted MAC address with the provided source MAC address.
+ *
+ * Return: true if the extracted MAC address is different from the source MAC address,
+ *         false otherwise (or if any validation fails).
+ */
+bool slsi_get_mac_from_ns_pkt(struct sk_buff *skb, u8 *mac, u8 *h_source)
+{
+	struct ipv6hdr *ip6h;
+	struct icmp6hdr *icmp6;
+	struct in6_addr *target;
+	struct nd_msg *target_msg;
+	int i;
+
+	ip6h = ipv6_hdr(skb);
+
+	if (ip6h->nexthdr != SLSI_ICMP6_PACKET)
+		return false;
+
+	icmp6 = (struct icmp6hdr *)(ip6h + 1);
+	if (icmp6->icmp6_type != SLSI_ICMP6_PACKET_TYPE_NS)
+		return false;
+
+	target_msg = (struct nd_msg *)(ip6h + 1);
+	target = &target_msg->target;
+
+	if (!slsi_ipv6_eui64_to_mac(target, mac))
+		return false;
+
+	for (i = 0; i < ETH_ALEN; i++) {
+		if (mac[i] != h_source[i])
+			return true;
+	}
+	return false;
+}
+
 void slsi_net_randomize_nmi_ndi(struct slsi_dev *sdev)
 {
 	int               exor_base = 1, exor_byte = 5, i;
@@ -1152,7 +1240,8 @@ static netdev_tx_t slsi_net_hw_xmit(struct sk_buff *skb, struct net_device *dev)
 	slsi_wake_lock(&sdev->wlan_wl);
 #ifdef CONFIG_SCSC_PCIE_CHIP
 	if (ndev_vif->iftype == NL80211_IFTYPE_STATION &&
-	    (ndev_vif->sta.sme.key ||
+	    (ndev_vif->sta.sme.crypto.ciphers_pairwise[0] == WLAN_CIPHER_SUITE_WEP40 ||
+	    ndev_vif->sta.sme.crypto.ciphers_pairwise[0] == WLAN_CIPHER_SUITE_WEP104 ||
 	    ndev_vif->sta.sme.crypto.ciphers_pairwise[0]  == WLAN_CIPHER_SUITE_TKIP ||
 	    ndev_vif->sta.sme.crypto.ciphers_pairwise[0]  == WLAN_CIPHER_SUITE_SMS4) &&
 	    skb_tailroom(skb) < sdev->hip.hip_priv->unidat_req_tailroom) {

@@ -356,4 +356,5 @@ extern void cnss_get_cpumask_for_wlan_rx_interrupts(struct device *dev,
 extern void cnss_get_cpumask_for_wlan_tx_comp_interrupts(struct device *dev,
 							 unsigned int *cpumask);
 extern int cnss_get_dump_inprogress(struct device *dev, uint8_t *val);
+extern int cnss_set_vendor_wonder_priv_data(const void *priv_data);
 #endif /* _NET_CNSS2_H */

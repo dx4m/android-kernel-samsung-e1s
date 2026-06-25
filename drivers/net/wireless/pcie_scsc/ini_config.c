@@ -82,6 +82,8 @@ static void set_mibs(struct slsi_dev *sdev)
 	if ((sdev->ini_conf_struct.ini_conf_buff_pos)) {
 		cfm = slsi_mlme_set_with_cfm(sdev, NULL, sdev->ini_conf_struct.ini_conf_buff,
 					     sdev->ini_conf_struct.ini_conf_buff_pos + 1, 0);
+		if (!cfm)
+			return;
 
 		if (fapi_get_datalen(cfm)) {
 			SLSI_ERR(sdev, "Err Setting MIB failed.\n");
@@ -98,7 +100,8 @@ static void set_mibs(struct slsi_dev *sdev)
 			cfm = slsi_mlme_set_with_cfm(sdev, NULL,
 						     sdev->ini_conf_struct.doubleindexmib[j].ini_conf_buff,
 						     sdev->ini_conf_struct.doubleindexmib[j].pos + 1, 0);
-
+			if (!cfm)
+				return;
 			if (fapi_get_datalen(cfm)) {
 				SLSI_ERR(sdev, "Err Setting MIB failed.\n");
 				log_failed_psids(sdev, fapi_get_data(cfm), fapi_get_datalen(cfm));
@@ -387,6 +390,8 @@ static int encode_mib_octet_with_2indices(struct slsi_dev *sdev, u8 *buf, u16 *p
 	}
 	cfm = slsi_mlme_set_with_cfm(sdev, NULL, mib_val_set.data,
 				     mib_val_set.dataLength, 0);
+	if (!cfm)
+		goto exit_with_mibval;
 
 	if (fapi_get_datalen(cfm)) {
 		SLSI_ERR(sdev, "Err Setting MIB failed.\n");
@@ -1282,8 +1287,8 @@ static int slsi_read_ini_config_file(struct slsi_dev *sdev, const struct firmwar
 
 	sdev->ini_conf_struct.doubleindexmib[0].psid = SLSI_PSID_UNIFI_ROAM_CU_FACTOR;
 	sdev->ini_conf_struct.doubleindexmib[0].miblen = 12;
-	sdev->ini_conf_struct.doubleindexmib[0].psid = SLSI_PSID_UNIFI_ROAM_RSSI_FACTOR;
-	sdev->ini_conf_struct.doubleindexmib[0].miblen = 10;
+	sdev->ini_conf_struct.doubleindexmib[1].psid = SLSI_PSID_UNIFI_ROAM_RSSI_FACTOR;
+	sdev->ini_conf_struct.doubleindexmib[1].miblen = 10;
 	tmp = (u8 *)e->data;
 	while ((tmp - e->data) < e->size) {
 		while (((tmp - e->data) < e->size) &&

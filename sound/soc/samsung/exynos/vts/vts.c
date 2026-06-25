@@ -383,76 +383,76 @@ int vts_chk_dmic_clk_mode(struct device *dev)
 {
 	struct vts_data *data = dev_get_drvdata(dev);
 	int ret = 0;
-	unsigned long syssel_rate_value = DMIC_IF_SYS_SEL_VTS;
 	u32 values[3] = {0, 0, 0};
 
-	vts_dev_info(dev, "%s state %d %d (%d)\n",
-		__func__, data->vts_state,
-	    data->clk_path,
-	    data->micclk_init_cnt);
+	vts_dev_info(dev, "%s: state(%d) tri_state(%d) rec_state(%d) clk_path(%d) micclk_init_cnt(%d)\n",
+		__func__, data->vts_state, data->vts_tri_state, data->vts_rec_state, data->clk_path, data->micclk_init_cnt);
 
 	/* already started recognization mode and dmic_if clk is 3.072MHz*/
 	/* VTS worked + Serial LIF */
 	if (data->clk_path == VTS_CLK_SRC_RCO)
-		syssel_rate_value = DMIC_IF_SYS_SEL_VTS;
+		data->syssel_rate = DMIC_IF_SYS_SEL_VTS;
 	else
-		syssel_rate_value = DMIC_IF_SYS_SEL_AUD;
+		data->syssel_rate = DMIC_IF_SYS_SEL_AUD;
 
 	if (data->vts_state == VTS_STATE_RECOG_STARTED) {
-		data->syssel_rate = syssel_rate_value;
-
 		/* restart VTS to update mic and clock setting */
 		data->poll_event_type |= EVENT_RESTART|EVENT_READY;
 		wake_up(&data->poll_wait_queue);
 	}
 
-	if (data->vts_tri_state == VTS_TRI_STATE_COPY_START) {
-		data->syssel_rate = syssel_rate_value;
-
+	if (data->vts_tri_state == VTS_TRI_STATE_COPY_START || data->vts_rec_state == VTS_REC_STATE_START) {
 		mutex_lock(&data->firmware_lock);
-		ret = vts_start_ipc_transaction(dev, data, VTS_IRQ_AP_STOP_COPY,
-			&values, 1, 1);
+		if (data->vts_tri_state == VTS_TRI_STATE_COPY_START) {
+			ret = vts_start_ipc_transaction(dev, data, VTS_IRQ_AP_STOP_COPY,
+				&values, 1, 1);
+		}
+		if(data->vts_rec_state == VTS_REC_STATE_START) {
+			ret = vts_start_ipc_transaction(dev, data, VTS_IRQ_AP_STOP_REC,
+				&values, 1, 1);
+		}
 
 		if (data->syssel_rate == DMIC_IF_SYS_SEL_VTS) {
 			vts_clk_set_rate(dev, data->tri_clk_path);
 		} else {
 			vts_clk_set_rate(dev, data->aud_clk_path);
 		}
+
 		if (data->micclk_init_cnt)
 			data->micclk_init_cnt--;
 		ret = vts_set_dmicctrl(data->pdev, data->target_id, true);
 		if (ret < 0)
 			vts_dev_err(dev, "%s: MIC control failed\n", __func__);
-		vts_dev_info(dev, "%s: VTS Copying : Change SYS_SEL : %lu\n",
-				__func__, syssel_rate_value);
+
+		values[0] = VTS_MIC_INPUT_CH;
+		values[1] = data->mic_input_ch;
+		values[2] = 1;
 		ret = vts_start_ipc_transaction(dev, data,
-			VTS_IRQ_AP_START_COPY, &values, 1, 1);
-		mutex_unlock(&data->firmware_lock);
-	}
-
-	if (data->vts_rec_state == VTS_REC_STATE_START) {
-		data->syssel_rate = syssel_rate_value;
-
-		mutex_lock(&data->firmware_lock);
-		ret = vts_start_ipc_transaction(dev, data,
-			VTS_IRQ_AP_STOP_REC, &values, 1, 1);
-
-		if (data->syssel_rate == DMIC_IF_SYS_SEL_VTS) {
-			vts_clk_set_rate(dev, data->tri_clk_path);
+				VTS_IRQ_AP_COMMAND,
+				&values, 0, 1);
+		if (ret < 0) {
+			vts_dev_err(dev, "%s: vts ipc VTS_IRQ_AP_COMMAND failed: %d\n",
+				__func__, ret);
 		} else {
-			vts_clk_set_rate(dev, data->aud_clk_path);
+			vts_dev_info(dev, "%s: sent mic_input_ch(%d)\n", __func__, data->mic_input_ch);
 		}
-		if (data->micclk_init_cnt)
-			data->micclk_init_cnt--;
-		ret = vts_set_dmicctrl(data->pdev, VTS_MICCONF_FOR_RECORD, true);
-		if (ret < 0)
-			vts_dev_err(dev, "%s: MIC control failed\n", __func__);
-		vts_dev_info(dev, "%s: VTS Recording : Change SYS_SEL : %lu\n",
-			__func__, syssel_rate_value);
-		ret = vts_start_ipc_transaction(dev, data,
-			VTS_IRQ_AP_START_REC, &values, 1, 1);
+
+		if (data->vts_tri_state == VTS_TRI_STATE_COPY_START) {
+			vts_dev_info(dev, "%s: VTS Copying : Change SYS_SEL : %lu\n",
+				__func__, data->syssel_rate);
+			ret = vts_start_ipc_transaction(dev, data, VTS_IRQ_AP_START_COPY,
+				&values, 1, 1);
+		}
+		if(data->vts_rec_state == VTS_REC_STATE_START) {
+			vts_dev_info(dev, "%s: VTS Recording : Change SYS_SEL : %lu\n",
+				__func__, data->syssel_rate);
+			ret = vts_start_ipc_transaction(dev, data, VTS_IRQ_AP_START_REC,
+				&values, 1, 1);
+		}
+
 		mutex_unlock(&data->firmware_lock);
 	}
+
 	return ret;
 }
 EXPORT_SYMBOL(vts_chk_dmic_clk_mode);
@@ -1543,8 +1543,8 @@ int vts_start_runtime_resume(struct device *dev, int skip_log)
 			data->dmab.addr, DMA_BUF_BYTES_MAX);
 
 	values[0] = data->dma_area_vts;
-	values[1] = 0x140;
-	values[2] = 0x800;
+	values[1] = VTS_BUF_PERIOD_SIZE;
+	values[2] = VTS_BUF_PERIOD_COUNT;
 	result = vts_start_ipc_transaction(dev,
 		data, VTS_IRQ_AP_SET_DRAM_BUFFER, &values, 0, 1);
 	if (result < 0) {

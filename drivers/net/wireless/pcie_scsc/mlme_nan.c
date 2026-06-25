@@ -215,12 +215,12 @@ static u32 slsi_mlme_nan_append_config_supplemental(struct sk_buff *req, u32 db_
 
 static u32 slsi_mlme_nan_append_discovery_config(struct sk_buff *req, u8 sd_type, u8 tx_type, u16 ttl, u16 dw_period,
 						 u8 dw_count, u8 disc_match_ind, u16 use_rssi_thres, u16 ranging_req,
-						 u16 data_path_req)
+						 u16 data_path_req, u16 gtk_protection)
 {
 	u8 *p;
 
 	p = fapi_append_data_u16(req, SLSI_NAN_TLV_TAG_DISCOVERY_COMMON_SPECIFIC);
-	p = fapi_append_data_u16(req, 0x000e);
+	p = fapi_append_data_u16(req, 0x0010); /* You have to change the value as the length of the data is added */
 	p = fapi_append_data_u8(req, sd_type);
 	p = fapi_append_data_u8(req, tx_type);
 	p = fapi_append_data_u16(req, ttl);
@@ -230,6 +230,7 @@ static u32 slsi_mlme_nan_append_discovery_config(struct sk_buff *req, u8 sd_type
 	p = fapi_append_data_bool(req, use_rssi_thres);
 	p = fapi_append_data_bool(req, ranging_req);
 	p = fapi_append_data_bool(req, data_path_req);
+	p = fapi_append_data_bool(req, gtk_protection);
 	if (p)
 		return 0;
 	return 1;
@@ -558,7 +559,8 @@ static u32 slsi_mlme_nan_publish_fapi_data(struct sk_buff *req, struct slsi_hal_
 	ret = slsi_mlme_nan_append_discovery_config(req, hal_req->publish_type, hal_req->tx_type, hal_req->ttl,
 						    hal_req->period, hal_req->publish_count, hal_req->publish_match_indicator,
 						    (u16)hal_req->rssi_threshold_flag, (u16)hal_req->sdea_params.ranging_state,
-						    (u16)hal_req->sdea_params.config_nan_data_path);
+						    (u16)hal_req->sdea_params.config_nan_data_path,
+						    (u16)hal_req->sdea_params.gtk_protection);
 	if (ret) {
 		SLSI_WARN_NODEV("Error append disovery config TLV\n");
 		return ret;
@@ -742,7 +744,8 @@ static u32 slsi_mlme_nan_subscribe_fapi_data(struct sk_buff *req, struct slsi_ha
 						    hal_req->subscribe_type ? 0 : 1, hal_req->ttl,
 						    hal_req->period, hal_req->subscribe_count, hal_req->subscribe_match_indicator,
 						    hal_req->rssi_threshold_flag, (u16)hal_req->sdea_params.ranging_state,
-						    hal_req->sdea_params.config_nan_data_path);
+						    hal_req->sdea_params.config_nan_data_path,
+						    (u16)hal_req->sdea_params.gtk_protection);
 	if (ret) {
 		SLSI_WARN_NODEV("Error append discovery config TLV\n");
 		return ret;
@@ -1131,7 +1134,7 @@ int slsi_mlme_nan_bootstrapping_response(struct slsi_dev *sdev, struct net_devic
 
 	fapi_set_memcpy(req, u.mlme_nan_bootstrapping_response_req.peer_nmi_address, hal_req->addr);
 	fapi_set_u16(req, u.mlme_nan_bootstrapping_response_req.match_id,
-		     hal_req->bootstrapping_instance_id);
+		     (u16)sdev->requestor_instance_id);
 	fapi_set_u16(req, u.mlme_nan_bootstrapping_response_req.bootstrapping_instance_id,
 		     hal_req->bootstrapping_instance_id);
 	fapi_set_u16(req, u.mlme_nan_bootstrapping_response_req.response, hal_req->rsp_code);

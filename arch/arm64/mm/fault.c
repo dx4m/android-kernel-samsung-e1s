@@ -786,6 +786,7 @@ static int do_sea(unsigned long far, unsigned long esr, struct pt_regs *regs)
 		 */
 		siaddr  = untagged_addr(far);
 	}
+	add_taint(TAINT_MACHINE_CHECK, LOCKDEP_STILL_OK);
 	if (IS_ENABLED(CONFIG_SEC_DEBUG_FAULT_MSG_ADV)) {
 		if (esr & ESR_ELx_FnV)
 			pr_auto(ASL1, "%s (0x%08lx), FAR not valid\n",

@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2017-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2025 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -1060,6 +1060,34 @@ bool tdls_is_concurrency_allowed(struct wlan_objmgr_psoc *psoc)
 
 	return true;
 }
+
+bool tdls_check_if_offchannel_allowed(struct wlan_objmgr_vdev *vdev)
+{
+	struct wlan_objmgr_psoc *psoc = wlan_vdev_get_psoc(vdev);
+	uint32_t mac_id = wlan_mlme_get_vdev_mac_id(vdev);
+
+	if (policy_mgr_mode_specific_connection_count(psoc, PM_PASSTHRU_MODE,
+						      NULL)) {
+		tdls_debug("TDLS offchannel disallowed: wondertap concurrency");
+		return false;
+	}
+
+	if (policy_mgr_is_hw_dbs_capable(psoc))
+		return true;
+
+	if (mac_id > MAX_MAC)
+		return false;
+
+	/* NON-DBS + SCC */
+	if (policy_mgr_get_conc_vdev_on_same_mac(psoc, wlan_vdev_get_id(vdev),
+						 mac_id) !=
+						WLAN_INVALID_VDEV_ID) {
+		tdls_debug("TDLS offchannel is not allowed due to concurrency");
+		return false;
+	}
+
+	return true;
+}
 #endif
 
 void tdls_set_ct_mode(struct wlan_objmgr_psoc *psoc,
@@ -1179,6 +1207,9 @@ tdls_process_policy_mgr_notification(struct wlan_objmgr_psoc *psoc)
 		return QDF_STATUS_E_NULL_VALUE;
 	}
 
+	tdls_debug("vdev:%d enter", wlan_vdev_get_id(tdls_vdev));
+
+	/* Check if TDLS is allowed */
 	if (!tdls_check_is_tdls_allowed(tdls_vdev)) {
 		tdls_debug("Disable the tdls in FW due to concurrency");
 		if (wlan_vdev_mlme_is_mlo_vdev(tdls_vdev))
@@ -1191,9 +1222,14 @@ tdls_process_policy_mgr_notification(struct wlan_objmgr_psoc *psoc)
 		return QDF_STATUS_E_NULL_VALUE;
 	}
 
-	tdls_debug("vdev:%d enter", wlan_vdev_get_id(tdls_vdev));
+	/* If TDLS is allowed, check if off-channel is allowed */
+	if (tdls_check_if_offchannel_allowed(tdls_vdev))
+		tdls_set_tdls_offchannelmode(tdls_vdev, ENABLE_CHANSWITCH);
+	else if (tdls_priv_soc->tdls_fw_off_chan_mode !=
+		   DISABLE_ACTIVE_CHANSWITCH)
+		tdls_set_tdls_offchannelmode(tdls_vdev,
+					     DISABLE_ACTIVE_CHANSWITCH);
 
-	tdls_set_tdls_offchannelmode(tdls_vdev, ENABLE_CHANSWITCH);
 	tdls_set_ct_mode(psoc, tdls_vdev);
 
 	wlan_objmgr_vdev_release_ref(tdls_vdev, WLAN_TDLS_NB_ID);
@@ -1206,6 +1242,9 @@ QDF_STATUS
 tdls_process_decrement_active_session(struct wlan_objmgr_psoc *psoc)
 {
 	struct wlan_objmgr_vdev *tdls_obj_vdev;
+	struct tdls_vdev_priv_obj *tdls_priv_vdev;
+	struct tdls_soc_priv_obj *tdls_priv_soc;
+	QDF_STATUS status;
 
 	tdls_debug("Enter");
 	if (!psoc)
@@ -1222,6 +1261,14 @@ tdls_process_decrement_active_session(struct wlan_objmgr_psoc *psoc)
 	if (!tdls_obj_vdev)
 		return QDF_STATUS_E_FAILURE;
 
+	status = tdls_get_vdev_objects(tdls_obj_vdev, &tdls_priv_vdev,
+				       &tdls_priv_soc);
+	if (QDF_IS_STATUS_ERROR(status)) {
+		tdls_debug("TDLS vdev objects NULL");
+		wlan_objmgr_vdev_release_ref(tdls_obj_vdev, WLAN_TDLS_NB_ID);
+		return QDF_STATUS_E_FAILURE;
+	}
+
 	if (!tdls_check_is_tdls_allowed(tdls_obj_vdev))
 		goto release_ref;
 
@@ -1236,6 +1283,11 @@ tdls_process_decrement_active_session(struct wlan_objmgr_psoc *psoc)
 		tdls_process_enable_disable_for_ml_vdev(tdls_obj_vdev, true);
 	else
 		tdls_process_enable_for_vdev(tdls_obj_vdev);
+
+	if (tdls_check_if_offchannel_allowed(tdls_obj_vdev) &&
+	    tdls_priv_soc->tdls_fw_off_chan_mode != ENABLE_CHANSWITCH &&
+	    tdls_priv_soc->connected_peer_count == 1)
+		tdls_set_tdls_offchannelmode(tdls_obj_vdev,  ENABLE_CHANSWITCH);
 
 release_ref:
 	wlan_objmgr_vdev_release_ref(tdls_obj_vdev, WLAN_TDLS_NB_ID);
@@ -2290,13 +2342,20 @@ static uint8_t tdls_find_opclass_frm_freq(struct wlan_objmgr_vdev *vdev,
 {
 	struct wlan_objmgr_pdev *pdev = wlan_vdev_get_pdev(vdev);
 	uint8_t channel, opclass;
+	bool global_tbl_lookup = false;
 
 	if (!pdev) {
 		tdls_err("pdev is NULL");
 		return 0;
 	}
 
-	wlan_reg_freq_width_to_chan_op_class(pdev, ch_freq, bw_offset, false,
+	if (wlan_reg_is_6ghz_chan_freq(ch_freq)) {
+		tdls_debug_rl("allow to set op class with global_op_class");
+		global_tbl_lookup = true;
+	}
+
+	wlan_reg_freq_width_to_chan_op_class(pdev, ch_freq, bw_offset,
+					     global_tbl_lookup,
 					     BIT(behav_limit), &opclass,
 					     &channel);
 

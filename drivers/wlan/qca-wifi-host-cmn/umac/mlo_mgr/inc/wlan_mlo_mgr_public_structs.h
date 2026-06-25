@@ -1517,7 +1517,8 @@ struct mlo_mlme_ext_ops {
 				const struct cfg80211_connect_params *req,
 				struct mlo_partner_info *partner_info);
 #endif
-	QDF_STATUS (*mlo_mlme_ext_teardown_tdls)(struct wlan_objmgr_psoc *psoc);
+	QDF_STATUS (*mlo_mlme_ext_teardown_tdls)(struct wlan_objmgr_psoc *psoc,
+						 uint8_t vdev_id);
 };
 
 /*
@@ -1530,6 +1531,7 @@ struct mlo_mlme_ext_ops {
  * @mlo_mgr_osif_link_rej_update_mac_addr: Callback to notify MAC addr update
  *                                for link rejection.
  * @mlo_mgr_osif_link_switch_notification: Notify OSIF on start of link switch
+ * @mlo_mgr_osif_update_link_state: update link state in OSIF
  */
 struct mlo_osif_ext_ops {
 	QDF_STATUS
@@ -1551,6 +1553,9 @@ struct mlo_osif_ext_ops {
 	(*mlo_mgr_osif_link_switch_notification)(struct wlan_objmgr_vdev *vdev,
 						 uint8_t non_trans_vdev_id,
 						 bool is_start_notify);
+
+	void (*mlo_mgr_osif_update_link_state)(uint8_t vdev_id,
+					       bool is_link_active);
 };
 
 /* maximum size of vdev bitmap array for MLO link set active command */

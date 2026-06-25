@@ -118,6 +118,9 @@ static void test_slsi_procfs_conn_log_event_burst_to_us_write(struct kunit *test
 
 	fp->private_data = (void *)sdev;
 
+	KUNIT_EXPECT_EQ(test, -EINVAL, slsi_procfs_conn_log_event_burst_to_us_write(fp, user_buf, 0, &ppos));
+	KUNIT_EXPECT_EQ(test, -EINVAL, slsi_procfs_conn_log_event_burst_to_us_write(fp, user_buf, 128, &ppos));
+
 	strcpy(user_buf, "kunit");
 	KUNIT_EXPECT_NE(test, 0, slsi_procfs_conn_log_event_burst_to_us_write(fp, user_buf, 10, &ppos));
 
@@ -253,6 +256,9 @@ static void test_slsi_procfs_uapsd_write(struct kunit *test)
 
 	fp->private_data = (void *)sdev;
 
+	KUNIT_EXPECT_EQ(test, -EINVAL, slsi_procfs_uapsd_write(fp, user_buf, NULL, &ppos));
+	KUNIT_EXPECT_EQ(test, -EINVAL, slsi_procfs_uapsd_write(fp, user_buf, 128, &ppos));
+
 	strcpy(user_buf, "kunit");
 	KUNIT_EXPECT_NE(test, 0, slsi_procfs_uapsd_write(fp, user_buf, 10, &ppos));
 
@@ -270,6 +276,9 @@ static void test_slsi_procfs_ap_cert_disable_ht_vht_write(struct kunit *test)
 	int iface;
 
 	fp->private_data = (void *)sdev;
+
+	KUNIT_EXPECT_EQ(test, -EINVAL, slsi_procfs_ap_cert_disable_ht_vht_write(fp, user_buf, NULL, &ppos));
+	KUNIT_EXPECT_EQ(test, -EINVAL, slsi_procfs_ap_cert_disable_ht_vht_write(fp, user_buf, 128, &ppos));
 
 	strcpy(user_buf, "kunit");
 	KUNIT_EXPECT_NE(test, 0, slsi_procfs_ap_cert_disable_ht_vht_write(fp, user_buf, 10, &ppos));
@@ -289,6 +298,9 @@ static void test_slsi_procfs_p2p_certif_write(struct kunit *test)
 
 	fp->private_data = (void *)sdev;
 
+	KUNIT_EXPECT_EQ(test, -EINVAL, slsi_procfs_p2p_certif_write(fp, user_buf, NULL, &ppos));
+	KUNIT_EXPECT_EQ(test, -EINVAL, slsi_procfs_p2p_certif_write(fp, user_buf, 128, &ppos));
+
 	strcpy(user_buf, "kunit");
 	KUNIT_EXPECT_NE(test, 0, slsi_procfs_p2p_certif_write(fp, user_buf, 10, &ppos));
 
@@ -307,6 +319,20 @@ static void test_slsi_procfs_p2p_certif_read(struct kunit *test)
 	fp->private_data = (void *)sdev;
 	sdev->p2p_certif = true;
 	KUNIT_EXPECT_NE(test, 0, slsi_procfs_p2p_certif_read(fp, user_buf, 10, &ppos));
+}
+
+static void test_slsi_procfs_ap_certif_11ax_mode_write(struct kunit *test)
+{
+	struct file *fp = kunit_kzalloc(test, sizeof(struct file), GFP_KERNEL);
+	struct slsi_dev *sdev = TEST_TO_SDEV(test);
+	char __user user_buf[10] = "kunit";
+	loff_t ppos = 0;
+
+	KUNIT_EXPECT_EQ(test, -EINVAL, slsi_procfs_ap_certif_11ax_mode_write(fp, user_buf, NULL, &ppos));
+	KUNIT_EXPECT_EQ(test, -EINVAL, slsi_procfs_ap_certif_11ax_mode_write(fp, user_buf, 128, &ppos));
+
+	fp->private_data = (void *)sdev;
+	KUNIT_EXPECT_NE(test, 0, slsi_procfs_ap_certif_11ax_mode_write(fp, user_buf, 10, &ppos));
 }
 
 static void test_slsi_procfs_mac_addr_show(struct kunit *test)
@@ -347,6 +373,9 @@ static void test_slsi_procfs_create_tspec_write(struct kunit *test)
 
 	fp->private_data = (void *)sdev;
 
+	KUNIT_EXPECT_EQ(test, -EINVAL, slsi_procfs_create_tspec_write(fp, user_buf, NULL, &ppos));
+	KUNIT_EXPECT_EQ(test, -EINVAL, slsi_procfs_create_tspec_write(fp, user_buf, 128, &ppos));
+
 	strcpy(user_buf, "kunit");
 	KUNIT_EXPECT_NE(test, 0, slsi_procfs_create_tspec_write(fp, user_buf, 10, &ppos));
 
@@ -380,6 +409,9 @@ static void test_slsi_procfs_confg_tspec_write(struct kunit *test)
 
 	fp->private_data = (void *)sdev;
 
+	KUNIT_EXPECT_EQ(test, -EINVAL, slsi_procfs_confg_tspec_write(fp, user_buf, NULL, &ppos));
+	KUNIT_EXPECT_EQ(test, -EINVAL, slsi_procfs_confg_tspec_write(fp, user_buf, 128, &ppos));
+
 	strcpy(user_buf, "kunit");
 	KUNIT_EXPECT_NE(test, 0, slsi_procfs_confg_tspec_write(fp, user_buf, 10, &ppos));
 
@@ -412,6 +444,9 @@ static void test_slsi_procfs_send_addts_write(struct kunit *test)
 
 	fp->private_data = (void *)sdev;
 
+	KUNIT_EXPECT_EQ(test, -EINVAL, slsi_procfs_send_addts_write(fp, user_buf, NULL, &ppos));
+	KUNIT_EXPECT_EQ(test, -EINVAL, slsi_procfs_send_addts_write(fp, user_buf, 128, &ppos));
+
 	strcpy(user_buf, "kunit");
 	KUNIT_EXPECT_NE(test, 0, slsi_procfs_send_addts_write(fp, user_buf, 10, &ppos));
 
@@ -443,6 +478,9 @@ static void test_slsi_procfs_send_delts_write(struct kunit *test)
 	int iface;
 
 	fp->private_data = (void *)sdev;
+
+	KUNIT_EXPECT_EQ(test, -EINVAL, slsi_procfs_send_delts_write(fp, user_buf, NULL, &ppos));
+	KUNIT_EXPECT_EQ(test, -EINVAL, slsi_procfs_send_delts_write(fp, user_buf, 128, &ppos));
 
 	strcpy(user_buf, "kunit");
 	KUNIT_EXPECT_NE(test, 0, slsi_procfs_send_delts_write(fp, user_buf, 10, &ppos));

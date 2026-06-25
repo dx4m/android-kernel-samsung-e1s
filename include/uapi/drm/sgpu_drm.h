@@ -664,6 +664,9 @@ struct drm_amdgpu_cs_chunk_memtrack_htile_wa {
 /* 1 - SQTT is active, 0 - SQTT is inactive */
 #define AMDGPU_IB_FLAG_SQ_THREAD_TRACE (1 << 8)
 
+/* Flush SBWC metadata buffer */
+#define AMDGPU_IB_FLAG_SBWC_YUVWRAP_FLUSH (1 << 11)
+
 struct drm_amdgpu_cs_chunk_time {
 	/** draw start time */
 	__u64 start;

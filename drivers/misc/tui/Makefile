@@ -6,10 +6,11 @@ ccflags-y += -I$(srctree)/drivers/misc/tui/
 ccflags-y += -I$(srctree)/drivers/misc/tzdev/include/tzdev
 ccflags-y += -DUSE_TEE_CLIENT_API
 
-tuihw-inf-objs := stui_inf.o
+tuihw-inf-objs := stui_inf.o stui_log.o
 
 tuihw-objs := main.o
 tuihw-objs += stui_core.o
+tuihw-objs += stui_log.o
 
 ifeq ($(CONFIG_SOC_S5E9925),y)
 ccflags-y += -DCONFIG_SOC_S5E9925
@@ -61,6 +62,10 @@ tuihw-objs += iwd_agent.o
 ccflags-y += -I$(srctree)/drivers/misc
 ccflags-y += -I$(srctree)/drivers/misc/tzdev/
 ccflags-y += -DCONFIG_SAMSUNG_TUI_LOWLEVEL
+endif
+
+ifneq ($(TARGET_BUILD_VARIANT),user)
+ccflags-y += -DDEBUG_LOG_ALLOWED
 endif
 
 obj-$(CONFIG_SAMSUNG_TUI) += tuihw.o tuihw-inf.o

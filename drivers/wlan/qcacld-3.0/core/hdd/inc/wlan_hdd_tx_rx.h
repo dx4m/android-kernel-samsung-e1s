@@ -94,6 +94,20 @@ struct hdd_context;
 netdev_tx_t hdd_hard_start_xmit(struct sk_buff *skb, struct net_device *dev);
 
 /**
+ * hdd_hard_start_xmit_passthru() - Transmit a frame in passthrough mode
+ * @skb: pointer to OS packet
+ * @dev: pointer to net_device structure
+ *
+ * Function for raw packet transmission without WMM admission control.
+ * This version directly passes the packet to Transport Layer without
+ * checking for FTM mode, getting AC/user priority, or WMM admission control.
+ *
+ * Return: Always returns NETDEV_TX_OK
+ */
+netdev_tx_t hdd_hard_start_xmit_passthru(struct sk_buff *skb,
+					 struct net_device *dev);
+
+/**
  * hdd_tx_timeout() - Wrapper function to protect __hdd_tx_timeout from SSR
  * @dev: pointer to net_device structure
  * @txqueue: tx queue
@@ -372,6 +386,7 @@ void hdd_print_netdev_txq_status(struct net_device *dev);
 /**
  * wlan_hdd_dump_queue_history_state() - Dump hdd queue history states
  * @q_hist: pointer to hdd queue history structure
+ * @num_tx_queues: number of tx queues
  * @buf: buffer where the queue history string is dumped
  * @size: size of the buffer
  *
@@ -381,7 +396,8 @@ void hdd_print_netdev_txq_status(struct net_device *dev);
  */
 uint32_t
 wlan_hdd_dump_queue_history_state(struct hdd_netif_queue_history *q_hist,
-				  char *buf, uint32_t size);
+				  uint8_t num_tx_queues, char *buf,
+				  uint32_t size);
 
 #ifdef QCA_LL_LEGACY_TX_FLOW_CONTROL
 /**

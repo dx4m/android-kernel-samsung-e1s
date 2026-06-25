@@ -3153,4 +3153,7 @@
 #define FEATURE_WLAN_SUPPORT_USD (1)
 #endif
 
+#ifdef CONFIG_DRIVER_PASSTHRU_MODE
+#define DRIVER_PASSTHRU_MODE (1)
+#endif
 #endif /* CONFIG_TO_FEATURE_H */

@@ -183,10 +183,13 @@ irqreturn_t slsi_bt_controller_wakeup_threaded_isr(int irq, void *data)
 	int gpio = *((int *)data);
 
 	TR_DBG("bt signals ap wakeup: %d\n", gpio_get_value(gpio));
-	if (gpio_get_value(gpio))
-		wake_lock(&common_srv.recv_wake_lock);
-	else
-		wake_unlock(&common_srv.recv_wake_lock);
+	if (gpio_get_value(gpio)) {
+		if(!wake_lock_active(&common_srv.recv_wake_lock))
+			wake_lock(&common_srv.recv_wake_lock);
+	} else {
+		if(wake_lock_active(&common_srv.recv_wake_lock))
+			wake_unlock(&common_srv.recv_wake_lock);
+	}
 	return IRQ_HANDLED;
 }
 

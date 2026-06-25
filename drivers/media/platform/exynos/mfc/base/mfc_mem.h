@@ -169,6 +169,8 @@ static inline void mfc_print_dpb_table(struct mfc_ctx *ctx)
 
 struct vb2_mem_ops *mfc_mem_ops(void);
 
+int mfc_mem_vmem_alloc(struct mfc_dev *dev, void **vmem, size_t size, char *name);
+void mfc_mem_vmem_free(struct mfc_dev *dev, void **vmem, char *name);
 void mfc_mem_set_cacheable(bool cacheable);
 int mfc_mem_get_user_shared_handle(struct mfc_ctx *ctx,
 	struct mfc_user_shared_handle *handle, char *name);

@@ -23,6 +23,7 @@
 #include "mfc_core_hw_reg_api.h"
 
 #include "base/mfc_queue.h"
+#include "base/mfc_mem.h"
 
 #define MFC_SFR_AREA_COUNT	24
 #define MFC1_SFR_AREA_COUNT	4
@@ -352,35 +353,6 @@ static void __mfc_save_logging_sfr(struct mfc_core *core)
 	}
 
 	__mfc_merge_errorinfo_data(core, px_fault);
-}
-
-void mfc_dump_state(struct mfc_dev *dev)
-{
-	int i;
-
-	mfc_dev_err("-----------dumping MFC device info-----------\n");
-	mfc_dev_err("options debug_level:%d, debug_mode:%d (%d), perf_boost:%d, wait_fw_status %d, multi_core_bits: %#lx\n",
-			dev->debugfs.debug_level, dev->pdata->debug_mode, dev->debugfs.debug_mode_en,
-			dev->debugfs.perf_boost_mode, dev->pdata->wait_fw_status.support,
-			dev->multi_core_inst_bits);
-
-	for (i = 0; i < MFC_NUM_CONTEXTS; i++) {
-		if (dev->ctx[i]) {
-			mfc_print_ctx_info(dev->ctx[i]);
-			mfc_dev_err("	main core: %d, op_mode: %d(stream: %d), idle_mode: %d, wait_state %d, prio %d, rt %d, queue_cnt(src:%d, dst:%d, ref:%d, qsrc:%d, qdst:%d), deferred: %d\n",
-				dev->ctx[i]->op_core_num[MFC_CORE_MAIN],
-				dev->ctx[i]->op_mode, dev->ctx[i]->stream_op_mode, dev->ctx[i]->idle_mode,
-				dev->ctx[i]->wait_state,
-				dev->ctx[i]->prio, dev->ctx[i]->rt,
-				mfc_get_queue_count(&dev->ctx[i]->buf_queue_lock, &dev->ctx[i]->src_buf_ready_queue),
-				mfc_get_queue_count(&dev->ctx[i]->buf_queue_lock, &dev->ctx[i]->dst_buf_queue),
-				mfc_get_queue_count(&dev->ctx[i]->buf_queue_lock, &dev->ctx[i]->ref_buf_queue),
-				mfc_get_queue_count(&dev->ctx[i]->buf_queue_lock, &dev->ctx[i]->src_buf_nal_queue),
-				mfc_get_queue_count(&dev->ctx[i]->buf_queue_lock, &dev->ctx[i]->dst_buf_nal_queue),
-				((dev->ctx[i]->type == MFCINST_DECODER && dev->ctx[i]->dec_priv) ?
-				dev->ctx[i]->dec_priv->defer_dec : 0));
-		}
-	}
 }
 
 void __mfc_core_dump_state(struct mfc_core *core, int curr_ctx)
@@ -798,8 +770,9 @@ int __mfc_store_dump_state(struct mfc_dev *dev, char *buf)
 				fmt = &mfc_formats[0];
 
 			ret = snprintf((buf + idx), 300,
-			"- ctx[%d] %s %s, %s, size: %dx%d@%ldfps(ts: %lufps, tmu: %dfps, op: %lufps), crop: %d %d %d %d\n",
+			"- ctx[%d] %s%s %s, %s, size: %dx%d@%ldfps(ts: %lufps, tmu: %dfps, op: %lufps), crop: %d %d %d %d\n",
 				dev->ctx[i]->num, codec->name,
+				dev->ctx[i]->plugin_type == MFC_PLUGIN_FILM_GRAIN ? "(filmgrain)" : "",
 				dev->ctx[i]->is_drm ? "Secure" : "Normal",
 				fmt->name,
 				dev->ctx[i]->img_width, dev->ctx[i]->img_height,
@@ -1262,11 +1235,11 @@ nal_q:
 
 static int __mfc_store_debug_info(struct mfc_core *core)
 {
-	char *buf;
+	char *buf = NULL;
 	int ret = 0;
 
 	if (core->dev->debugfs.sfr_dump & MFC_DUMP_ALL_INFO)
-		buf = vmalloc(MFC_DUMP_BUF_SIZE);
+		mfc_mem_vmem_alloc(core->dev, (void *)&buf, MFC_DUMP_BUF_SIZE, "dbg_info");
 	else
 		buf = core->dbg_info.addr;
 
@@ -1280,7 +1253,7 @@ static int __mfc_store_debug_info(struct mfc_core *core)
 	ret += __mfc_store_dump_regs(core, (buf + ret));
 
 	if (core->dev->debugfs.sfr_dump & MFC_DUMP_ALL_INFO) {
-		vfree(buf);
+		mfc_mem_vmem_free(core->dev, (void *)&buf, "dbg_info");
 		return 0;
 	}
 

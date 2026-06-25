@@ -28,6 +28,22 @@ int slsi_procfs_open_file_generic(struct inode *inode, struct file *file)
 	return 0;
 }
 
+static inline ssize_t slsi_procfs_simple_write_to_buffer(char *buf, size_t buf_size,
+							 loff_t *ppos, const char __user *user_buf, size_t count)
+{
+	ssize_t copied;
+
+	if (!count || count > buf_size - 1)
+		return -EINVAL;
+
+	copied = simple_write_to_buffer(buf, buf_size, ppos, user_buf, count);
+	if (copied < 0)
+		return copied;
+	buf[copied] = '\0';
+
+	return copied;
+}
+
 #ifdef CONFIG_SCSC_WLAN_MUTEX_DEBUG
 static int slsi_printf_mutex_stats(char *buf, const size_t bufsz, const char *printf_padding, struct slsi_mutex *mutex_p)
 {
@@ -235,32 +251,22 @@ static ssize_t slsi_procfs_conn_log_event_burst_to_us_write(struct file *file, c
 	struct slsi_dev *sdev = (struct slsi_dev *)file->private_data;
 	int burst;
 	int offset = 0;
-	char *read_string;
+	char read_string[128] = {0};
+	ssize_t copied;
 
-	if (!count)
-		return -EINVAL;
-
-	read_string = kmalloc(count + 1, GFP_KERNEL);
-	if (!read_string) {
-		SLSI_ERR(sdev, "Malloc for read_string failed\n");
-		return -ENOMEM;
-	}
-	memset(read_string, 0, (count + 1));
-
-	simple_write_to_buffer(read_string, count, ppos, user_buf, count);
-	read_string[count] = '\0';
+	copied = slsi_procfs_simple_write_to_buffer(read_string, sizeof(read_string), ppos, user_buf, count);
+	if (copied < 0)
+		return copied;
 
 	offset = kstrtoint(read_string, 10, &burst);
 	if (offset) {
 		SLSI_ERR(sdev, "conn_log_burst : failed to read a numeric value");
-		kfree(read_string);
 		return -EINVAL;
 	}
 
 	/*Init the rs struct with given user burst*/
 	ratelimit_state_init(&sdev->conn_log2us_ctx.rs, 1 * HZ, burst);
-	kfree(read_string);
-	return count;
+	return copied;
 }
 #endif
 
@@ -571,32 +577,22 @@ static ssize_t slsi_procfs_uapsd_write(struct file *file,
 	struct net_device *dev          = NULL;
 	int               qos_info      = 0;
 	int               offset        = 0;
-	char              *read_string;
+	char              read_string[128] = {0};
+	ssize_t            copied;
 
 	dev = slsi_get_netdev(sdev, SLSI_NET_INDEX_WLAN);
-
 	if (!dev) {
 		SLSI_ERR(sdev, "Dev not found\n");
 		return -EINVAL;
 	}
 
-	if (!count)
-		return -EINVAL;
-
-	read_string = kmalloc(count + 1, GFP_KERNEL);
-	if (!read_string) {
-		SLSI_ERR(sdev, "Malloc for read_string failed\n");
-		return -ENOMEM;
-	}
-	memset(read_string, 0, (count + 1));
-
-	simple_write_to_buffer(read_string, count, ppos, user_buf, count);
-	read_string[count] = '\0';
+	copied = slsi_procfs_simple_write_to_buffer(read_string, sizeof(read_string), ppos, user_buf, count);
+	if (copied < 0)
+		return copied;
 
 	offset = kstrtoint(read_string, 10, &qos_info);
 	if (offset) {
 		SLSI_ERR(sdev, "qos info : failed to read a numeric value");
-		kfree(read_string);
 		return -EINVAL;
 	}
 
@@ -604,8 +600,7 @@ static ssize_t slsi_procfs_uapsd_write(struct file *file,
 	sdev->device_config.qos_info = qos_info;
 	SLSI_DBG1(sdev, SLSI_MLME, "set qos_info:%d\n", sdev->device_config.qos_info);
 
-	kfree(read_string);
-	return count;
+	return copied;
 }
 
 static ssize_t slsi_procfs_ap_cert_disable_ht_vht_write(struct file *file, const char __user *user_buf,
@@ -614,25 +609,16 @@ static ssize_t slsi_procfs_ap_cert_disable_ht_vht_write(struct file *file, const
 	struct slsi_dev *sdev = file->private_data;
 	int offset = 0;
 	int width = 0;
-	char *read_string;
+	char read_string[128] = {0};
+	ssize_t copied;
 
-	if (!count)
-		return -EINVAL;
-
-	read_string = kmalloc(count + 1, GFP_KERNEL);
-	if (!read_string) {
-		SLSI_ERR(sdev, "Malloc for read_string failed\n");
-		return -ENOMEM;
-	}
-	memset(read_string, 0, (count + 1));
-
-	simple_write_to_buffer(read_string, count, ppos, user_buf, count);
-	read_string[count] = '\0';
+	copied = slsi_procfs_simple_write_to_buffer(read_string, sizeof(read_string), ppos, user_buf, count);
+	if (copied < 0)
+		return copied;
 
 	offset = kstrtoint(read_string, 10, &width);
 	if (offset) {
 		SLSI_ERR(sdev, "Failed to read a numeric value");
-		kfree(read_string);
 		return -EINVAL;
 	}
 
@@ -644,8 +630,7 @@ static ssize_t slsi_procfs_ap_cert_disable_ht_vht_write(struct file *file, const
 	else if (width == 40)
 		sdev->allow_switch_40_mhz = false;
 
-	kfree(read_string);
-	return count;
+	return copied;
 }
 
 static ssize_t slsi_procfs_p2p_certif_write(struct file *file,
@@ -653,29 +638,22 @@ static ssize_t slsi_procfs_p2p_certif_write(struct file *file,
 					    size_t count, loff_t *ppos)
 {
 	struct slsi_dev   *sdev           = file->private_data;
-	char              *read_string;
+	char              read_string[128] = {0};
 	int               cert_info      = 0;
 	int               offset        = 0;
+	ssize_t            copied;
 
-	read_string = kmalloc(count + 1, GFP_KERNEL);
-	if (!read_string) {
-		SLSI_ERR(sdev, "Malloc for read_string failed\n");
-		return -ENOMEM;
-	}
-	memset(read_string, 0, (count + 1));
-
-	simple_write_to_buffer(read_string, count, ppos, user_buf, count);
-	read_string[count] = '\0';
+	copied = slsi_procfs_simple_write_to_buffer(read_string, sizeof(read_string), ppos, user_buf, count);
+	if (copied < 0)
+		return copied;
 
 	offset = kstrtoint(read_string, 10, &cert_info);
 	if (offset) {
 		SLSI_ERR(sdev, "qos info : failed to read a numeric value");
-		kfree(read_string);
 		return -EINVAL;
 	}
 	sdev->p2p_certif = cert_info;
-	kfree(read_string);
-	return count;
+	return copied;
 }
 
 static ssize_t slsi_procfs_p2p_certif_read(struct file *file, char __user *user_buf, size_t count, loff_t *ppos)
@@ -696,29 +674,22 @@ static ssize_t slsi_procfs_ap_certif_11ax_mode_write(struct file *file, const ch
 						     size_t count, loff_t *ppos)
 {
 	struct slsi_dev   *sdev = file->private_data;
-	char              *read_string;
+	char              read_string[128] = {0};
 	int               enabled = 0;
 	int               offset = 0;
+	ssize_t            copied;
 
-	read_string = kmalloc(count + 1, GFP_KERNEL);
-	if (!read_string) {
-		SLSI_ERR(sdev, "Malloc for read_string failed\n");
-		return -ENOMEM;
-	}
-	memset(read_string, 0, (count + 1));
-
-	simple_write_to_buffer(read_string, count, ppos, user_buf, count);
-	read_string[count] = '\0';
+	copied = slsi_procfs_simple_write_to_buffer(read_string, sizeof(read_string), ppos, user_buf, count);
+	if (copied < 0)
+		return copied;
 
 	offset = kstrtoint(read_string, 10, &enabled);
 	if (offset) {
 		SLSI_ERR(sdev, "qos info : failed to read a numeric value");
-		kfree(read_string);
 		return -EINVAL;
 	}
 	sdev->ap_cert_11ax_enabled = enabled;
-	kfree(read_string);
-	return count;
+	return copied;
 }
 
 static int slsi_procfs_mac_addr_show(struct seq_file *m, void *v)
@@ -742,30 +713,20 @@ static ssize_t slsi_procfs_create_tspec_read(struct file *file,  char __user *us
 static ssize_t slsi_procfs_create_tspec_write(struct file *file, const char __user *user_buf, size_t count, loff_t *ppos)
 {
 	struct slsi_dev *sfdev = (struct slsi_dev *)file->private_data;
-	char            *read_string = kmalloc(count + 1, GFP_KERNEL);
+	char            read_string[128] = {0};
+	ssize_t          copied;
 
-	if (!read_string) {
-		SLSI_ERR(sfdev, "Malloc for read_string failed\n");
-		return -ENOMEM;
-	}
-
-	if (!count) {
-		kfree(read_string);
-		return 0;
-	}
-
-	simple_write_to_buffer(read_string, count, ppos, user_buf, count);
-	read_string[count] = '\0';
+	copied = slsi_procfs_simple_write_to_buffer(read_string, sizeof(read_string), ppos, user_buf, count);
+	if (copied < 0)
+		return copied;
 
 	sfdev->current_tspec_id = cac_ctrl_create_tspec(sfdev, read_string);
 	if (sfdev->current_tspec_id < 0) {
 		SLSI_ERR(sfdev, "create tspec: No parameters or not valid parameters\n");
-		kfree(read_string);
 		return -EINVAL;
 	}
-	kfree(read_string);
 
-	return count;
+	return copied;
 }
 
 static ssize_t slsi_procfs_confg_tspec_read(struct file *file,  char __user *user_buf, size_t count, loff_t *ppos)
@@ -779,31 +740,20 @@ static ssize_t slsi_procfs_confg_tspec_read(struct file *file,  char __user *use
 static ssize_t slsi_procfs_confg_tspec_write(struct file *file, const char __user *user_buf, size_t count, loff_t *ppos)
 {
 	struct slsi_dev *sfdev = (struct slsi_dev *)file->private_data;
-	char            *read_string = kmalloc(count + 1, GFP_KERNEL);
+	char            read_string[128] = {0};
+	ssize_t          copied;
 
-	if (!read_string) {
-		SLSI_ERR(sfdev, "Malloc for read_string failed\n");
-		return -ENOMEM;
-	}
-
-	if (!count) {
-		kfree(read_string);
-		return 0;
-	}
-
-	simple_write_to_buffer(read_string, count, ppos, user_buf, count);
-	read_string[count] = '\0';
+	copied = slsi_procfs_simple_write_to_buffer(read_string, sizeof(read_string), ppos, user_buf, count);
+	if (copied < 0)
+		return copied;
 
 	/* to do: call to config_tspec() to configure a tspec field */
 	if (cac_ctrl_config_tspec(sfdev, read_string) < 0) {
 		SLSI_ERR(sfdev, "config tspec error\n");
-		kfree(read_string);
 		return -EINVAL;
 	}
 
-	kfree(read_string);
-
-	return count;
+	return copied;
 }
 
 static ssize_t slsi_procfs_send_addts_read(struct file *file,  char __user *user_buf, size_t count, loff_t *ppos)
@@ -817,30 +767,21 @@ static ssize_t slsi_procfs_send_addts_read(struct file *file,  char __user *user
 static ssize_t slsi_procfs_send_addts_write(struct file *file, const char __user *user_buf, size_t count, loff_t *ppos)
 {
 	struct slsi_dev *sfdev = (struct slsi_dev *)file->private_data;
-	char            *read_string = kmalloc(count + 1, GFP_KERNEL);
-
-	if (!read_string) {
-		SLSI_ERR(sfdev, "Malloc for read_string failed\n");
-		return -ENOMEM;
-	}
+	char            read_string[128] = {0};
+	ssize_t          copied;
 
 	sfdev->tspec_error_code = -1;
-	if (!count) {
-		kfree(read_string);
-		return 0;
-	}
 
-	simple_write_to_buffer(read_string, count, ppos, user_buf, count);
-	read_string[count] = '\0';
+	copied = slsi_procfs_simple_write_to_buffer(read_string, sizeof(read_string), ppos, user_buf, count);
+	if (copied < 0)
+		return copied;
 
 	/* to do: call to config_tspec() to configure a tspec field */
 	if (cac_ctrl_send_addts(sfdev, read_string) < 0) {
 		SLSI_ERR(sfdev, "send addts error\n");
-		kfree(read_string);
 		return -EINVAL;
 	}
-	kfree(read_string);
-	return count;
+	return copied;
 }
 
 static ssize_t slsi_procfs_send_delts_read(struct file *file,  char __user *user_buf, size_t count, loff_t *ppos)
@@ -854,31 +795,21 @@ static ssize_t slsi_procfs_send_delts_read(struct file *file,  char __user *user
 static ssize_t slsi_procfs_send_delts_write(struct file *file, const char __user *user_buf, size_t count, loff_t *ppos)
 {
 	struct slsi_dev *sfdev = (struct slsi_dev *)file->private_data;
-	char            *read_string = kmalloc(count + 1, GFP_KERNEL);
-
-	if (!read_string) {
-		SLSI_ERR(sfdev, "Malloc for read_string failed\n");
-		return -ENOMEM;
-	}
+	char            read_string[128] = {0};
+	ssize_t          copied;
 
 	sfdev->tspec_error_code = -1;
 
-	if (!count) {
-		kfree(read_string);
-		return 0;
-	}
-
-	simple_write_to_buffer(read_string, count, ppos, user_buf, count);
-	read_string[count] = '\0';
+	copied = slsi_procfs_simple_write_to_buffer(read_string, sizeof(read_string), ppos, user_buf, count);
+	if (copied < 0)
+		return copied;
 
 	/* to do: call to config_tspec() to configure a tspec field */
 	if (cac_ctrl_send_delts(sfdev, read_string) < 0) {
 		SLSI_ERR(sfdev, "send delts error\n");
-		kfree(read_string);
 		return -EINVAL;
 	}
-	kfree(read_string);
-	return count;
+	return copied;
 }
 
 static ssize_t slsi_procfs_tput_read(struct file *file,  char __user *user_buf, size_t count, loff_t *ppos)

@@ -441,6 +441,7 @@ int exynos_atomic_exit_tui(void)
 		tui_info(": Crtc-%d operation mode(%lu)\n", i, op_mode);
 
 		new_exynos_crtc_state->dqe_fd = -1;
+		new_exynos_crtc_state->skip_update = true;
 		if (!is_video[i]) {
 			new_exynos_crtc_state->reserved_win_mask = 0;
 			new_exynos_crtc_state->freed_win_mask = 0;

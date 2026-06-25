@@ -83,7 +83,7 @@ static void kunit_mock_slsi_conn_log2us_eap_tx(struct slsi_dev *sdev, struct net
 }
 
 static void kunit_mock_slsi_conn_log2us_beacon_report_response(struct slsi_dev *sdev, struct net_device *dev,
-							       int dialog_token, int report_number)
+							       int dialog_token, int report_number, u8 mlo_band, u32 reason_code)
 {
 	return;
 }
@@ -132,7 +132,8 @@ static void kunit_mock_slsi_conn_log2us_roam_scan_result(struct slsi_dev *sdev,
 							 short cu,
 							 int score,
 							 int tp_score,
-							 bool eligible)
+							 u16 eligible,
+							 bool mld_ap)
 {
 	return;
 }
@@ -169,7 +170,7 @@ static void kunit_mock_slsi_conn_log2us_btm_cand(struct slsi_dev *sdev, struct n
 }
 
 static void kunit_mock_slsi_conn_log2us_nr_frame_req(struct slsi_dev *sdev, struct net_device *dev,
-						     int dialog_token, char *ssid)
+						     int dialog_token, char *ssid, u8 mlo_band, u8 status)
 {
 	return;
 }

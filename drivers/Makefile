@@ -206,7 +206,7 @@ obj-y += wlan/platform/
 
 obj-$(CONFIG_QCA_CLD_WLAN) += wlan/qcacld-3.0/
 obj-y += wlan/kernel_modules/
-
+obj-y += wlan/wonder/
 
 obj-y += samsung/
 obj-y				+= knox/

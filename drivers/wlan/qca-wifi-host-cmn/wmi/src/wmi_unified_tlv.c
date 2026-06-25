@@ -3469,8 +3469,7 @@ send_ap_suspend_cmd_tlv(wmi_unified_t wmi_handle,
 		(wmi_set_ap_suspend_resume_fixed_param));
 	cmd->vdev_id = params->vdev_id;
 	cmd->is_ap_suspend = params->suspend;
-	qdf_mem_copy(&cmd->mld_mac_address, &params->mac_addr,
-		     sizeof(wmi_mac_addr));
+	WMI_CHAR_ARRAY_TO_MAC_ADDR(params->mac_addr, &cmd->mld_mac_address);
 
 	wmi_mtrace(WMI_SET_AP_SUSPEND_RESUME_CMDID, cmd->vdev_id, 0);
 	wmi_debug("vdev_id:%d is_ap_suspend:%d, mld_addr: " QDF_MAC_ADDR_FMT,
@@ -17326,7 +17325,13 @@ static void extract_additional_cli_rules_meta_info(
 				WMI_REG_RULE_TYPE_indoor_enabled_sub_cli) {
 		client_type = REG_SUBORDINATE_CLIENT;
 		reg_info->addn_reg_rule_order[addn_meta_idx] = REG_CLI_SUB_C2C;
+	} else {
+		/* Unknown rule type, skip processing to avoid invalid index */
+		return;
 	}
+
+	if (client_type >= REG_MAX_CLIENT_TYPE)
+		return;
 
 	reg_info->num_6g_reg_rules_client[REG_INDOOR_ENABLED_AP][client_type] =
 		meta_data->num_6ghz_reg_rules;

@@ -2370,6 +2370,9 @@ struct roam_frame_info {
  * @RSO_SAP_CHANNEL_CHANGE: disable roaming due to SAP channel change
  * @RSO_NDP_CON_ON_NDI: disable roaming due to NDP connection on NDI
  * @RSO_SET_PCL: Disable roaming to set pcl to firmware
+ * @RSO_SET_LINK: Avoid enable roaming due to SET_LINK is in progress
+ * @RSO_PASSTHRU_SET_CHANNEL: disable roaming temporarily when set
+ *  set channel operation is ongoing on passthru vdev.
  */
 enum wlan_cm_rso_control_requestor {
 	RSO_INVALID_REQUESTOR,
@@ -2379,6 +2382,8 @@ enum wlan_cm_rso_control_requestor {
 	RSO_SAP_CHANNEL_CHANGE = BIT(3),
 	RSO_NDP_CON_ON_NDI     = BIT(4),
 	RSO_SET_PCL            = BIT(5),
+	RSO_SET_LINK           = BIT(6),
+	RSO_PASSTHRU_SET_CHANNEL = BIT(7),
 };
 #endif
 

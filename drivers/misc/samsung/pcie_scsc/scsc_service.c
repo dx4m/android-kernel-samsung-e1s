@@ -699,15 +699,19 @@ int scsc_mx_service_claim(enum CLAIM_TYPE claim_type)
 		pcie_users_claim(claim_type);
 		SCSC_TAG_DEBUG(MXMAN, "claim PCIE\n");
 		ret = scsc_pcie_claim();
-		spin_unlock_irqrestore(&pcie_users_lock, flags);
-		if (!ret)
-			ret = scsc_pcie_complete();
 		if (ret < 0) {
-			spin_lock_irqsave(&pcie_users_lock, flags);
 			pcie_users_release(claim_type);
 			spin_unlock_irqrestore(&pcie_users_lock, flags);
-			mutex_unlock(&claim);
-			return ret;
+		} else if (ret > 0) {
+			spin_unlock_irqrestore(&pcie_users_lock, flags);
+			ret = scsc_pcie_complete();
+			if (ret < 0) {
+				spin_lock_irqsave(&pcie_users_lock, flags);
+				pcie_users_release(claim_type);
+				spin_unlock_irqrestore(&pcie_users_lock, flags);
+			}
+		} else {
+			spin_unlock_irqrestore(&pcie_users_lock, flags);
 		}
 	}else{
 		pcie_users_claim(claim_type);

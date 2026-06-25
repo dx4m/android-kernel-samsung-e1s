@@ -34,7 +34,7 @@
 #define VTS_MICCONF_FOR_RECORD (4)
 
 /* VTS Model Binary Max buffer sizes */
-#define VTS_MODEL_BIN_MAXSZ     (0x16800)
+#define VTS_MODEL_BIN_MAXSZ     (0x1D4C0)
 #define CLK_MAX_CNT (20)
 #define RECOVERY_MAX_CNT	(5)
 

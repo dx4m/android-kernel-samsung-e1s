@@ -6,15 +6,15 @@ config QCA_CLD_WLAN
 	help
 	Add support for the Qualcomm Atheros CLD WLAN module
 
+config CNSS_USER_BUILD
+	bool "Enable it in user build"
+	default n
+
 if QCA_CLD_WLAN != n
 
 config WLAN_SAMSUNG_FEATURE
 	bool "enable WLAN_SAMSUNG_FEATURE"
 	default n
-
-config CNSS_USER_BUILD
-    bool "Enable it in user build"
-    default n
 
 config 160MHZ_SUPPORT
 	bool "Enable 160MHZ_SUPPORT"
@@ -2345,4 +2345,9 @@ config CHIP_VERSION
         int "Enable CHIP_VERSION"
         default 1
 endif
+
+config DRIVER_PASSTHRU_MODE
+	bool "Enable Driver Passthrough mode"
+	default n
+
 endif # QCA_CLD_WLAN

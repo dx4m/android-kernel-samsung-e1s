@@ -89,7 +89,6 @@ typedef enum {
 typedef enum {
 	PERF_NORMAL = 0,
 	PERF_SUSPEND_PREPARE,
-	PERF_POST_SUSPEND,
 } perf_state;
 
 struct ufs_perf {

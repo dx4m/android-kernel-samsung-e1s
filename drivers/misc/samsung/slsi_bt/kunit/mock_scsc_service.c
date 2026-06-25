@@ -217,16 +217,18 @@ __weak int scsc_service_pm_qos_remove_request(struct scsc_service *service)
 }
 #endif
 
-__weak int mxlogger_register_global_observer_class(char *name, uint8_t class)
+__weak int mxlogger_register_global_observer_class(char *name, uint8_t class, int subsystem)
 {
 	UNUSED(name);
 	UNUSED(class);
+	UNUSED(subsystem);
 	return 0;
 }
 
-__weak int mxlogger_unregister_global_observer(char *name)
+__weak int mxlogger_unregister_global_observer(char *name, int subsystem)
 {
 	UNUSED(name);
+	UNUSED(subsystem);
 	return 0;
 }
 

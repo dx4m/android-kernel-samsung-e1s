@@ -352,6 +352,7 @@ struct bh_struct;
 
 #define SLSI_HIP_HIP5_OPT_TX_Q_MAX 32
 struct hip5_opt_tx_q {
+	bool                active;
 	u16                 vif_index;
 	u16                 flow_id;
 	u16                 configuration_option;

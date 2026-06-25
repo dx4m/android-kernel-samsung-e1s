@@ -16,6 +16,8 @@
 #include <linux/reboot.h>
 #include <linux/spinlock.h>
 #include <linux/types.h>
+#include "stui_log.h"
+
 #ifdef USE_TEE_CLIENT_API
 #include <tee_client_api.h>
 #endif /* USE_TEE_CLIENT_API */
@@ -24,8 +26,6 @@
 #define TUI_REE_EXTERNAL_EVENT	42
 #define SESSION_CANCEL_DELAY	10
 #define MAX_WAIT_CNT		150
-
-#define TUIHW_LOG_TAG "tuill_hw"
 
 static enum tui_version tui_version = TUI_NOPE;
 static int tui_mode = STUI_MODE_OFF;
@@ -79,7 +79,7 @@ int stui_get_mode(void)
 	spin_lock_irqsave(&tui_lock, fls);
 	ret_mode = tui_mode;
 	spin_unlock_irqrestore(&tui_lock, fls);
-	pr_debug(TUIHW_LOG_TAG " %s << ret_mode=%#X\n", __func__, ret_mode);
+	log_debug("tui_mode=%#X\n", ret_mode);
 	return ret_mode;
 }
 EXPORT_SYMBOL(stui_get_mode);
@@ -88,7 +88,7 @@ void stui_set_mode(int mode)
 {
 	unsigned long fls;
 
-	pr_debug(TUIHW_LOG_TAG " %s >> mode=%#X\n", __func__, mode);
+	log_debug("mode=%#X\n", mode);
 	spin_lock_irqsave(&tui_lock, fls);
 	tui_mode = mode;
 	spin_unlock_irqrestore(&tui_lock, fls);
@@ -100,7 +100,7 @@ int stui_set_mask(int mask)
 	unsigned long fls;
 	int ret_mode;
 
-	pr_debug(TUIHW_LOG_TAG " %s >> mask=%#X\n", __func__, mask);
+	log_debug("mask=%#X\n", mask);
 	spin_lock_irqsave(&tui_lock, fls);
 	ret_mode = (tui_mode |= mask);
 	spin_unlock_irqrestore(&tui_lock, fls);
@@ -113,7 +113,7 @@ int stui_clear_mask(int mask)
 	unsigned long fls;
 	int ret_mode;
 
-	pr_debug(TUIHW_LOG_TAG " %s >> mask=%#X\n", __func__, mask);
+	log_debug("mask=%#X\n", mask);
 	spin_lock_irqsave(&tui_lock, fls);
 	ret_mode = (tui_mode &= ~mask);
 	spin_unlock_irqrestore(&tui_lock, fls);
@@ -156,10 +156,10 @@ int stui_cancel_session(void)
 	int ret = -1;
 	int count = 0;
 
-	pr_debug(TUIHW_LOG_TAG " %s >>\n", __func__);
+	STUI_CALL_TRACE();
 
 	if (!(STUI_MODE_ALL & stui_get_mode())) {
-		pr_debug(TUIHW_LOG_TAG " session cancel is not needed\n");
+		log_info("session cancel is not needed\n");
 		return 0;
 	}
 
@@ -171,13 +171,13 @@ int stui_cancel_session(void)
 			result = iwdf.cancel_session();
 		spin_unlock_irqrestore(&iwdf_lock, fls);
 		if (result != 0)
-			pr_err(TUIHW_LOG_TAG " iwd_cancel_session returned: 0x%x\n", result);
+			log_error("iwd_cancel_session returned: 0x%x\n", result);
 		return ret;
 	}
 #endif /* CONFIG_SAMSUNG_TUI_LOWLEVEL */
 
 	if (atomic_cmpxchg(&canceling, 0, 1) != 0) {
-		pr_debug(TUIHW_LOG_TAG " already canceling.\n");
+		log_info("already canceling.\n");
 
 		while ((STUI_MODE_ALL & stui_get_mode()) && (count < MAX_WAIT_CNT)) {
 			msleep(SESSION_CANCEL_DELAY);
@@ -185,9 +185,9 @@ int stui_cancel_session(void)
 		}
 
 		if (STUI_MODE_ALL & stui_get_mode())
-			pr_err(TUIHW_LOG_TAG " session was not cancelled yet\n");
+			log_error("session was not cancelled yet\n");
 		else {
-			pr_info(TUIHW_LOG_TAG " session was cancelled successfully\n");
+			log_info("session was cancelled successfully\n");
 			ret = 0;
 		}
 
@@ -196,13 +196,13 @@ int stui_cancel_session(void)
 
 	result = TEEC_InitializeContext(NULL, &context);
 	if (result != TEEC_SUCCESS) {
-		pr_err(TUIHW_LOG_TAG " TEEC_InitializeContext returned: 0x%x\n", result);
+		log_error("TEEC_InitializeContext returned: 0x%x\n", result);
 		goto out;
 	}
 
 	result = TEEC_OpenSession(&context, &session, &uuid, TEEC_LOGIN_PUBLIC, NULL, NULL, NULL);
 	if (result != TEEC_SUCCESS) {
-		pr_err(TUIHW_LOG_TAG " TEEC_OpenSession returned: 0x%x\n", result);
+		log_error("TEEC_OpenSession returned: 0x%x\n", result);
 		goto finalize_context;
 	}
 
@@ -210,10 +210,10 @@ int stui_cancel_session(void)
 
 	result = TEEC_InvokeCommand(&session, TUI_REE_EXTERNAL_EVENT, &operation, NULL);
 	if (result != TEEC_SUCCESS) {
-		pr_err(TUIHW_LOG_TAG " TEEC_InvokeCommand returned: 0x%x\n", result);
+		log_error("TEEC_InvokeCommand returned: 0x%x\n", result);
 		goto close_session;
 	} else
-		pr_debug(TUIHW_LOG_TAG " invoked cancel cmd\n");
+		log_debug("invoked cancel cmd\n");
 
 	TEEC_CloseSession(&session);
 	TEEC_FinalizeContext(&context);
@@ -224,9 +224,9 @@ int stui_cancel_session(void)
 	}
 
 	if (STUI_MODE_ALL & stui_get_mode())
-		pr_err(TUIHW_LOG_TAG " session was not cancelled yet\n");
+		log_error("session was not cancelled yet\n");
 	else {
-		pr_debug(TUIHW_LOG_TAG " session was cancelled successfully\n");
+		log_debug("session was cancelled successfully\n");
 		ret = 0;
 	}
 
@@ -239,20 +239,21 @@ finalize_context:
 	TEEC_FinalizeContext(&context);
 out:
 	atomic_set(&canceling, 0);
-	pr_err(TUIHW_LOG_TAG " %s << ret=%d, result=0x%x\n", __func__, ret, result);
+	log_error("<< ret=%d, result=0x%x\n", ret, result);
 
 	return ret;
 }
 #else /* USE_TEE_CLIENT_API */
 int stui_cancel_session(void)
 {
+	STUI_CALL_TRACE();
 #ifdef CONFIG_SAMSUNG_TUI_LOWLEVEL
 	int ret = -1;
 	if (tui_version == TUI_LL) {
 		unsigned long fls;
 
 		if (!(STUI_MODE_ALL & stui_get_mode())) {
-			pr_debug(TUIHW_LOG_TAG " session cancel is not needed\n");
+			log_debug("session cancel is not needed\n");
 			return 0;
 		}
 
@@ -261,11 +262,11 @@ int stui_cancel_session(void)
 			ret = iwdf.cancel_session();
 		spin_unlock_irqrestore(&iwdf_lock, fls);
 	} else {
-		pr_debug(TUIHW_LOG_TAG " old tui session\n");
+		log_debug("old tui session\n");
 	}
 	return ret;
 #else /* CONFIG_SAMSUNG_TUI_LOWLEVEL */
-	pr_err(TUIHW_LOG_TAG " %s not supported\n", __func__);
+	log_error("not supported\n");
 	return -1;
 #endif /* CONFIG_SAMSUNG_TUI_LOWLEVEL */
 }
@@ -274,13 +275,14 @@ EXPORT_SYMBOL(stui_cancel_session);
 
 static int __init teegris_tui_inf_init(void)
 {
-	pr_info(TUIHW_LOG_TAG "=============== Running TEEgris TUI Inf ===============");
+	log_info("=============== Running TEEgris TUI Inf ===============\n");
+	tuihw_verbosity = 1;
 	return 0;
 }
 
 static void __exit teegris_tui_inf_exit(void)
 {
-	pr_info(TUIHW_LOG_TAG "Unloading teegris tui inf module.");
+	log_info("Unloading teegris tui inf module.\n");
 }
 
 module_init(teegris_tui_inf_init);

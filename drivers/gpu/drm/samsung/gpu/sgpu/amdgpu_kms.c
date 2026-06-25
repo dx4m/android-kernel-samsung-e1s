@@ -1032,8 +1032,9 @@ int amdgpu_driver_open_kms(struct drm_device *dev, struct drm_file *file_priv)
 
 	pasid = amdgpu_pasid_alloc(16);
 	if (pasid < 0) {
-		dev_warn(adev->dev, "No more PASIDs available!");
-		pasid = 0;
+		dev_err(adev->dev, "No more PASIDs available!");
+		r = -ENOSPC;
+		goto error_free_fpriv;
 	}
 	r = amdgpu_vm_init(adev, &fpriv->vm, AMDGPU_VM_CONTEXT_GFX, pasid);
 	if (r)
@@ -1098,6 +1099,7 @@ error_pasid:
 	if (pasid)
 		amdgpu_pasid_free(pasid);
 
+error_free_fpriv:
 	kfree(fpriv);
 
 out_suspend:

@@ -569,8 +569,19 @@ static u8 *get_packet_vaddr(struct pktproc_queue *q, struct pktproc_desc_sktbuf 
 {
 	u8 *ret;
 	struct pktproc_adaptor *ppa = q->ppa;
+	struct link_device *ld = &q->mld->link_dev;
 
 	if (q->manager) {
+		if (desc->cp_data_paddr !=
+				(q->manager->apair_arr[idx].cp_addr + ppa->skb_padding_size)) {
+			mif_err("address miss: cp_paddr: 0x%llx, address_pair_cp: 0x%llx idx: %u\n",
+				desc->cp_data_paddr, q->manager->apair_arr[idx].cp_addr, idx);
+			ld->link_trigger_cp_crash(q->mld, CRASH_REASON_MIF_RX_BAD_DATA,
+				"PKTPROC_DL cp_paddr region broken");
+			q->stat.err_addr++;
+			return NULL;
+		}
+
 		ret = (u8 *)cpif_unmap_rx_buf(q->manager, idx);
 		if (!ret) {
 			mif_err_limited("invalid data address. null given\n");

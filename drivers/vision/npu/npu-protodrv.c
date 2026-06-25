@@ -2198,6 +2198,11 @@ int set_cpu_affinity(unsigned long *task_cpu_affinity)
 {
 	int ret;
 
+	if (unlikely(!npu_proto_drv.ast.thread_ref)) {
+		npu_err("Failed to get AST Thread\n");
+		return -EINVAL;
+	}
+
 	ret = set_cpus_allowed_ptr(npu_proto_drv.ast.thread_ref, to_cpumask(task_cpu_affinity));
 	if (unlikely(ret))
 		npu_warn("fail(%d) in set_cpus_allowed_ptr(%lu)\n", ret, *task_cpu_affinity);

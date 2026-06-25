@@ -12,11 +12,16 @@ config SAMSUNG_TUI_LOWLEVEL
 	default n
 	depends on SAMSUNG_TUI
 	help
-		Enables tui low level API.
+		Enables tui low level extension in tuihw deriver.
+		This extension is used for support Global Platform
+		TUI Low Level API in Secure OS TEEgris. TUI Low Level API
+		provides unified acces to SWD drivers.
 
 config SAMSUNG_TUI_TEST
 	bool "Testing module for TUI HW handler"
 	default n
 	depends on SAMSUNG_TUI
 	help
-		support TUI Driver Test
+		Support TUI Driver Test
+		It adds ectention for teting NWD driver access to
+		a frame buffer protected by Secure OS TEEgris

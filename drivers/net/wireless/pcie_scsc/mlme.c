@@ -242,7 +242,11 @@ static struct sk_buff *slsi_mlme_tx_rx(struct slsi_dev *sdev,
 	spin_unlock_bh(&sig_wait->send_signal_lock);
 
 #if defined(CONFIG_SCSC_PCIE_CHIP)
-	slsi_pcie_lock(&sdev->hip, SLSI_NON_IRQ);
+	if (!slsi_pcie_lock(&sdev->hip, SLSI_NON_IRQ)) {
+		SLSI_INFO(sdev, "Cannot pcie lock\n");
+		kfree_skb(skb);
+		goto clean_exit;
+	}
 #endif
 #if defined(CONFIG_SCSC_WLAN_TAS)
 	slsi_mlme_tas_deferred_tx_sar_limit(sdev);
@@ -3651,7 +3655,9 @@ void slsi_calc_max_data_rate(struct net_device *dev, u8 bandwidth, u8 antenna_mo
 
 	/* Bandwidth (BW): 0x0= 20 MHz, 0x1= 40 MHz, 0x2= 80 MHz, 0x3= 160/ 80+80 MHz. 0x3 is not supported */
 	bandwidth_index = bandwidth / 40;
-	sta_mode = slsi_sta_ieee80211_mode(dev, ndev_vif->sta.sta_bss->channel->center_freq);
+	sta_mode = slsi_sta_ieee80211_mode(ndev_vif->sta.sta_bss->channel->center_freq,
+					   ndev_vif->sta.sta_bss->ies->data,
+					   ndev_vif->sta.sta_bss->ies->len);
 
 	if (sta_mode == SLSI_80211_MODE_11B) {
 		ndev_vif->sta.max_rate_mbps = 11;
@@ -4004,7 +4010,14 @@ void slsi_mlme_get_sta_dump(struct netdev_vif *ndev_vif, struct net_device *dev,
 			  get_values[mib_index].psid);
 	}
 
-	dump_data->data[SLSI_STA_DUMP_MODE] = slsi_sta_ieee80211_mode(dev, ndev_vif->chan->center_freq);
+	if (peer->assoc_resp_ie) {
+		dump_data->data[SLSI_STA_DUMP_MODE] = slsi_sta_ieee80211_mode(ndev_vif->chan->center_freq,
+								      peer->assoc_resp_ie->data,
+								      peer->assoc_resp_ie->len);
+	} else {
+		SLSI_DBG3(sdev, SLSI_MLME, "peer->assoc_resp_ie is NULL\n");
+	}
+
 	if (dump_data->data[SLSI_STA_DUMP_MODE] >= 0)
 		dump_data->param_field |= BIT(SLSI_STA_DUMP_MODE);
 
@@ -6875,7 +6888,7 @@ int slsi_mlme_set_delayed_wakeup_type(struct slsi_dev  *sdev, struct net_device 
 	struct sk_buff *req;
 	struct sk_buff *cfm;
 	int r = 0, i = 0;
-	int alloc_data_size;
+	int alloc_data_size = 0;
 	struct slsi_mlme_parameters req_header;
 
 	WLBT_WARN_ON(!SLSI_MUTEX_IS_LOCKED(ndev_vif->vif_mutex));
@@ -6883,9 +6896,9 @@ int slsi_mlme_set_delayed_wakeup_type(struct slsi_dev  *sdev, struct net_device 
 	if (ipv4_count)
 		alloc_data_size = ipv4_count * 4 + sizeof(req_header);
 	if (ipv6_count)
-		alloc_data_size = ipv6_count * 16 + sizeof(req_header);
+		alloc_data_size = alloc_data_size + (ipv6_count * 16 + sizeof(req_header));
 	if (mac_count)
-		alloc_data_size = (mac_count * ETH_ALEN) + sizeof(req_header);
+		alloc_data_size = alloc_data_size + ((mac_count * ETH_ALEN) + sizeof(req_header));
 
 	req = fapi_alloc(mlme_delayed_wakeup_req, MLME_DELAYED_WAKEUP_REQ, ndev_vif->vifnum, alloc_data_size);
 	if (!req)

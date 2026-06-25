@@ -373,14 +373,14 @@ static void dwc3_core_config(struct dwc3 *dwc, struct dwc3_exynos *exynos)
 	dwc3_exynos_writel(dwc->regs, DWC3_GUSB3PIPECTL(0), reg);
 
 	if (!DWC3_VER_IS_PRIOR(DWC31, 120A)) {
-		reg = dwc3_exynos_readl(dwc->regs, DWC3_LLUCTL);
+		reg = dwc3_exynos_readl(dwc->regs, DWC3_LLUCTL(0));
 		reg &= ~(DWC3_LLUCTL_TX_TS1_CNT_MASK);
 		reg |= (DWC3_PENDING_HP_TIMER_US(0xb) | DWC3_EN_US_HP_TIMER) |
 		    (DWC3_LLUCTL_PIPE_RESET) | (DWC3_LLUCTL_LTSSM_TIMER_OVRRD) |
 		    (DWC3_LLUCTL_TX_TS1_CNT(0x7));
 		if (exynos->config.force_gen1)
 			reg |= DWC3_FORCE_GEN1;
-		dwc3_exynos_writel(dwc->regs, DWC3_LLUCTL, reg);
+		dwc3_exynos_writel(dwc->regs, DWC3_LLUCTL(0), reg);
 
 		reg = dwc3_exynos_readl(dwc->regs, DWC3_LSKIPFREQ);
 		reg &= ~(DWC3_PM_LC_TIMER_US_MASK | DWC3_PM_ENTRY_TIMER_US_MASK);

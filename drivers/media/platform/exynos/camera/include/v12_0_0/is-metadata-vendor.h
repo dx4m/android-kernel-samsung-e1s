@@ -1338,6 +1338,12 @@ enum aa_video_dr_mode {
 	AA_VIDEO_DR_MODE_LOG10,
 };
 
+struct aa_aqua_scene_info {
+	int32_t modeEnabled;
+	int32_t redValue;
+	int32_t blueValue;
+};
+
 struct camera2_video_output_size {
 	uint16_t			width;
 	uint16_t			height;
@@ -1426,7 +1432,8 @@ struct camera2_aa_ctl {
 	enum aa_adaptive_pixel_mode	vendor_adaptivePixelMode;
 	enum aa_video_dr_mode		vendor_videoDrMode;
 	uint32_t 			vendor_skinTemperature;
-	uint32_t			vendor_reserved[22];
+	struct aa_aqua_scene_info	vendor_aquaSceneInfo;
+	uint32_t			vendor_reserved[19];
 };
 
 struct aa_apexInfo {

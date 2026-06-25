@@ -48,6 +48,7 @@
 #define SLSI_NAN_MAX_MGMT_LEN 512
 #define SLSI_TK_MAX_LEN 32
 #define SLSI_KEK_MAX_LEN 64
+#define SLSI_ND_PMK_MAX_LEN 32
 
 enum SLSI_NAN_REPLY_ATTRIBUTES {
 	NAN_REPLY_ATTR_STATUS_TYPE,
@@ -88,7 +89,10 @@ enum SLSI_NAN_REPLY_ATTRIBUTES {
 	NAN_REPLY_ATTR_PAIRING_DIALOG_TOKEN,
 	NAN_REPLY_ATTR_PAIRING_BOOTSTRAPPING_METHOD,
 	NAN_REPLY_ATTR_PAIRING_NIRA_LOCAL_NONCE,
-	NAN_REPLY_ATTR_PAIRING_NIRA_LOCAL_TAG
+	NAN_REPLY_ATTR_PAIRING_NIRA_LOCAL_TAG,
+	NAN_REPLY_ATTR_CAP_6G_SUPPORTED,
+	NAN_REPLY_ATTR_CAP_HE_SUPPORTED,
+	NAN_REPLY_ATTR_CAP_PAIRING_SUPPORTED
 };
 
 enum SLSI_NAN_REQ_ATTRIBUTES {
@@ -280,6 +284,12 @@ enum SLSI_NAN_REQ_ATTRIBUTES {
 	NAN_PASN_SET_KEY_NM_KEK,
 	NAN_PASN_SET_KEY_CIPHER,
 	NAN_REQ_ATTR_FOLLOWUP_SHARED_KEY_DESC_FLAG,
+	NAN_REQ_ATTR_GTK_PROTECTION,
+	NAN_REQ_ATTR_ENABLE_UNSYNC_SRVDSC,
+	NAN_REQ_ATTR_SDEA_PARAM_ENABLE_FSD_GAS,
+	NAN_REQ_ATTR_SDEA_PARAM_ENABLE_FSD_REQ,
+	NAN_PASN_SET_KEY_ND_PMK_LEN,
+	NAN_PASN_SET_KEY_ND_PMK,
 	NAN_REQ_ATTR_MAX
 };
 
@@ -676,6 +686,7 @@ struct slsi_nan_sdea_ctrl_params {
 	u8 ranging_state;
 	u8 range_report;
 	u8 qos_cfg;
+	u8 gtk_protection;
 };
 
 struct slsi_nan_ranging_cfg {
@@ -1325,6 +1336,9 @@ struct slsi_hal_nan_capabilities {
 	u32 max_subscribe_address;
 	u32 ndpe_attr_supported;
 	u32 instant_comm_supported;
+	u32 is_6g_supported;
+	u32 is_he_supported;
+	u32 is_pairing_supported;
 };
 
 struct slsi_hal_nan_followup_ind {
@@ -1502,6 +1516,8 @@ struct slsi_nan_pasn_set_key_params {
 	u8 nm_tk[SLSI_TK_MAX_LEN];
 	u8 nm_kek_len;
 	u8 nm_kek[SLSI_KEK_MAX_LEN];
+	u8 nd_pmk_len;
+	u8 nd_pmk[SLSI_ND_PMK_MAX_LEN];
 	u32 cipher;
 };
 

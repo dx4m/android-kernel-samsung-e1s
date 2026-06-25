@@ -187,6 +187,11 @@
 #define mmCP_HQD_HQ_CONTROL0     0x1fca
 #define mmCP_HQD_HQ_CONTROL0_BASE_IDX   0
 
+#define mmGL2C_YUVWRAP_CONTROL			0x2e19
+#define mmGL2C_YUVWRAP_CONTROL_BASE_IDX		1
+#define mmGL2C_YUVWRAP_STATUS			0x2e1a
+#define mmGL2C_YUVWRAP_STATUS_BASE_IDX		1
+
 #define  CP_PFP_HEADER_DUMP_reg_read_count 8
 #define  CP_ME_HEADER_DUMP_reg_read_count 8
 
@@ -10522,6 +10527,32 @@ static void gfx_v10_0_emit_mem_sync(struct amdgpu_ring *ring)
 	amdgpu_ring_write(ring, gcr_cntl); /* GCR_CNTL */
 }
 
+static void gfx_v10_0_emit_yuvwrap_flush(struct amdgpu_ring *ring)
+{
+	struct amdgpu_device *adev = ring->adev;
+
+	/* Clear SW_FLUSH_START */
+	amdgpu_ring_write(ring, PACKET3(PACKET3_WRITE_DATA, 3));
+	amdgpu_ring_write(ring, 0);
+	amdgpu_ring_write(ring, SOC15_REG_OFFSET(GC, 0, mmGL2C_YUVWRAP_CONTROL));
+	amdgpu_ring_write(ring, 0);
+	amdgpu_ring_write(ring, 0x5);
+
+	/* Clear SW_FLUSH_DONE */
+	amdgpu_ring_write(ring, PACKET3(PACKET3_WRITE_DATA, 3));
+	amdgpu_ring_write(ring, 0);
+	amdgpu_ring_write(ring, SOC15_REG_OFFSET(GC, 0, mmGL2C_YUVWRAP_STATUS));
+	amdgpu_ring_write(ring, 0);
+	amdgpu_ring_write(ring, 0x2);
+
+	/* Trigger SW_FLUSH_START */
+	amdgpu_ring_write(ring, PACKET3(PACKET3_WRITE_DATA, 3));
+	amdgpu_ring_write(ring, 0);
+	amdgpu_ring_write(ring, SOC15_REG_OFFSET(GC, 0, mmGL2C_YUVWRAP_CONTROL));
+	amdgpu_ring_write(ring, 0);
+	amdgpu_ring_write(ring, 0x7);
+}
+
 static const struct amd_ip_funcs gfx_v10_0_ip_funcs = {
 	.name = "gfx_v10_0",
 	.early_init = gfx_v10_0_early_init,
@@ -10603,6 +10634,8 @@ static const struct amdgpu_ring_funcs gfx_v10_0_ring_funcs_gfx = {
 	.soft_recovery = gfx_v10_0_ring_soft_recovery,
 	.emit_mem_sync = gfx_v10_0_emit_mem_sync,
 	.check_ring_done =  gfx_v10_0_check_done,
+	.emit_yuvwrap_flush = gfx_v10_0_emit_yuvwrap_flush,
+	.emit_yuvwrap_flush_size = 15,
 #if defined(CONFIG_DRM_AMDGPU_GFX_DUMP)
 	.get_ring_status = gfx_v10_0_ring_get_ring_status_gfx,
 #endif

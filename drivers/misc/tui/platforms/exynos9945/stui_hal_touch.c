@@ -8,6 +8,7 @@
 
 #include "../../stui_core.h"
 #include "../../stui_hal.h"
+#include "../../stui_log.h"
 #include <linux/input/stui_inf.h>
 
 #if IS_ENABLED(CONFIG_INPUT_SEC_INPUT)
@@ -33,13 +34,13 @@ static int request_touch(void)
 
 	ret = stui_tsp_enter();
 	if (ret) {
-		pr_err(TUIHW_LOG_TAG " stui_tsp_enter failed:%d\n", ret);
+		log_error(" stui_tsp_enter failed:%d\n", ret);
 		return ret;
 	}
 
 	touch_requested = 1;
 #endif
-	pr_debug(TUIHW_LOG_TAG " Touch requested\n");
+	log_debug(" Touch requested\n");
 
 	return ret;
 }
@@ -54,13 +55,13 @@ static int release_touch(void)
 #if IS_ENABLED(CONFIG_INPUT_SEC_INPUT)
 	ret = stui_tsp_exit();
 	if (ret) {
-		pr_err(TUIHW_LOG_TAG " stui_tsp_exit failed : %d\n", ret);
+		log_error(" stui_tsp_exit failed : %d\n", ret);
 		return ret;
 	}
 
 	touch_requested = 0;
 #endif
-	pr_debug(TUIHW_LOG_TAG " Touch release\n");
+	log_debug(" Touch release\n");
 
 	return ret;
 }
@@ -69,8 +70,7 @@ int stui_i2c_protect(bool is_protect)
 {
 	int ret;
 
-	pr_info(TUIHW_LOG_TAG " %s(%s) called\n",
-			__func__, is_protect ? "true" : "false");
+	log_info("is_protect=%s called\n", is_protect ? "true" : "false");
 
 	if (is_protect)
 		ret = request_touch();

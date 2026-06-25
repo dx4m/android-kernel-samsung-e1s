@@ -1100,7 +1100,11 @@ int exynos_usb_audio_init(struct device *dev, struct platform_device *pdev)
 	register_trace_android_vh_audio_usb_offload_connect(exynos_usb_audio_connect, NULL);
 	register_trace_android_rvh_audio_usb_offload_disconnect(exynos_usb_audio_disconnect, NULL);
 
-	usb_audio_wq = alloc_ordered_workqueue("usb_audio_wq", __WQ_LEGACY | WQ_MEM_RECLAIM | WQ_FREEZABLE | WQ_HIGHPRI);
+	if (!usb_audio_wq) {
+		usb_audio_wq = alloc_ordered_workqueue("usb_audio_wq",
+		__WQ_LEGACY | WQ_MEM_RECLAIM | WQ_FREEZABLE | WQ_HIGHPRI);
+		pr_info("Alloc usb_audio_wq !!\n");
+	}
 	INIT_WORK(&audio_work_data.probe_work, usb_probe_work);
 	INIT_WORK(&audio_work_data.discon_work, usb_disconn_work);
 

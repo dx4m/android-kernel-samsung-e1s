@@ -1498,6 +1498,12 @@ static void test_slsi_rx_connect_ind(struct kunit *test)
 									   sizeof(struct slsi_roaming_network_map_entry),
 									   GFP_KERNEL);
 
+	ndev_vif->wlan_wl_sae.ws = kunit_kzalloc(test, sizeof(struct wakeup_source), GFP_KERNEL);
+	wakeup_source_add(ndev_vif->wlan_wl_sae.ws);
+	slsi_wake_lock_init(NULL, &ndev_vif->wlan_wl_sae, "wlan_sae");
+	ndev_vif->wlan_wl_sae.ws->active = true;
+
+	skb_queue_head_init(&ndev_vif->sta.scan_inds);
 	skb = fapi_alloc(mlme_connect_ind, MLME_CONNECT_IND, 0, 1);
 	slsi_rx_connect_ind(sdev, dev, skb);
 

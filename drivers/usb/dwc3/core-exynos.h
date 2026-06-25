@@ -19,23 +19,6 @@
 #ifndef __DRIVERS_USB_DWC3_CORE_EXYNOS_H
 #define __DRIVERS_USB_DWC3_CORE_EXYNOS_H
 
-#define DWC3_GDBGLSPMUX_HST	0xc170
-
-/* LINK Registers */
-#define DWC3_LSKIPFREQ		0xd020
-#define DWC3_LLUCTL		0xd024
-
-/* Bit fields */
-/* Link Register - LLUCTL */
-#define DWC3_PENDING_HP_TIMER_US(n)	((n) << 16)
-#define DWC3_EN_US_HP_TIMER		BIT(15)
-#define DWC3_FORCE_GEN1		BIT(10)
-
-/* Link Register - LSKIPFREQ */
-#define DWC3_PM_ENTRY_TIMER_US(n)	((n) << 20)
-#define DWC3_PM_LC_TIMER_US(n)		((n) << 24)
-#define DWC3_EN_PM_TIMER_US		BIT(27)
-
 /* Global Debug Queue/FIFO Space Available Register */
 #define DWC3_GSBUSCFG1_INCR_MASK	(0xFF)
 #define DWC3_GSBUSCFG0_INCRBRSTEN	(1 << 0)

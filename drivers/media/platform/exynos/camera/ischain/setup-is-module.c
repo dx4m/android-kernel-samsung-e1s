@@ -138,7 +138,6 @@ static int is_module_regulator_ctrl(struct is_module_regulator *imr,
 			&& retention_pin) {
 			mwarn("[%s] regulator(%s) is retention IO pin\n",
 				module, module->sensor_name, name);
-			imr->regulator = NULL;
 			goto regulator_err;
 		}
 

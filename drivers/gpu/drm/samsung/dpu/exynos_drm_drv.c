@@ -1735,13 +1735,12 @@ static void exynos_atomic_commit_tail(struct drm_atomic_state *old_state)
 
 	exynos_atomic_update_conn_bts(old_state);
 
-	exynos_atomic_bts_pre_update(dev, old_state);
-
 	exynos_atomic_commit_modeset_enables(dev, old_state);
 
 	/* request to change DPHY PLL frequency */
 	exynos_atomic_set_freq_hop(old_state, true);
 
+	exynos_atomic_bts_pre_update(dev, old_state);
 	DPU_ATRACE_END("modeset");
 
 	DPU_ATRACE_BEGIN("commit_planes");

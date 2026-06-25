@@ -2249,6 +2249,11 @@ _conditional_srcs = {
             "cmn/qdf/linux/src/qdf_page_pool.c",
         ],
     },
+    "CONFIG_DRIVER_PASSTHRU_MODE": {
+        True: [
+            "core/hdd/src/wlan_hdd_wondertap.c",
+        ],
+    },
 }
 
 def _define_module_for_target_variant_chipset(target, variant, chipset):
@@ -2395,6 +2400,11 @@ def _define_module_for_target_variant_chipset(target, variant, chipset):
         deps = deps + [
             "//vendor/qcom/opensource/dataipa:include_headers",
             "//vendor/qcom/opensource/dataipa:{}_{}_ipam".format(target, variant),
+        ]
+
+    if target == "sun" or target == "pineapple":
+        deps += [
+            "//vendor/qcom/opensource/wlan/wonder:wonder_headers",
         ]
 
     print("name=", name)

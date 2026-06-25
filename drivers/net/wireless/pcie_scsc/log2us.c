@@ -550,9 +550,56 @@ void slsi_conn_log2us_connecting_fail(struct slsi_dev *sdev, struct net_device *
 	queue_work(sdev->conn_log2us_ctx.log2us_workq, &sdev->conn_log2us_ctx.log2us_work);
 }
 
+static int slsi_log2us_fill_disconnect_reason(char *log_buffer, int buf_size, int pos, u32 reason)
+{
+	u32 reason_code = (reason & 0xFFFF0000) >> 16;
+	char *res = NULL;
+
+	if (reason & SLSI_DISCONNECT_BY_BEACON_LOSS)
+		pos += scnprintf(log_buffer + pos, buf_size - pos, "0");
+	else if (reason & SLSI_DISCONNECT_BY_FRWK)
+		pos += scnprintf(log_buffer + pos, buf_size - pos, "1");
+	else if (reason & (SLSI_DISCONNECT_BY_DRIVER | SLSI_DISCONNECT_BY_FW))
+		pos += scnprintf(log_buffer + pos, buf_size - pos, "2");
+	else if (reason & SLSI_DISCONNECT_BY_AP)
+		pos += scnprintf(log_buffer + pos, buf_size - pos, "3 [AP reason code 0x%x]", reason_code);
+	else
+		pos += scnprintf(log_buffer + pos, buf_size - pos, "99");
+
+	if (reason_code == 0 || (reason & SLSI_DISCONNECT_BY_AP))
+		return pos;
+
+	switch (reason_code) {
+	case SLSI_DRIVER_DISCONNECT_NETSTOP:
+		res = "net stop";
+		break;
+	case SLSI_DRIVER_DISCONNECT_BAND_UPDATE:
+		res = "band update";
+		break;
+	case SLSI_DRIVER_ROAMING_FAILURE:
+		res = "roaming failure";
+		break;
+	case SLSI_DRIVER_CONNECTION_FAILURE:
+		res = "connection failure";
+		break;
+	case FAPI_REASONCODE_SECURITY_REQUIRED:
+		res = "security required";
+		break;
+	case FAPI_REASONCODE_ROAMING_FAILURE_LINK_LOSS_NO_CANDIDATE:
+		res = "roaming failure no candidate";
+		break;
+	case FAPI_REASONCODE_CHANNEL_SWITCH_FAILURE:
+		res = "channel switch failure";
+		break;
+	}
+	pos += scnprintf(log_buffer + pos, buf_size - pos, " [%s]", res);
+
+	return pos;
+}
+
 void slsi_conn_log2us_disconnect(struct slsi_dev *sdev, struct net_device *dev,
 				 const unsigned char *bssid,
-				 int reason)
+				 u32 reason)
 {
 
 	int pos = 0;
@@ -580,7 +627,8 @@ void slsi_conn_log2us_disconnect(struct slsi_dev *sdev, struct net_device *dev,
 
 	pos += scnprintf(log_buffer + pos, buf_size - pos, "[%d.%d][CONN] DISCONN bssid="
 			 MACSTR_NOMASK " rssi=%d "
-			 "reason=%d", time[0], time[1], MAC2STR_LOG(bssid), rssi, reason);
+			 "reason=", time[0], time[1], MAC2STR_LOG(bssid), rssi);
+	pos = slsi_log2us_fill_disconnect_reason(log_buffer, buf_size, pos, reason);
 	new_node->len = pos + 1;
 	enqueue_log_buffer(new_node, &sdev->conn_log2us_ctx);
 	queue_work(sdev->conn_log2us_ctx.log2us_workq, &sdev->conn_log2us_ctx.log2us_work);
@@ -636,7 +684,7 @@ void slsi_conn_log2us_eapol_gtk_tx(struct slsi_dev *sdev, u32 status_code, u8 ml
 	else if (status_code == FAPI_TRANSMISSIONSTATUS_RETRY_LIMIT)
 		tx_status_str = "NO_ACK";
 	else
-		tx_status_str = "TX_FAIL";
+		tx_status_str = "TX_FAIL [could not transmit frame]";
 
 	pos += scnprintf(log_buffer + pos, buf_size - pos, "[%d.%d][EAPOL] GTK M2 ",
 			 time[0], time[1]);
@@ -697,7 +745,7 @@ void slsi_conn_log2us_eapol_ptk_tx(struct slsi_dev *sdev, u32 status_code, u8 ml
 	else if (status_code == FAPI_TRANSMISSIONSTATUS_RETRY_LIMIT)
 		tx_status_str = "NO_ACK";
 	else
-		tx_status_str = "TX_FAIL";
+		tx_status_str = "TX_FAIL [could not transmit frame]";
 
 	pos += scnprintf(log_buffer + pos, buf_size - pos, "[%d.%d][EAPOL] 4WAY M%d ",
 			 time[0], time[1], sdev->conn_log2us_ctx.eapol_ptk_msg_type);
@@ -767,7 +815,7 @@ void slsi_conn_log2us_roam_result(struct slsi_dev *sdev, struct net_device *dev,
 	int buf_size = BUFF_SIZE;
 	u32 time[2] = { 0 };
 	struct buff_list *new_node = NULL;
-	char *res = NULL;
+	char *res = NULL, *vendor_res = NULL;
 	struct netdev_vif   *ndev_vif = netdev_priv(dev);
 
 	if (ndev_vif->iftype != NL80211_IFTYPE_STATION)
@@ -789,8 +837,18 @@ void slsi_conn_log2us_roam_result(struct slsi_dev *sdev, struct net_device *dev,
 	if (roam_candidate && bssid)
 		pos += scnprintf(log_buffer + pos, buf_size - pos, " bssid=" MACSTR_NOMASK,
 				 MAC2STR_LOG(bssid));
-	pos += scnprintf(log_buffer + pos, buf_size - pos, " [fw_time=%llu status=%d]",
+	if (!roam_candidate) {
+		if (sdev->conn_log2us_ctx.roam_ap_count)
+			vendor_res = "no eligible candidate found";
+		else
+			vendor_res = "no candidate found";
+	}
+	pos += scnprintf(log_buffer + pos, buf_size - pos, " [fw_time=%llu status=%d",
 			 timestamp, !roam_candidate);
+	if (vendor_res)
+		pos += scnprintf(log_buffer + pos, buf_size - pos, " %s]", vendor_res);
+	else
+		pos += scnprintf(log_buffer + pos, buf_size - pos, "]");
 	new_node->len = pos + 1;
 	enqueue_log_buffer(new_node, &sdev->conn_log2us_ctx);
 	queue_work(sdev->conn_log2us_ctx.log2us_workq, &sdev->conn_log2us_ctx.log2us_work);
@@ -829,7 +887,7 @@ void slsi_conn_log2us_eap_with_len(struct slsi_dev *sdev, struct net_device *dev
 	pos += scnprintf(log_buffer + pos, buf_size - pos, "[%d.%d][EAP] %s ",
 			 time[0], time[1], eap_type);
 	pos = slsi_log2us_fill_mlo_band_info(log_buffer, buf_size, pos, mlo_band);
-	pos += scnprintf(log_buffer + pos, buf_size - pos, "rx type=%s len=%d",
+	pos += scnprintf(log_buffer + pos, buf_size - pos, "type=%s len=%d rx",
 			 str_type, eap_length);
 	new_node->len = pos + 1;
 	enqueue_log_buffer(new_node, &sdev->conn_log2us_ctx);
@@ -982,7 +1040,7 @@ void slsi_log2us_handle_frame_tx_status(struct slsi_dev *sdev, struct net_device
 	else if (tx_status == FAPI_TRANSMISSIONSTATUS_RETRY_LIMIT)
 		tx_status_str = "NO_ACK";
 	else
-		tx_status_str = "TX_FAIL";
+		tx_status_str = "TX_FAIL [could not transmit frame]";
 
 	if (!host_tag) {
 		SLSI_ERR_NODEV("host_tag 0\n");
@@ -1044,8 +1102,12 @@ void slsi_conn_log2us_auth_req(struct slsi_dev *sdev, struct net_device *dev, co
 
 	pos += scnprintf(log_buffer + pos, buf_size - pos, "[%d.%d][CONN] AUTH REQ bssid=" MACSTR_NOMASK,
 			 time[0], time[1], MAC2STR_LOG(bssid));
-	pos += scnprintf(log_buffer + pos, buf_size - pos, " rssi=%d auth_algo=%d type=%d sn=%d status=%d",
-			 rssi, auth_algo, sae_type, sn, status);
+	if (sae_type)
+		pos += scnprintf(log_buffer + pos, buf_size - pos, " rssi=%d auth_algo=%d type=%d sn=%d status=%d",
+				 rssi, auth_algo, sae_type, sn, status);
+	else
+		pos += scnprintf(log_buffer + pos, buf_size - pos, " rssi=%d auth_algo=%d sn=%d status=%d",
+				 rssi, auth_algo, sn, status);
 	if (is_roaming)
 		pos += scnprintf(log_buffer + pos, buf_size - pos, " tx_status=%s [ROAM]", tx_status_str);
 	else
@@ -1067,6 +1129,7 @@ void slsi_conn_log2us_auth_resp(struct slsi_dev *sdev, struct net_device *dev,
 	u32 time[2] = { 0 };
 	struct buff_list *new_node = NULL;
 	struct netdev_vif   *ndev_vif = netdev_priv(dev);
+	char *roam_status = is_roaming ? "[ROAM]" : "";
 
 	if (ndev_vif->iftype != NL80211_IFTYPE_STATION)
 		return;
@@ -1079,16 +1142,17 @@ void slsi_conn_log2us_auth_resp(struct slsi_dev *sdev, struct net_device *dev,
 	get_kernel_timestamp(time);
 	pos += scnprintf(log_buffer + pos, buf_size - pos, "[%d.%d][CONN] AUTH RESP",
 			 time[0], time[1]);
-	if (is_roaming)
+	if (sae_type)
 		pos += scnprintf(log_buffer + pos, buf_size - pos, " bssid="
 				 MACSTR_NOMASK " auth_algo=%d "
-				 "type=%d sn=%d status=%d [ROAM]", MAC2STR_LOG(bssid),
-				 auth_algo, sae_type, sn, status);
+				 "type=%d sn=%d status=%d %s", MAC2STR_LOG(bssid),
+				 auth_algo, sae_type, sn, status, roam_status);
 	else
 		pos += scnprintf(log_buffer + pos, buf_size - pos, " bssid="
 				 MACSTR_NOMASK " auth_algo=%d "
-				 "type=%d sn=%d status=%d", MAC2STR_LOG(bssid),
-				 auth_algo, sae_type, sn, status);
+				 "sn=%d status=%d %s", MAC2STR_LOG(bssid),
+				 auth_algo, sn, status, roam_status);
+
 	new_node->len = pos + 1;
 	enqueue_log_buffer(new_node, &sdev->conn_log2us_ctx);
 	queue_work(sdev->conn_log2us_ctx.log2us_workq, &sdev->conn_log2us_ctx.log2us_work);
@@ -1116,7 +1180,7 @@ void slsi_conn_log2us_assoc_req(struct slsi_dev *sdev, struct net_device *dev,
 
 	get_kernel_timestamp(time);
 	if (tx_status == FAPI_RESULTCODE_ASSOC_TX_FAIL)
-		tx_status_str = "TX_FAIL";
+		tx_status_str = "TX_FAIL [could not transmit frame]";
 	else if (tx_status == FAPI_RESULTCODE_ASSOC_NO_ACK)
 		tx_status_str = "NO_ACK";
 	else
@@ -1323,7 +1387,7 @@ void slsi_conn_log2us_roam_scan_done(struct slsi_dev *sdev, struct net_device *d
 void slsi_conn_log2us_roam_scan_result(struct slsi_dev *sdev, struct net_device *dev,
 				       bool candidate, char *bssid, int freq,
 				       int rssi, short cu,
-				       int score, int tp_score, bool eligible, bool mld_ap)
+				       int score, int tp_score, u16 eligible, bool mld_ap)
 {
 	int pos = 0;
 	char *log_buffer = NULL;
@@ -1335,7 +1399,6 @@ void slsi_conn_log2us_roam_scan_result(struct slsi_dev *sdev, struct net_device 
 	if (ndev_vif->iftype != NL80211_IFTYPE_STATION)
 		return;
 
-	sdev->conn_log2us_ctx.roam_ap_count++;
 	new_node = slsi_conn_log2us_alloc_new_node();
 	if (!new_node)
 		return;
@@ -1343,16 +1406,17 @@ void slsi_conn_log2us_roam_scan_result(struct slsi_dev *sdev, struct net_device 
 
 	get_kernel_timestamp(time);
 	if (candidate) {
-		pos += scnprintf(log_buffer + pos, buf_size - pos, "[%d.%d][ROAM] SCORE_CANDI[%d] %s bssid="
-				 MACSTR_NOMASK " freq=%d rssi=%d cu=%d score=%d.%02d tp=%dkbps [eligible=%s]",
-				 time[0], time[1], sdev->conn_log2us_ctx.cand_number, mld_ap ? "MLD" : "",
+		sdev->conn_log2us_ctx.roam_ap_count++;
+		pos += scnprintf(log_buffer + pos, buf_size - pos, "[%d.%d][ROAM] SCORE_CANDI[%d]%s bssid="
+				 MACSTR_NOMASK " freq=%d rssi=%d cu=%d score=%d.%02d tp=%dkbps [eligible=%s reason=0x%x]",
+				 time[0], time[1], sdev->conn_log2us_ctx.cand_number, mld_ap ? " MLD" : "",
 				 MAC2STR_LOG(bssid), freq / 2, rssi, cu, score / 100, score % 100,
-				 tp_score, eligible ? "true" : "false");
+				 tp_score, (eligible == 1) ? "true" : "false", eligible);
 		sdev->conn_log2us_ctx.cand_number++;
 	} else {
-		pos += scnprintf(log_buffer + pos, buf_size - pos, "[%d.%d][ROAM] SCORE_CUR_AP %s bssid="
+		pos += scnprintf(log_buffer + pos, buf_size - pos, "[%d.%d][ROAM] SCORE_CUR_AP%s bssid="
 				 MACSTR_NOMASK " freq=%d rssi=%d cu=%d score=%d.%02d", time[0],
-				 time[1], mld_ap ? "MLD" : "", MAC2STR_LOG(bssid), freq / 2, rssi, cu, score / 100,
+				 time[1], mld_ap ? " MLD" : "", MAC2STR_LOG(bssid), freq / 2, rssi, cu, score / 100,
 				 score % 100);
 	}
 	new_node->len = pos + 1;
@@ -1533,7 +1597,7 @@ void slsi_conn_log2us_btm_wtc_sent(struct slsi_dev *sdev, struct net_device *dev
 }
 
 void slsi_conn_log2us_nr_frame_req(struct slsi_dev *sdev, struct net_device *dev,
-				   int dialog_token, char *ssid, u8 mlo_band)
+				   int dialog_token, char *ssid, u8 mlo_band, u8 status)
 {
 	int pos = 0;
 	char *log_buffer = NULL;
@@ -1541,6 +1605,7 @@ void slsi_conn_log2us_nr_frame_req(struct slsi_dev *sdev, struct net_device *dev
 	u32 time[2] = { 0 };
 	struct buff_list *new_node = NULL;
 	struct netdev_vif   *ndev_vif = netdev_priv(dev);
+	char *tx_status_str = NULL;
 
 	if (ndev_vif->iftype != NL80211_IFTYPE_STATION)
 		return;
@@ -1550,16 +1615,24 @@ void slsi_conn_log2us_nr_frame_req(struct slsi_dev *sdev, struct net_device *dev
 		return;
 	log_buffer = new_node->str;
 
+	if (status == 0)
+		tx_status_str = "ACK";
+	else if (status == 1)
+		tx_status_str = "NO_ACK";
+	else
+		tx_status_str = "TX_FAIL [could not transmit frame]";
+
 	get_kernel_timestamp(time);
-	pos += scnprintf(log_buffer + pos, buf_size - pos, "[%d.%d][NBR_RPT] REQ ",
+	pos += scnprintf(log_buffer + pos, buf_size - pos, "[%d.%d][NBR_RPT] REQ TX ",
 				 time[0], time[1]);
 	pos = slsi_log2us_fill_mlo_band_info(log_buffer, buf_size, pos, mlo_band);
 	if(ssid)
-		pos += scnprintf(log_buffer + pos, buf_size - pos, " token=%d ssid=\"%s\"",
+		pos += scnprintf(log_buffer + pos, buf_size - pos, "token=%d ssid=\"%s\"",
 				 dialog_token, ssid);
 	else
-		pos += scnprintf(log_buffer + pos, buf_size - pos, " token=%d ssid=\"\"",
+		pos += scnprintf(log_buffer + pos, buf_size - pos, "token=%d ssid=\"\"",
 				 dialog_token);
+	pos += scnprintf(log_buffer + pos, buf_size - pos, " tx_status=%s", tx_status_str);
 
 	new_node->len = pos + 1;
 	enqueue_log_buffer(new_node, &sdev->conn_log2us_ctx);
@@ -1587,13 +1660,17 @@ void slsi_conn_log2us_nr_frame_resp(struct slsi_dev *sdev, struct net_device *de
 	log_buffer = new_node->str;
 
 	get_kernel_timestamp(time);
-	pos += scnprintf(log_buffer + pos, buf_size - pos, "[%d.%d][NBR_RPT] RESP ",
+	pos += scnprintf(log_buffer + pos, buf_size - pos, "[%d.%d][NBR_RPT] RESP RX ",
 			 time[0], time[1]);
 	pos = slsi_log2us_fill_mlo_band_info(log_buffer, buf_size, pos, mlo_band);
-	pos += scnprintf(log_buffer + pos, buf_size - pos, " token=%d freq[%d]=",
-			 dialog_token, freq_count);
-	for (i = 0; i < freq_count; i++)
-		pos += scnprintf(log_buffer + pos, buf_size - pos, "%d ", *(freq_list + i));
+	pos += scnprintf(log_buffer + pos, buf_size - pos, "token=%d ",
+			 dialog_token);
+	if (freq_count) {
+		pos += scnprintf(log_buffer + pos, buf_size - pos, "freq[%d]=",
+				 freq_count);
+		for (i = 0; i < freq_count; i++)
+			pos += scnprintf(log_buffer + pos, buf_size - pos, "%d ", *(freq_list + i));
+	}
 	pos += scnprintf(log_buffer + pos, buf_size - pos, "report_number=%d ", report_number);
 
 	new_node->len = pos + 1;
@@ -1602,7 +1679,7 @@ void slsi_conn_log2us_nr_frame_resp(struct slsi_dev *sdev, struct net_device *de
 }
 
 void slsi_conn_log2us_beacon_report_request(struct slsi_dev *sdev, struct net_device *dev,
-					    int dialog_token, int operating_class, char *string,
+					    int dialog_token, int operating_class, u16 channel,
 					    int measure_duration, char *measure_mode, u8 request_mode, u8 mlo_band)
 {
 	int pos = 0;
@@ -1621,12 +1698,12 @@ void slsi_conn_log2us_beacon_report_request(struct slsi_dev *sdev, struct net_de
 	log_buffer = new_node->str;
 
 	get_kernel_timestamp(time);
-	pos += scnprintf(log_buffer + pos, buf_size - pos, "[%d.%d][BCN_RPT] REQ ",
+	pos += scnprintf(log_buffer + pos, buf_size - pos, "[%d.%d][BCN_RPT] REQ RX ",
 			 time[0], time[1]);
 	pos = slsi_log2us_fill_mlo_band_info(log_buffer, buf_size, pos, mlo_band);
 	pos += scnprintf(log_buffer + pos, buf_size - pos, "token=%d mode=%s "
-			 "operating_class=%d channel=%s duration=%d request_mode=0x%x",
-			 dialog_token, measure_mode, operating_class, string,
+			 "operating_class=%d channel=%d duration=%d request_mode=0x%x",
+			 dialog_token, measure_mode, operating_class, channel,
 			 measure_duration, request_mode);
 
 	new_node->len = pos + 1;
@@ -1634,8 +1711,15 @@ void slsi_conn_log2us_beacon_report_request(struct slsi_dev *sdev, struct net_de
 	queue_work(sdev->conn_log2us_ctx.log2us_workq, &sdev->conn_log2us_ctx.log2us_work);
 }
 
+#define SLSI_BCN_RPT_TX_FRAME 0x7
+#define SLSI_BCN_RPT_TX_STATUS 0x300
+#define SLSI_BCN_RPT_MODE_SUCCESS 0x0
+#define SLSI_BCN_RPT_MODE_LATENESS 0x1
+#define SLSI_BCN_RPT_MODE_INCAPABILITY 0x2
+#define SLSI_BCN_RPT_MODE_REFUSAL 0x4
+
 void slsi_conn_log2us_beacon_report_response(struct slsi_dev *sdev, struct net_device *dev,
-					     int dialog_token, int report_number, u8 mlo_band)
+					     int dialog_token, int report_number, u8 mlo_band, u32 reason_code)
 {
 	int pos = 0;
 	char *log_buffer = NULL;
@@ -1643,6 +1727,8 @@ void slsi_conn_log2us_beacon_report_response(struct slsi_dev *sdev, struct net_d
 	u32 time[2] = { 0 };
 	struct buff_list *new_node = NULL;
 	struct netdev_vif   *ndev_vif = netdev_priv(dev);
+	char *tx_status_str = NULL;
+	u32 report_mode, ack_status;
 
 	if (ndev_vif->iftype != NL80211_IFTYPE_STATION)
 		return;
@@ -1652,11 +1738,30 @@ void slsi_conn_log2us_beacon_report_response(struct slsi_dev *sdev, struct net_d
 		return;
 	log_buffer = new_node->str;
 
+	ack_status = (reason_code & SLSI_BCN_RPT_TX_STATUS) >> 8;
+	if (ack_status == 0) {
+		tx_status_str = "ACK";
+	} else if (ack_status == 1) {
+		tx_status_str = "NO_ACK";
+	} else if (ack_status == 2) {
+		report_mode = reason_code & SLSI_BCN_RPT_TX_FRAME;
+		if (report_mode == SLSI_BCN_RPT_MODE_SUCCESS)
+			tx_status_str = "TX_FAIL [could not transmit frame indicating success]";
+		if (report_mode == SLSI_BCN_RPT_MODE_LATENESS)
+			tx_status_str = "TX_FAIL [could not transmit frame indicating lateness]";
+		if (report_mode == SLSI_BCN_RPT_MODE_INCAPABILITY)
+			tx_status_str = "TX_FAIL [could not transmit frame indicating incapability]";
+		if (report_mode == SLSI_BCN_RPT_MODE_REFUSAL)
+			tx_status_str = "TX_FAIL [could not transmit frame indicating refusal]";
+	} else {
+		tx_status_str = "[could not transmit frame]";
+	}
 	get_kernel_timestamp(time);
-	pos += scnprintf(log_buffer + pos, buf_size - pos, "[%d.%d][BCN_RPT] RESP ", time[0], time[1]);
+	pos += scnprintf(log_buffer + pos, buf_size - pos, "[%d.%d][BCN_RPT] RESP TX ", time[0], time[1]);
 	pos = slsi_log2us_fill_mlo_band_info(log_buffer, buf_size, pos, mlo_band);
 	pos += scnprintf(log_buffer + pos, buf_size - pos, "token=%d"
 				 " report_number=%d", dialog_token, report_number);
+	pos += scnprintf(log_buffer + pos, buf_size - pos, " tx_status=%s", tx_status_str);
 
 	new_node->len = pos + 1;
 	enqueue_log_buffer(new_node, &sdev->conn_log2us_ctx);
@@ -2047,7 +2152,7 @@ void slsi_conn_log2us_connecting_fail(struct slsi_dev *sdev, struct net_device *
 }
 
 void slsi_conn_log2us_disconnect(struct slsi_dev *sdev, struct net_device *dev,
-				 const unsigned char *bssid, int reason)
+				 const unsigned char *bssid, u32 reason)
 {
 }
 
@@ -2135,7 +2240,7 @@ void slsi_conn_log2us_roam_scan_done(struct slsi_dev *sdev, struct net_device *d
 void slsi_conn_log2us_roam_scan_result(struct slsi_dev *sdev, struct net_device *dev,
 				       bool candidate, char *bssid, int freq,
 				       int rssi, short cu,
-				       int score, int tp_score, bool eligible, bool mld_ap)
+				       int score, int tp_score, u16 eligible, bool mld_ap)
 {
 }
 
@@ -2203,7 +2308,7 @@ void slsi_conn_log2us_roam_scan_save(struct slsi_dev *sdev, struct net_device *d
 }
 
 void slsi_conn_log2us_nr_frame_req(struct slsi_dev *sdev, struct net_device *dev, int dialog_token,
-				   char *ssid, u8 mlo_band)
+				   char *ssid, u8 mlo_band, u8 status)
 {
 }
 
@@ -2213,13 +2318,13 @@ void slsi_conn_log2us_nr_frame_resp(struct slsi_dev *sdev, struct net_device *de
 }
 
 void slsi_conn_log2us_beacon_report_request(struct slsi_dev *sdev, struct net_device *dev,
-					    int dialog_token, int operating_class, char *string,
+					    int dialog_token, int operating_class, u16 channel,
 					    int measure_duration, char *measure_mode, u8 request_mode, u8 mlo_band)
 {
 }
 
 void slsi_conn_log2us_beacon_report_response(struct slsi_dev *sdev, struct net_device *dev, int dialog_token,
-					     int report_number, u8 mlo_band)
+					     int report_number, u8 mlo_band, u32 reason_code)
 {
 }
 

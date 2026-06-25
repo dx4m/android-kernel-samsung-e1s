@@ -222,6 +222,8 @@ struct amdgpu_ring_funcs {
 					uint32_t ref, uint32_t mask);
 	void (*emit_frame_cntl)(struct amdgpu_ring *ring, bool start,
 				bool secure);
+	void (*emit_yuvwrap_flush)(struct amdgpu_ring *ring);
+	unsigned emit_yuvwrap_flush_size;
 	/* Try to soft recover the ring to make the fence signal */
 	void (*soft_recovery)(struct amdgpu_ring *ring, unsigned vmid);
 	int (*preempt_ib)(struct amdgpu_ring *ring);

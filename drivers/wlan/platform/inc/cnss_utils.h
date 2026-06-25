@@ -14,8 +14,7 @@
  * supported in cnss_utils
  */
 
-//Temporally disable UNSAFE_CHAN_API until exynos code base is ready
-//#define CNSS_UTILS_VENDOR_UNSAFE_CHAN_API_SUPPORT
+#define CNSS_UTILS_VENDOR_UNSAFE_CHAN_API_SUPPORT
 #endif
 
 #ifdef CNSS_UTILS_VENDOR_UNSAFE_CHAN_API_SUPPORT

@@ -10,7 +10,6 @@
  * published by the Free Software Foundation.
  */
 
-#include <uapi/linux/sched/types.h>
 #include <exynos_drm_decon.h>
 #include <exynos_drm_dp.h>
 #include <exynos_drm_bts.h>
@@ -1498,70 +1497,17 @@ void dpu_bts_calc_bw(struct exynos_drm_crtc *exynos_crtc)
 	DPU_ATRACE_END(__func__);
 }
 
-void dpu_bts_work_handler(struct kthread_work *work)
-{
-	struct dpu_bts *bts = container_of(work, struct dpu_bts, bts_work);
-	struct decon_device *decon =
-		container_of(bts, struct decon_device, bts);
-	struct exynos_drm_crtc *exynos_crtc = decon->crtc;
-	struct drm_crtc_state *new_crtc_state = exynos_crtc->base.state;
-	struct exynos_drm_crtc_state *new_exynos_crtc_state =
-		to_exynos_crtc_state(new_crtc_state);
-	u64 system_disp;
-
-	DPU_ATRACE_BEGIN(__func__);
-	mutex_lock(&bts->bts_lock);
-
-	DPU_EVENT_LOG("[C0] BTS_UPDATE_BW", exynos_crtc, 0, UPDATE_BW_FMT,
-		      UPDATE_BW_ARG_BTS(&decon->bts));
-	if (bts->total_bw > bts->prev_total_bw ||
-	    __check_boost_layer_bit(decon, false))
-		bts_update_bw(bts->bw_idx, bts->bw_applied);
-
-	DPU_EVENT_LOG("[C1] BTS_UPDATE_BW", exynos_crtc, 0, UPDATE_BW_FMT,
-		      UPDATE_BW_ARG_BTS(&decon->bts));
-
-	if (new_exynos_crtc_state->wb_type == EXYNOS_WB_CWB) {
-		if (exynos_pm_qos_request_active(&bts->int_qos))
-			exynos_pm_qos_update_request(&bts->int_qos, 663 * 1000);
-		if (exynos_pm_qos_request_active(&bts->mif_qos))
-			exynos_pm_qos_update_request(&bts->mif_qos, 845 * 1000);
-	}
-
-	DPU_EVENT_LOG("[C2] BTS_UPDATE_BW", exynos_crtc, 0, UPDATE_BW_FMT,
-		      UPDATE_BW_ARG_QOS(&decon->bts));
-	system_disp = exynos_devfreq_get_domain_freq(bts->df_disp_idx);
-	if (system_disp < bts->max_disp_freq ||
-	    bts->max_disp_freq > bts->prev_max_disp_freq) {
-		if (system_disp < bts->max_disp_freq)
-			DPU_DEBUG_BTS(decon,
-				      "\tWARN: Applied disp clock is lower\n");
-
-		exynos_pm_qos_update_request(&bts->disp_qos,
-					     bts->max_disp_freq);
-		DPU_DEBUG_BTS(decon, "disp_qos_update_request(disp_qos=%d)\n",
-			      bts->max_disp_freq);
-	}
-	mutex_unlock(&bts->bts_lock);
-
-	if (new_exynos_crtc_state->wb_type == EXYNOS_WB_CWB)
-		DPU_DEBUG_BTS(decon, "\tCWB: " FREQ_FMT "\n",
-			      FREQ_ARG(&decon->bts));
-
-	DPU_EVENT_LOG("BTS_UPDATE_BW", exynos_crtc, 0, FREQ_FMT,
-		      FREQ_ARG(&decon->bts));
-	complete(&bts->bts_comp);
-	DPU_ATRACE_END(__func__);
-}
-
 void dpu_bts_update_bw(struct exynos_drm_crtc *exynos_crtc, bool shadow_updated)
 {
 	struct decon_device *decon = exynos_crtc->ctx;
-	struct dpu_bts *bts = &decon->bts;
-	struct bts_bw *bw = &bts->bw_applied;
+	struct bts_bw bw = { 0, };
+	struct drm_crtc_state *new_crtc_state = exynos_crtc->base.state;
+	struct exynos_drm_crtc_state *new_exynos_crtc_state =
+					to_exynos_crtc_state(new_crtc_state);
+	u64 system_disp = 0;
 	u64 dp_pixelclock;
 
-	if (!bts->enabled)
+	if (!decon->bts.enabled)
 		return;
 
 	DPU_ATRACE_BEGIN(__func__);
@@ -1570,54 +1516,83 @@ void dpu_bts_update_bw(struct exynos_drm_crtc *exynos_crtc, bool shadow_updated)
 
 	DPU_DEBUG_BTS(decon, "+\n");
 
-	mutex_lock(&bts->bts_lock);
 	/* update peak & read bandwidth per DPU port */
-	bw->peak = bts->peak;
-	bw->read = bts->read_bw;
-	bw->write = bts->write_bw;
+	bw.peak = decon->bts.peak;
+	bw.read = decon->bts.read_bw;
+	bw.write = decon->bts.write_bw;
 	DPU_DEBUG_BTS(decon, "\t(%s shadow_update) peak = %d, read = %d, write = %d\n",
-		(shadow_updated ? "after" : "before"), bw->peak, bw->read, bw->write);
-	mutex_unlock(&bts->bts_lock);
+		(shadow_updated ? "after" : "before"), bw.peak, bw.read, bw.write);
 
 	if (shadow_updated) {
 		/* after DECON h/w configs are updated to shadow SFR */
 		DPU_EVENT_LOG("[S0] BTS_UPDATE_BW", exynos_crtc, 0,
 				UPDATE_BW_FMT, UPDATE_BW_ARG_BTS(&decon->bts));
-		if (bts->total_bw < bts->prev_total_bw ||
+		if (decon->bts.total_bw < decon->bts.prev_total_bw ||
 			__check_boost_layer_bit(decon, shadow_updated))
-			bts_update_bw(bts->bw_idx, *bw);
+			bts_update_bw(decon->bts.bw_idx, bw);
 
 		DPU_EVENT_LOG("[S1] BTS_UPDATE_BW", exynos_crtc, 0,
 				UPDATE_BW_FMT, UPDATE_BW_ARG_BTS(&decon->bts));
 
 		if ((decon->config.out_type & DECON_OUT_DP) &&
 				IS_DP_ON_STATE() && dp_pixelclock >= 297000000) {
-			bts->prev_max_disp_freq = bts->max_disp_freq;
+			decon->bts.prev_max_disp_freq = decon->bts.max_disp_freq;
 			return;
 		}
 
 		DPU_EVENT_LOG("[S2] BTS_UPDATE_BW", exynos_crtc, 0,
 				UPDATE_BW_FMT, UPDATE_BW_ARG_BTS(&decon->bts));
 
-		if (bts->max_disp_freq < bts->prev_max_disp_freq) {
-			exynos_pm_qos_update_request(&bts->disp_qos,
-					bts->max_disp_freq);
+		if (decon->bts.max_disp_freq < decon->bts.prev_max_disp_freq) {
+			exynos_pm_qos_update_request(&decon->bts.disp_qos,
+					decon->bts.max_disp_freq);
 			DPU_DEBUG_BTS(decon, "disp_qos_update_request(disp_qos=%d)\n",
-						bts->max_disp_freq);
+						decon->bts.max_disp_freq);
 		}
-		bts->prev_total_bw = bts->total_bw;
-		bts->prev_max_disp_freq = bts->max_disp_freq;
-		bts->prev_boost_info = bts->boost_info;
+		decon->bts.prev_total_bw = decon->bts.total_bw;
+		decon->bts.prev_max_disp_freq = decon->bts.max_disp_freq;
+		decon->bts.prev_boost_info = decon->bts.boost_info;
 	} else {
-		reinit_completion(&bts->bts_comp);
-		if (decon->config.out_type & DECON_OUT_DP &&
-				IS_DP_ON_STATE() && dp_pixelclock >= 297000000) {
-			complete(&bts->bts_comp);
-			return;
+		DPU_EVENT_LOG("[C0] BTS_UPDATE_BW", exynos_crtc, 0,
+				UPDATE_BW_FMT, UPDATE_BW_ARG_BTS(&decon->bts));
+		if (decon->bts.total_bw > decon->bts.prev_total_bw ||
+			__check_boost_layer_bit(decon, shadow_updated))
+			bts_update_bw(decon->bts.bw_idx, bw);
+
+		DPU_EVENT_LOG("[C1] BTS_UPDATE_BW", exynos_crtc, 0,
+				UPDATE_BW_FMT, UPDATE_BW_ARG_BTS(&decon->bts));
+
+		if (new_exynos_crtc_state->wb_type == EXYNOS_WB_CWB) {
+			if (exynos_pm_qos_request_active(&decon->bts.int_qos))
+				exynos_pm_qos_update_request(&decon->bts.int_qos, 663 * 1000);
+			if (exynos_pm_qos_request_active(&decon->bts.mif_qos))
+				exynos_pm_qos_update_request(&decon->bts.mif_qos, 845 * 1000);
 		}
 
-		kthread_queue_work(&bts->bts_worker, &bts->bts_work);
+		if (decon->config.out_type & DECON_OUT_DP &&
+				IS_DP_ON_STATE() && dp_pixelclock >= 297000000)
+			return;
+
+		DPU_EVENT_LOG("[C2] BTS_UPDATE_BW", exynos_crtc, 0,
+				UPDATE_BW_FMT, UPDATE_BW_ARG_QOS(&decon->bts));
+		system_disp = exynos_devfreq_get_domain_freq(decon->bts.df_disp_idx);
+		if (system_disp < decon->bts.max_disp_freq ||
+			decon->bts.max_disp_freq > decon->bts.prev_max_disp_freq) {
+
+			if (system_disp < decon->bts.max_disp_freq)
+				DPU_DEBUG_BTS(decon, "\tWARN: Applied disp clock is lower\n");
+
+			exynos_pm_qos_update_request(&decon->bts.disp_qos,
+					decon->bts.max_disp_freq);
+			DPU_DEBUG_BTS(decon, "disp_qos_update_request(disp_qos=%d)\n",
+						decon->bts.max_disp_freq);
+		}
+
+		if (new_exynos_crtc_state->wb_type == EXYNOS_WB_CWB)
+			DPU_DEBUG_BTS(decon, "\tCWB: "FREQ_FMT"\n", FREQ_ARG(&decon->bts));
 	}
+
+	DPU_EVENT_LOG("BTS_UPDATE_BW", exynos_crtc, 0, FREQ_FMT, FREQ_ARG(&decon->bts));
 
 	DPU_DEBUG_BTS(decon, "-\n");
 	DPU_ATRACE_END(__func__);
@@ -1693,8 +1668,6 @@ void dpu_bts_init(struct exynos_drm_crtc *exynos_crtc)
 	char bts_idx_name[MAX_IDX_NAME_SIZE];
 	const struct drm_encoder *encoder;
 	struct decon_device *decon = exynos_crtc->ctx;
-	struct dpu_bts *bts = &decon->bts;
-	struct sched_param param = { .sched_priority = 20 };
 	const char *scen_name[DPU_BS_MAX] = {
 		"default",
 		"mfc_uhd",
@@ -1705,7 +1678,7 @@ void dpu_bts_init(struct exynos_drm_crtc *exynos_crtc)
 
 	DPU_DEBUG_BTS(decon, "+\n");
 
-	bts->enabled = false;
+	decon->bts.enabled = false;
 
 	if ((!IS_ENABLED(CONFIG_EXYNOS_BTS) && !IS_ENABLED(CONFIG_EXYNOS_BTS_MODULE))
 			|| (!IS_ENABLED(CONFIG_EXYNOS_PM_QOS) &&
@@ -1716,7 +1689,7 @@ void dpu_bts_init(struct exynos_drm_crtc *exynos_crtc)
 
 	memset(bts_idx_name, 0, MAX_IDX_NAME_SIZE);
 	snprintf(bts_idx_name, MAX_IDX_NAME_SIZE, "DECON%d", decon->id);
-	bts->bw_idx = bts_get_bwindex(bts_idx_name);
+	decon->bts.bw_idx = bts_get_bwindex(bts_idx_name);
 
 	/*
 	 * Get scenario index from BTS driver
@@ -1724,33 +1697,24 @@ void dpu_bts_init(struct exynos_drm_crtc *exynos_crtc)
 	 */
 	for (i = 1; i < DPU_BS_MAX; i++) {
 		if (scen_name[i] != NULL)
-			bts->scen_idx[i] = bts_get_scenindex(scen_name[i]);
+			decon->bts.scen_idx[i] =
+				bts_get_scenindex(scen_name[i]);
 	}
 
 	for (i = 0; i < MAX_PORT_CNT; i++)
-		bts->ch_bw[decon->id][i] = 0;
+		decon->bts.ch_bw[decon->id][i] = 0;
 
-	DPU_DEBUG_BTS(decon, "BTS_BW_TYPE(%d)\n", bts->bw_idx);
-	exynos_pm_qos_add_request(&bts->mif_qos, PM_QOS_BUS_THROUGHPUT, 0);
-	exynos_pm_qos_add_request(&bts->int_qos, PM_QOS_DEVICE_THROUGHPUT, 0);
-	exynos_pm_qos_add_request(&bts->disp_qos, PM_QOS_DISPLAY_THROUGHPUT, 0);
-
-	kthread_init_worker(&bts->bts_worker);
-	bts->bts_thread = kthread_run(kthread_worker_fn, &bts->bts_worker,
-				      "drm_bts%d", decon->id);
-	if (IS_ERR(bts->bts_thread)) {
-		DPU_ERR_BTS(decon, "failed to run bts thread\n");
-		return;
-	}
-	sched_setscheduler_nocheck(bts->bts_thread, SCHED_FIFO, &param);
-	kthread_init_work(&bts->bts_work, dpu_bts_work_handler);
-
-	init_completion(&decon->bts.bts_comp);
-	mutex_init(&decon->bts.bts_lock);
+	DPU_DEBUG_BTS(decon, "BTS_BW_TYPE(%d)\n", decon->bts.bw_idx);
+	exynos_pm_qos_add_request(&decon->bts.mif_qos,
+					PM_QOS_BUS_THROUGHPUT, 0);
+	exynos_pm_qos_add_request(&decon->bts.int_qos,
+					PM_QOS_DEVICE_THROUGHPUT, 0);
+	exynos_pm_qos_add_request(&decon->bts.disp_qos,
+					PM_QOS_DISPLAY_THROUGHPUT, 0);
 
 	for (i = 0; i < decon->win_cnt; ++i) { /* dma type order */
-		bts->bw[i].ch_num = decon->dpp[i]->port;
-		DPU_INFO_BTS(decon, "CH(%d) Port(%d)\n", i, bts->bw[i].ch_num);
+		decon->bts.bw[i].ch_num = decon->dpp[i]->port;
+		DPU_INFO_BTS(decon, "CH(%d) Port(%d)\n", i, decon->bts.bw[i].ch_num);
 	}
 
 	drm_for_each_encoder(encoder, decon->drm_dev) {
@@ -1758,13 +1722,13 @@ void dpu_bts_init(struct exynos_drm_crtc *exynos_crtc)
 
 		if (encoder->encoder_type == DRM_MODE_ENCODER_VIRTUAL) {
 			wb = enc_to_wb_dev(encoder);
-			bts->bw[wb->id].ch_num = wb->port;
+			decon->bts.bw[wb->id].ch_num = wb->port;
 			break;
 		}
 	}
 
-	bts->enabled = true;
-	bts->boost_info = 0;
+	decon->bts.enabled = true;
+	decon->bts.boost_info = 0;
 
 	DPU_INFO_BTS(decon, "bts feature is enabled\n");
 }

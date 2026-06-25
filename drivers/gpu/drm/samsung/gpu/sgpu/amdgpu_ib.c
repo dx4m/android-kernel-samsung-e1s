@@ -182,6 +182,10 @@ int amdgpu_ib_schedule(struct amdgpu_ring *ring, unsigned num_ibs,
 	alloc_size = ring->funcs->emit_frame_size + num_ibs *
 		ring->funcs->emit_ib_size;
 
+	if (ib->flags & AMDGPU_IB_FLAG_SBWC_YUVWRAP_FLUSH &&
+	    ring->funcs->emit_yuvwrap_flush)
+		alloc_size += ring->funcs->emit_yuvwrap_flush_size;
+
 	r = amdgpu_ring_alloc(ring, alloc_size);
 	if (r) {
 		dev_err(adev->dev, "scheduling IB failed (%d).\n", r);
@@ -245,6 +249,10 @@ int amdgpu_ib_schedule(struct amdgpu_ring *ring, unsigned num_ibs,
 		status |= job->preemption_status;
 		amdgpu_ring_emit_cntxcntl(ring, status);
 	}
+
+	if (ib->flags & AMDGPU_IB_FLAG_SBWC_YUVWRAP_FLUSH &&
+		ring->funcs->emit_yuvwrap_flush)
+		ring->funcs->emit_yuvwrap_flush(ring);
 
 	for (i = 0; i < num_ibs; ++i) {
 		ib = &ibs[i];

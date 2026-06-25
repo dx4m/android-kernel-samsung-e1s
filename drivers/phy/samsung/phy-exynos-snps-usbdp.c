@@ -91,8 +91,9 @@ static bool cr_clk_toggle(struct exynos_usbphy_info *info, int cycle_cnt, bool c
 
 static void cr_port_clear(struct exynos_usbphy_info *info)
 {
-	u32 reg;
 	void __iomem *base = info->regs_base;
+	u32 reg;
+	u32 timeout = 1000; // 1ms
 
 	/*Clear cr_para_con1*/
 	writel(0x0, base + SNPS_USBDPPHY_REG_PHY_CR_PARA_CON1);
@@ -112,7 +113,11 @@ static void cr_port_clear(struct exynos_usbphy_info *info)
 		reg = readl(base + SNPS_USBDPPHY_REG_PHY_CR_PARA_CON0);
 		if (((SNPS_USBDPPHY_REG_PHY_CR_PARA_CON0_p)(&reg))->b.phy0_cr_para_ack == 0)
 			break;
-	} while (1);
+		udelay(1);
+	} while (--timeout);
+
+	if (timeout == 0)
+		pr_warn("failed %s\n", __func__);
 
 	((SNPS_USBDPPHY_REG_PHY_CR_PARA_CON0_p)(&reg))->b.phy0_cr_para_clk = 0;
 	writel(reg, base + SNPS_USBDPPHY_REG_PHY_CR_PARA_CON0);
@@ -644,6 +649,7 @@ void phy_exynos_snps_usbdp_config_mplla(struct exynos_usbphy_info *info)
 static int check_fw_update_done(struct exynos_usbphy_info *info)
 {
 	void __iomem *base = info->regs_base;
+	u32 timeout = 1000; // 1ms
 
 	do {
 		cr_clk_toggle(info, 10, false);
@@ -651,7 +657,11 @@ static int check_fw_update_done(struct exynos_usbphy_info *info)
 		if (((readl(base + SNPS_USBDPPHY_REG_PHY_SRAM_CON)) >> 2))
 			break;
 		udelay(1); // 2us delay
-	} while (1);
+	} while (--timeout);
+
+	if (timeout == 0)
+		pr_warn("failed %s\n", __func__);
+
 	return 0;
 }
 
@@ -679,8 +689,9 @@ static int update_fw_to_sram(struct exynos_usbphy_info *info)
 
 void phy_exynos_snps_usbdp_phy_sram_ext_ld_done(struct exynos_usbphy_info *info, int val)
 {
-	u32 reg;
 	void *base = info->regs_base;
+	u32 reg;
+	u32 timeout = 1000; // 1ms
 
 	cr_clk_high(info);
 	reg = readl(base + SNPS_USBDPPHY_REG_PHY_SRAM_CON);
@@ -694,7 +705,13 @@ void phy_exynos_snps_usbdp_phy_sram_ext_ld_done(struct exynos_usbphy_info *info,
 		cr_clk_toggle(info, 8, false);
 
 		reg = readl(base + SNPS_USBDPPHY_REG_PHY_SRAM_CON);
-	} while (((SNPS_USBDPPHY_REG_PHY_SRAM_CON_p)(&reg))->b.phy0_sram_init_done == 0);
+		if (((SNPS_USBDPPHY_REG_PHY_SRAM_CON_p)(&reg))->b.phy0_sram_init_done)
+			break;
+		udelay(1);
+	} while (--timeout);
+
+	if (timeout == 0)
+		pr_warn("failed %s\n", __func__);
 }
 
 void phy_exynos_snps_usbdp_tune(struct exynos_usbphy_info *info)

@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2011-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -3206,7 +3206,8 @@ pe_roam_synch_callback(struct mac_context *mac_ctx,
 	roam_sync_ind_ptr->add_bss_params =
 		(struct bss_params *) ft_session_ptr->ftPEContext.pAddBssReq;
 	add_bss_params = ft_session_ptr->ftPEContext.pAddBssReq;
-	lim_delete_tdls_peers(mac_ctx, session_ptr);
+	lim_delete_tdls_peers(mac_ctx, session_ptr,
+			      TDLS_PEER_DEL_REASON_ROAMING);
 	/*
 	 * After deleting the TDLS peers notify the Firmware about TDLS STA
 	 * disconnection due to roaming
@@ -3644,7 +3645,8 @@ void lim_mon_deinit_session(struct mac_context *mac_ptr,
 
 	session = pe_find_session_by_vdev_id(mac_ptr, msg->vdev_id);
 
-	if (session && session->bssType == eSIR_MONITOR_MODE) {
+	if (session && (session->bssType == eSIR_MONITOR_MODE ||
+			session->bssType == eSIR_PASSTHRU_MODE)) {
 		wlan_vdev_mlme_sm_deliver_evt(session->vdev,
 					      WLAN_VDEV_SM_EV_DOWN,
 					      0, NULL);
@@ -3932,6 +3934,8 @@ lim_create_and_fill_link_session(struct mac_context *mac_ctx,
 	pe_session = lim_cm_roam_create_session(mac_ctx, vdev_id, sync_ind);
 	if (!pe_session)
 		goto fail;
+
+	pe_update_crypto_params(mac_ctx, pe_session, sync_ind);
 
 	status = lim_cm_fill_link_session(mac_ctx, vdev_id,
 					  pe_session, sync_ind, ie_len);
@@ -5116,5 +5120,39 @@ void lim_update_vdev_sr_elements(struct pe_session *session_entry,
 	wlan_vdev_mlme_set_srg_pd_offset(session_entry->vdev, srg_max_pd_offset,
 					 srg_min_pd_offset);
 
+}
+#endif
+
+#ifdef DRIVER_PASSTHRU_MODE
+void lim_passthrough_init_session(struct mac_context *mac_ptr,
+				  struct sir_create_session *msg)
+{
+	struct pe_session *psession_entry;
+	uint8_t session_id;
+
+	psession_entry = pe_create_session(mac_ptr, msg->bss_id.bytes,
+					   &session_id,
+					   mac_ptr->lim.max_sta_of_pe_session,
+					   eSIR_PASSTHRU_MODE,
+					   msg->vdev_id);
+	if (!psession_entry) {
+		pe_err("Passthrough mode: Session can not be created for: "
+			QDF_MAC_ADDR_FMT, QDF_MAC_ADDR_REF(msg->bss_id.bytes));
+		return;
+	}
+}
+
+void lim_passthrough_deinit_session(struct mac_context *mac_ptr,
+				    struct sir_delete_session *msg)
+{
+	struct pe_session *session;
+
+	session = pe_find_session_by_vdev_id(mac_ptr, msg->vdev_id);
+
+	if (session && LIM_IS_PASSTHRU_ROLE(session)) {
+		wlan_vdev_mlme_sm_deliver_evt(session->vdev,
+					      WLAN_VDEV_SM_EV_DOWN, 0, NULL);
+		pe_delete_session(mac_ptr, session);
+	}
 }
 #endif

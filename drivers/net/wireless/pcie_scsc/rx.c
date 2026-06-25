@@ -3216,6 +3216,14 @@ void slsi_rx_roamed_ind(struct slsi_dev *sdev, struct net_device *dev, struct sk
 
 	slsi_wake_lock(&sdev->wlan_wl_roam);
 
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 1, 0))
+	if (ndev_vif->sta.sta_bss->capability & WLAN_CAPABILITY_PRIVACY)
+		bss_privacy = IEEE80211_PRIVACY_ON;
+	else
+		bss_privacy = IEEE80211_PRIVACY_OFF;
+#endif
+	cfg80211_unlink_bss(sdev->wiphy, ndev_vif->sta.sta_bss);
+
 	if (ndev_vif->sta.mlme_scan_ind_skb) {
 		/* saved skb [mlme_scan_ind] freed inside slsi_rx_scan_pass_to_cfg80211 */
 		cur_channel = slsi_rx_scan_pass_to_cfg80211(sdev, dev, ndev_vif->sta.mlme_scan_ind_skb, true);
@@ -3224,14 +3232,6 @@ void slsi_rx_roamed_ind(struct slsi_dev *sdev, struct net_device *dev, struct sk
 		SLSI_NET_ERR(dev, "mlme_scan_ind_skb is not available, mlme_synchronised_ind not received");
 	}
 
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 1, 0))
-	if (ndev_vif->sta.sta_bss->capability & WLAN_CAPABILITY_PRIVACY)
-		bss_privacy = IEEE80211_PRIVACY_ON;
-	else
-		bss_privacy = IEEE80211_PRIVACY_OFF;
-#endif
-
-	slsi_cfg80211_put_bss(sdev->wiphy, ndev_vif->sta.sta_bss);
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 6, 17))
 	ndev_vif->sta.sta_bss = __cfg80211_get_bss(sdev->wiphy, cur_channel, peer->address, NULL, 0,
 						   IEEE80211_BSS_TYPE_ANY, bss_privacy, NL80211_BSS_USE_FOR_NORMAL);
@@ -3249,6 +3249,8 @@ void slsi_rx_roamed_ind(struct slsi_dev *sdev, struct net_device *dev, struct sk
 		if (!ndev_vif->sta.roam_mlme_procedure_started_ind)
 			SLSI_INFO(sdev, "procedure-started-ind not received before roamed-ind\n");
 		netif_dormant_on(dev);
+		ndev_vif->sta.disconnect_reason = SLSI_DISCONNECT_BY_DRIVER |
+						  (SLSI_DRIVER_ROAMING_FAILURE << 16);
 #ifdef CONFIG_SCSC_WLAN_EHT
 		slsi_mlme_disconnect(sdev, dev, peer->address, 0, true, &mlo_vif);
 		slsi_handle_disconnect(sdev, dev, peer->address, 0, NULL, 0, mlo_vif);
@@ -3344,6 +3346,8 @@ void slsi_rx_roamed_ind(struct slsi_dev *sdev, struct net_device *dev, struct sk
 						  assoc_rsp_ie, assoc_rsp_ie_len);
 			if (status != WLAN_STATUS_SUCCESS) {
 				netif_dormant_on(dev);
+				ndev_vif->sta.disconnect_reason = SLSI_DISCONNECT_BY_DRIVER |
+								  (SLSI_DRIVER_ROAMING_FAILURE << 16);
 #ifdef CONFIG_SCSC_WLAN_EHT
 				slsi_mlme_disconnect(sdev, dev, peer->address, 0, true, &mlo_vif);
 				slsi_handle_disconnect(sdev, dev, peer->address, 0, NULL, 0, mlo_vif);
@@ -4384,7 +4388,6 @@ static int slsi_parse_akm_suite_probe_resp(struct slsi_dev *sdev, struct net_dev
 			SLSI_NET_ERR(dev, "SAE AKM Suite(00-0F-AC:8) is NOT in Probe Response\n");
 			return -EINVAL;
 		}
-		ndev_vif->sta.use_set_pmksa = 1;
 	}
 	return 0;
 }
@@ -4472,6 +4475,7 @@ void slsi_rx_synchronised_ind(struct slsi_dev *sdev, struct net_device *dev, str
 		} else {
 			auth_request.key_mgmt_suite = akm_suite_selector;
  		}
+		ndev_vif->sta.use_set_pmksa = 1;
 		ndev_vif->sta.crypto.wpa_versions = 3;
 
 		if (ndev_vif->sta.crypto.akm_suites[0] == SLSI_KEY_MGMT_FILS_SHA256 ||
@@ -5377,8 +5381,6 @@ static bool slsi_rx_connect_ind_fw_result_failure(struct slsi_dev *sdev, struct 
 {
 	struct netdev_vif *ndev_vif = netdev_priv(dev);
 
-	if (slsi_wake_lock_active(&ndev_vif->wlan_wl_sae))
-		slsi_wake_unlock(&ndev_vif->wlan_wl_sae);
 #if !(defined(SCSC_SEP_VERSION) && SCSC_SEP_VERSION < 11)
 	slsi_rx_abort_external_auth(sdev, dev, *fw_result_code);
 	if (ndev_vif->sta.drv_bss_selection && (slsi_retry_connection(sdev, dev) == true)) {
@@ -5627,6 +5629,8 @@ void slsi_rx_connect_ind(struct slsi_dev *sdev, struct net_device *dev, struct s
 		 * send mlme-disconnect.req to firmware
 		 */
 		if (fw_result_code == FAPI_RESULTCODE_SUCCESS && peer) {
+			ndev_vif->sta.disconnect_reason = SLSI_DISCONNECT_BY_DRIVER |
+							  (SLSI_DRIVER_CONNECTION_FAILURE << 16);
 #ifdef CONFIG_SCSC_WLAN_EHT
 			u16 mlo_vif = 0;
 
@@ -5648,6 +5652,8 @@ void slsi_rx_connect_ind(struct slsi_dev *sdev, struct net_device *dev, struct s
 	}
 
 exit_with_lock:
+	if (slsi_wake_lock_active(&ndev_vif->wlan_wl_sae))
+		slsi_wake_unlock(&ndev_vif->wlan_wl_sae);
 	SLSI_MUTEX_UNLOCK(ndev_vif->vif_mutex);
 	kfree_skb(skb);
 }
@@ -5709,13 +5715,21 @@ void slsi_rx_disconnected_ind(struct slsi_dev *sdev, struct net_device *dev, str
 			disassoc_rsp_ie = (char *)&mgmt->u.deauth.reason_code + 2;
 			disassoc_rsp_ie_len = fapi_get_datalen(skb) -
 							(u32)(disassoc_rsp_ie - (u8 *)fapi_get_data(skb));
+			ndev_vif->sta.disconnect_reason = SLSI_DISCONNECT_BY_AP | (mgmt->u.deauth.reason_code << 16);
 		} else if (ieee80211_is_disassoc(mgmt->frame_control)) {
 			disassoc_rsp_ie = (char *)&mgmt->u.disassoc.reason_code + 2;
 			disassoc_rsp_ie_len = fapi_get_datalen(skb) -
 							(u32)(disassoc_rsp_ie - (u8 *)fapi_get_data(skb));
+			ndev_vif->sta.disconnect_reason = SLSI_DISCONNECT_BY_AP | (mgmt->u.disassoc.reason_code << 16);
 		} else {
 			SLSI_NET_DBG1(dev, SLSI_MLME, "Not a disassoc/deauth packet\n");
 		}
+	} else {
+		/* Bulk data is not present. Then disconnection happened by FW.
+		 * For driver/FRWK disconnect, it would not reach here as vif would be deactivated.
+		 */
+		ndev_vif->sta.disconnect_reason = SLSI_DISCONNECT_BY_FW |
+			fapi_get_u16(skb, u.mlme_disconnected_ind.reason_code) << 16;
 	}
 
 	if (ndev_vif->vif_type == FAPI_VIFTYPE_AP) {

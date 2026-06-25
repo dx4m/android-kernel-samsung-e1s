@@ -12,6 +12,9 @@
 #include "scsc_mif_abs.h"
 #include "scsc_mx_impl.h"
 #include "wlbt_ramsd.h"
+#if IS_ENABLED(CONFIG_WLBT_MX_CMD)
+#include "mx_cmd.h"
+#endif
 #ifdef CONFIG_SCSC_WLBTD
 #include "scsc_wlbtd.h"
 #endif
@@ -119,6 +122,11 @@ static int __init scsc_mx_module_init(void)
 #endif
 	scsc_mif_abs_register(&mx_module_mif_if);
 	wlbt_ramsd_create();
+#if IS_ENABLED(CONFIG_WLBT_MX_CMD)
+	scsc_mx_cmd_driver_create();
+	scsc_mx_cmd_driver_create_wpan();
+#endif
+
 	return 0;
 }
 
@@ -139,6 +147,10 @@ static void __exit scsc_mx_module_exit(void)
 	}
 
 	wlbt_ramsd_destroy();
+#if IS_ENABLED(CONFIG_WLBT_MX_CMD)
+	scsc_mx_cmd_driver_destroy();
+	scsc_mx_cmd_driver_destroy_wpan();
+#endif
 	scsc_mif_abs_unregister(&mx_module_mif_if);
 
 	SCSC_TAG_INFO(MXMAN, SCSC_MX_CORE_MODDESC " unloaded\n");

@@ -6027,7 +6027,8 @@ unsigned int qdf_nbuf_update_radiotap(struct mon_rx_status *rx_status,
 
 	/* IEEE80211_RADIOTAP_RATE  u8           500kb/s */
 	if (!rx_status->ht_flags && !rx_status->vht_flags &&
-	    !rx_status->he_flags && !rx_status->eht_flags) {
+	    !rx_status->he_flags && !rx_status->eht_flags &&
+	    rx_status->rate) {
 		it_present_val |= (1 << IEEE80211_RADIOTAP_RATE);
 		rtap_buf[rtap_len] = rx_status->rate;
 	} else
@@ -6293,6 +6294,11 @@ unsigned int qdf_nbuf_update_radiotap(struct mon_rx_status *rx_status,
 	qdf_nbuf_push_head(nbuf, rtap_len);
 	qdf_mem_copy(qdf_nbuf_data(nbuf), rtap_buf, rtap_len);
 	return rtap_len;
+}
+
+uint16_t qdf_nbuf_get_radiotap_len(qdf_nbuf_t nbuf)
+{
+	return ieee80211_get_radiotap_len(qdf_nbuf_data(nbuf));
 }
 #else
 static unsigned int qdf_nbuf_update_radiotap_vht_flags(

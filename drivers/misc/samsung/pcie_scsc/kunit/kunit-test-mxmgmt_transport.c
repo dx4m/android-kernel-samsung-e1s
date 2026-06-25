@@ -35,9 +35,11 @@ static void test_mxmgmt_transport_wlan(struct kunit *test)
 
 	fp_mxmgmt_output_irq_handler(0, mxmgmt_transport);
 
-	mxmgmt_transport_send(mxmgmt_transport, MMTRANS_CHAN_ID_MAXWELL_LOGGING, "MESSAGE", 7);
-
 	mxmgmt_transport_release(mxmgmt_transport);
+
+	mxmgmt_transport->mx = NULL;
+	mxmgmt_transport->mif_ostream.mx = NULL;
+	mxmgmt_transport_send(mxmgmt_transport, MMTRANS_CHAN_ID_MAXWELL_LOGGING, "MESSAGE", 7);
 
 	//kunit_mxmgmt_thread_stop(mxmgmt_transport);
 
@@ -67,9 +69,11 @@ static void test_mxmgmt_transport_wpan(struct kunit *test)
 
 	fp_mxmgmt_output_irq_handler_wpan(0, mxmgmt_transport);
 
-	mxmgmt_transport_send(mxmgmt_transport, MMTRANS_CHAN_ID_MAXWELL_LOGGING, "MESSAGE", 7);
-
 	mxmgmt_transport_release(mxmgmt_transport);
+
+	mxmgmt_transport->mx = NULL;
+	mxmgmt_transport->mif_ostream.mx = NULL;
+	mxmgmt_transport_send(mxmgmt_transport, MMTRANS_CHAN_ID_MAXWELL_LOGGING, "MESSAGE", 7);
 
 	//kunit_mxmgmt_thread_stop(mxmgmt_transport);
 

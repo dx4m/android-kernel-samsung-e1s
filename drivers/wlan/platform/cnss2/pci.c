@@ -1428,10 +1428,12 @@ struct exynos_pm_qos_request cpu_qos; /* CPU */
 struct exynos_pm_qos_request int_qos; /* SNOC */
 struct exynos_pm_qos_request mif_qos; /* DDR */
 
+#ifndef CONFIG_SOC_S5E9945
 static struct freq_qos_request qos_req_cl1; /* CPU mid core 2-6 */
 static struct cpufreq_policy *cpucl1_policy;
 static struct freq_qos_request qos_req_cl2; /* CPU gold core 7-8 */
 static struct cpufreq_policy *cpucl2_policy;
+#endif /*CONFIG_SOC_S5E9945*/
 
 #define CPU_VOTE_CLOCK_11AC 1920000
 #define INT_VOTE_CLOCK_11AC 533000
@@ -1458,10 +1460,12 @@ static int cnss_setup_bus_bandwidth(struct cnss_plat_data *plat_priv,
 	        exynos_pm_qos_update_request(&cpu_qos, CPU_VOTE_CLOCK_11AC);
 	        exynos_pm_qos_update_request(&int_qos, INT_VOTE_CLOCK_11AC);
 	        exynos_pm_qos_update_request(&mif_qos, MIF_VOTE_CLOCK_11AC);
+#ifndef CONFIG_SOC_S5E9945
 	        if (cpucl1_policy) {
 	            freq_qos_update_request(&qos_req_cl1, CPU_VOTE_CLOCK_11AC);
 	            cnss_pr_err("set min freq to 1.9Ghz in cpu cluster 1\n");
 	        }
+#endif /* CONFIG_SOC_S5E9945 */
 	        break;
 
 	    case CNSS_BUS_WIDTH_ULTRA_HIGH:
@@ -1470,10 +1474,12 @@ static int cnss_setup_bus_bandwidth(struct cnss_plat_data *plat_priv,
 		exynos_pm_qos_update_request(&cpu_qos, CPU_VOTE_CLOCK_11BE);
 		exynos_pm_qos_update_request(&int_qos, INT_VOTE_CLOCK_11BE);
 		exynos_pm_qos_update_request(&mif_qos, MIF_VOTE_CLOCK_11BE);
+#ifndef CONFIG_SOC_S5E9945
 		if (cpucl2_policy) {
 			freq_qos_update_request(&qos_req_cl2, CPU_VOTE_CLOCK_11BE);
 			cnss_pr_err("set min freq to 2.2Ghz in cpu cluster 2\n");
 		}
+#endif /* CONFIG_SOC_S5E9945 */
 		break;
 
 	    case CNSS_BUS_WIDTH_LOW_LATENCY:
@@ -1487,11 +1493,13 @@ static int cnss_setup_bus_bandwidth(struct cnss_plat_data *plat_priv,
 	        exynos_pm_qos_update_request(&cpu_qos, CPU_VOTE_CLOCK_DEF);
 	        exynos_pm_qos_update_request(&int_qos, INT_VOTE_CLOCK_DEF);
 	        exynos_pm_qos_update_request(&mif_qos, MIF_VOTE_CLOCK_DEF);
+#ifndef CONFIG_SOC_S5E9945
 	        if (cpucl1_policy && cpucl2_policy) {
 	            freq_qos_update_request(&qos_req_cl1, CPU_VOTE_CLOCK_DEF);
 	            freq_qos_update_request(&qos_req_cl2, CPU_VOTE_CLOCK_DEF);
 	            cnss_pr_err("clear min freq of cpu cluster 1/2\n");
 	        }
+#endif /* CONFIG_SOC_S5E9945 */
 	        break;
 	}
 	if (save)
@@ -1520,6 +1528,7 @@ void exynos_pm_qos_init(void)
 	exynos_pm_qos_add_request(&int_qos, PM_QOS_DEVICE_THROUGHPUT, INT_VOTE_CLOCK_DEF);
 	exynos_pm_qos_add_request(&mif_qos, PM_QOS_BUS_THROUGHPUT, MIF_VOTE_CLOCK_DEF);
 
+#ifndef CONFIG_SOC_S5E9945
 	cpucl1_policy = cpufreq_cpu_get(4);
 	cpucl2_policy = cpufreq_cpu_get(7);
 
@@ -1529,6 +1538,7 @@ void exynos_pm_qos_init(void)
 	} else {
 	    cnss_pr_err("failed to get cpu cluster policy NULL \n");
 	}
+#endif /* CONFIG_SOC_S5E9945 */
 }
 
 void exynos_pm_qos_exit(void)
@@ -1537,10 +1547,13 @@ void exynos_pm_qos_exit(void)
 	exynos_pm_qos_remove_request(&cpu_qos);
 	exynos_pm_qos_remove_request(&int_qos);
 	exynos_pm_qos_remove_request(&mif_qos);
+	
+#ifndef CONFIG_SOC_S5E9945
 	if(cpucl1_policy && cpucl2_policy) {
 	    freq_qos_remove_request(&qos_req_cl1);
 	    freq_qos_remove_request(&qos_req_cl2);
 	}
+#endif /* CONFIG_SOC_S5E9945 */
 }
 #endif
 

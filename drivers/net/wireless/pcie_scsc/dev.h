@@ -902,6 +902,19 @@ struct slsi_mlo_ap_details {
 };
 #endif
 
+#define SLSI_DISCONNECT_BY_BEACON_LOSS BIT(0)
+#define SLSI_DISCONNECT_BY_FRWK BIT(1)
+#define SLSI_DISCONNECT_BY_AP BIT(2)
+#define SLSI_DISCONNECT_BY_DRIVER BIT(3)
+#define SLSI_DISCONNECT_BY_FW	BIT(4)
+
+enum slsi_driver_disconnect_reason {
+	SLSI_DRIVER_DISCONNECT_NETSTOP,
+	SLSI_DRIVER_DISCONNECT_BAND_UPDATE,
+	SLSI_DRIVER_ROAMING_FAILURE,
+	SLSI_DRIVER_CONNECTION_FAILURE
+};
+
 struct slsi_vif_sta {
 	/* Only valid when the VIF is activated */
 	u8                      vif_status;
@@ -1039,6 +1052,10 @@ struct slsi_vif_sta {
 	int                     current_elna_value;
 	bool                    set_elna_after_connect;
 	u16                     owe_group_during_connection;
+	/* b0-b15  - indicates disconnection reason. See macro SLSI_DISCONNECT_BY*
+	 * b16-b31 - indicates reason code
+	 */
+	u32 disconnect_reason;
 };
 
 struct multi_link_elem {
@@ -2167,6 +2184,7 @@ struct slsi_dev {
 	struct slsi_nan_pasn_recv_mlme_params pasn_recv;
 	struct slsi_nan_pasn_params pasn_params;
 	struct slsi_nan_pasn_set_key_params set_key_params;
+	u32 requestor_instance_id;
 #endif
 #endif
 #endif

@@ -227,6 +227,7 @@ bool mif_stream_write_gather(struct mif_stream *stream, const void **bufs, uint3
 {
 	struct scsc_mif_abs *mif_abs = NULL;
 	uint32_t start_idx;
+	bool ret = true;
 
 	write_gather_dump.ret_value = false;
 
@@ -236,18 +237,20 @@ bool mif_stream_write_gather(struct mif_stream *stream, const void **bufs, uint3
 	mif_abs = scsc_mx_get_mif_abs(stream->mx);
 	start_idx = *(stream->buffer.write_index);
 
-	if (!cpacketbuffer_write_gather(&stream->buffer, bufs, lengths, num_bufs))
-		return false;
+	if (!cpacketbuffer_write_gather(&stream->buffer, bufs, lengths, num_bufs)) {
+		ret = false;
+		goto skip_record;
+	}
 
 	mif_stream_record_write_gather(stream, start_idx);
-
+skip_record:
 	/* Kick the assigned interrupt to let others know new data is available */
 #if defined(CONFIG_SCSC_INDEPENDENT_SUBSYSTEM)
 	mif_abs->irq_bit_set(mif_abs, stream->write_bit_idx, stream->target);
 #else
 	mif_abs->irq_bit_set(mif_abs, stream->write_bit_idx, (enum scsc_mif_abs_target)stream->peer);
 #endif
-	return true;
+	return ret;
 }
 
 uint32_t mif_stream_block_size(struct mif_stream *stream)

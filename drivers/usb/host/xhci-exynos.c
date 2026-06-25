@@ -1107,6 +1107,8 @@ static int __maybe_unused xhci_exynos_suspend(struct device *dev)
 		exynos_usbdrd_phy_vendor_set(xhci_exynos->phy_usb3, 1, 0);
 #endif
 		is_rewa_enabled = 1;
+		pr_info("[%s]: xhci_suspend!\n", __func__);
+		ret = xhci_suspend(xhci, device_may_wakeup(dev));
 	}
 
 	return ret;
@@ -1149,6 +1151,8 @@ static int __maybe_unused xhci_exynos_resume(struct device *dev)
 	}
 
 	if (is_rewa_enabled == 1) {
+		pr_info("[%s]: xhci_resume!\n", __func__);
+		ret = xhci_resume(xhci, 0);
 #ifdef CONFIG_EXYNOS_USBDRD_PHY30
 		/* Disable SS ReWA */
 		exynos_usbdrd_phy_vendor_set(xhci_exynos->phy_usb3, 1, 1);

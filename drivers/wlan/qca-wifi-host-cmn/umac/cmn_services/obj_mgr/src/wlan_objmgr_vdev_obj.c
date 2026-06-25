@@ -985,7 +985,8 @@ QDF_STATUS wlan_objmgr_vdev_peer_attach(struct wlan_objmgr_vdev *vdev,
 		/* For AP mode, self peer and BSS peer are same */
 		if ((opmode == QDF_SAP_MODE) ||
 		    (opmode == QDF_P2P_GO_MODE) ||
-		    (opmode == QDF_NDI_MODE))
+		    (opmode == QDF_NDI_MODE) ||
+		    (opmode == QDF_PASSTHRU_MODE))
 			wlan_vdev_set_bsspeer(vdev, peer);
 	}
 	/* set BSS peer for sta */
@@ -1795,11 +1796,11 @@ void wlan_vdev_mlme_clear_mlo_link_vdev(struct wlan_objmgr_vdev *vdev)
 
 uint8_t wlan_vdev_get_peer_sta_count(struct wlan_objmgr_vdev *vdev)
 {
-	struct wlan_objmgr_peer *peer;
+	struct wlan_objmgr_peer *peer, *next;
 	uint8_t peer_count = 0;
 
 	wlan_vdev_obj_lock(vdev);
-	wlan_objmgr_for_each_vdev_peer(vdev, peer) {
+	wlan_objmgr_for_each_vdev_peer(vdev, peer, next) {
 		wlan_objmgr_peer_get_ref(peer, WLAN_OBJMGR_ID);
 		if (wlan_peer_get_peer_type(peer) == WLAN_PEER_STA)
 			peer_count++;

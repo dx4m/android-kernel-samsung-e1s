@@ -13,6 +13,7 @@
 #include "stui_hal.h"
 #include "stui_inf.h"
 #include "stui_ioctl.h"
+#include "stui_log.h"
 #include "tuill_defs.h"
 
 #include <linux/atomic.h>
@@ -29,14 +30,6 @@
 #include <core/notifier.h>
 
 extern uint32_t g_stui_disp_if;
-
-struct iwd_functions {
-	int (*cancel_session)(void);
-};
-
-extern void register_iwd_functions(struct iwd_functions *f);
-extern void unregister_iwd_functions(void);
-extern unsigned int tzdev_is_up(void);
 
 static atomic_t reboot_flag = ATOMIC_INIT(0);
 static atomic_t thread_flag = ATOMIC_INIT(0);
@@ -68,34 +61,33 @@ static struct notifier_block reboot_notif = {
 
 static int notifier_callback(struct notifier_block *self, unsigned long event, void *data)
 {
+	STUI_CALL_TRACE();
 	(void) data;
-	pr_debug(TUIHW_LOG_TAG " %s >> event=%lu\n", __func__, event);
+
+	log_debug("event=%lu\n", event);
 	if (atomic_cmpxchg(&reboot_flag, 1, 1)) {
-		pr_info(TUIHW_LOG_TAG " reboot_flag is true\n");
+		log_info("reboot_flag is true\n");
 		return NOTIFY_OK;
 	}
 	stui_cancel_session();
-	if (self == &tzdev_notif && event == TZDEV_FINI_NOTIFIER) {
-		pr_debug(TUIHW_LOG_TAG " %s TZDEV_FINI_NOTIFIER\n", __func__);
-	}
-	pr_debug(TUIHW_LOG_TAG " %s <<\n", __func__);
+	if (self == &tzdev_notif && event == TZDEV_FINI_NOTIFIER)
+		log_debug("TZDEV_FINI_NOTIFIER\n");
 	return NOTIFY_OK;
 }
 
 static void iwd_register_callbacks(void)
 {
 	int ret = 0;
-	pr_debug(TUIHW_LOG_TAG " %s >>\n", __func__);
+	STUI_CALL_TRACE();
 	if (reboot_notif_registered == 0) {
 		ret = register_reboot_notifier(&reboot_notif);
 		if (ret != 0) {
-			pr_err(TUIHW_LOG_TAG " Can't register reboot notifier\n");
+			log_error("Can't register reboot notifier\n");
 			return;
 		}
 
 		reboot_notif_registered = 1;
 	}
-	pr_debug(TUIHW_LOG_TAG " %s <<\n", __func__);
 }
 
 static void iwd_unregister_callbacks(void)
@@ -114,14 +106,14 @@ static void iwd_unregister_callbacks(void)
 static int get_display_info(GetDisplayInfo_rsp_t *rsp)
 {
 	struct tui_hw_buffer buffer;
-	pr_debug(TUIHW_LOG_TAG " %s >>\n", __func__);
+	STUI_CALL_TRACE();
 	memset(&buffer, 0, sizeof(struct tui_hw_buffer));
 	if (stui_get_resolution(&buffer)) {
-		pr_err(TUIHW_LOG_TAG " stui_get_resolution failed\n");
+		log_error("stui_get_resolution failed\n");
 		return -1;
 	}
 	if (stui_get_lcd_info(buffer.lcd_info, STUI_DISPLAY_INFO_SIZE)) {
-		pr_err(TUIHW_LOG_TAG " stui_get_lcd_info failed\n");
+		log_error("stui_get_lcd_info failed\n");
 		return -1;
 	}
 	rsp->physical_width  = 0; //unknown
@@ -133,7 +125,6 @@ static int get_display_info(GetDisplayInfo_rsp_t *rsp)
 	rsp->num_periph   = 1;
 	rsp->associatedPeripherals[0] = TUILL_TOUCH_DRV;
 	memcpy(rsp->lcd_info, buffer.lcd_info, sizeof(uint64_t) * STUI_DISPLAY_INFO_SIZE);
-	pr_debug(TUIHW_LOG_TAG " %s <<\n", __func__);
 	return 0;
 }
 
@@ -144,26 +135,27 @@ static int open_driver(OpenPeripheral_cmd_t *cmd, OpenPeripheral_rsp_t *rsp)
 	int i;
 	int j;
 	struct tui_hw_buffer buffer;
-	pr_debug(TUIHW_LOG_TAG " %s >>  cmd->flags=%X, cmd->num=%d size=%zu\n",
-			__func__, cmd->flags, cmd->num, sizeof(OpenPeripheral_cmd_t));
+	STUI_CALL_TRACE();
+	log_debug("cmd->flags=%X, cmd->num=%d size=%zu\n",
+		cmd->flags, cmd->num, sizeof(struct OpenPeripheral_cmd));
 	for (i = 0; i < cmd->num; i++)
-		pr_debug(TUIHW_LOG_TAG " cmd->peripheral_id[i]=%d\n", cmd->peripheral_id[i]);
+		log_debug("cmd->peripheral_id[i]=%d\n", cmd->peripheral_id[i]);
 
 	for (i = 0; i < cmd->num; i++) {
 		switch (cmd->peripheral_id[i]) {
 		case TUILL_TOUCH_DRV:
-			pr_debug(TUIHW_LOG_TAG " opening TUILL_TOUCH_DRV\n");
+			log_info("opening TUILL_TOUCH_DRV\n");
 			ret = stui_open_touch();
 			if (ret < 0) {
-				pr_err(TUIHW_LOG_TAG " ret=%X\n", ret);
+				log_error("ret=%X\n", ret);
 				goto lbl_rollback;
 			}
 			break;
 		case TUILL_DISPLAY_DRV:
-			pr_debug(TUIHW_LOG_TAG " opening TUILL_DISPLAY_DRV\n");
+			log_info("opening TUILL_DISPLAY_DRV\n");
 			ret = stui_open_display(&buffer);
 			if (ret < 0) {
-				pr_err(TUIHW_LOG_TAG " ret=%X\n", ret);
+				log_error("ret=%X\n", ret);
 				goto lbl_rollback;
 			}
 			rsp->FB.width         = buffer.width;
@@ -177,7 +169,7 @@ static int open_driver(OpenPeripheral_cmd_t *cmd, OpenPeripheral_rsp_t *rsp)
 			rsp->FB.touch_type    = stui_get_touch_type();
 			ret = stui_get_lcd_info(rsp->FB.lcd_info, STUI_DISPLAY_INFO_SIZE);
 			if (ret < 0) {
-				pr_err(TUIHW_LOG_TAG " failed to get lcd info\n");
+				log_error("failed to get lcd info\n");
 				goto lbl_rollback;
 			}
 
@@ -190,54 +182,57 @@ static int open_driver(OpenPeripheral_cmd_t *cmd, OpenPeripheral_rsp_t *rsp)
 			break;
 		}
 	}
-	pr_debug(TUIHW_LOG_TAG " %s <<\n", __func__);
 	stui_set_tui_version(TUI_LL);
 	return 0;
 lbl_rollback:
 	for (j = 0; j < i; j++) {
 		switch (cmd->peripheral_id[j]) {
 		case TUILL_TOUCH_DRV:
-			pr_debug(TUIHW_LOG_TAG " closing TUILL_TOUCH_DRV\n");
+			log_info("closing TUILL_TOUCH_DRV\n");
 			stui_close_touch();
 			break;
 		case TUILL_DISPLAY_DRV:
-			pr_debug(TUIHW_LOG_TAG " closing TUILL_DISPLAY_DRV\n");
+			log_info("closing TUILL_DISPLAY_DRV\n");
 			stui_close_display();
 			break;
 		}
 	}
-	pr_err(TUIHW_LOG_TAG " %s <<\n", __func__);
 	return -1;
 }
 
 static int close_driver(ClosePeripheral_cmd_t *cmd)
 {
 	int i = 0;
-	pr_debug(TUIHW_LOG_TAG " %s >>\n", __func__);
+	STUI_CALL_TRACE();
 	for (i = 0; i < cmd->num; i++) {
 		switch (cmd->peripheral_id[i]) {
 		case TUILL_TOUCH_DRV:
-			pr_debug(TUIHW_LOG_TAG " closing TUILL_TOUCH_DRV\n");
+			log_debug("closing TUILL_TOUCH_DRV\n");
 			stui_close_touch();
 			break;
 		case TUILL_DISPLAY_DRV:
-			pr_debug(TUIHW_LOG_TAG " closing TUILL_DISPLAY_DRV\n");
+			log_debug("closing TUILL_DISPLAY_DRV\n");
 			stui_close_display();
 			break;
 		}
 	}
-	pr_debug(TUIHW_LOG_TAG " %s <<\n", __func__);
 	stui_set_tui_version(TUI_NOPE);
 	return 0;
 }
 
 static void reboot_phone(void)
 {
-	pr_debug(TUIHW_LOG_TAG " %s >>\n", __func__);
+	/**
+	 *	we do panic when we can't unlock hardware
+	 *	this code is not intended to be executed
+	 *	it was written because we have to write something
+	 *	in the second part of "IF" condition
+	 */
+	STUI_CALL_TRACE();
 	atomic_set(&reboot_flag, 1);
-	panic("tuihw: Trusted User Interface was not unlocked.");
+	log_error("Trusted User Interface was not unlocked.\n");
+	BUG_ON(1);
 	atomic_set(&reboot_flag, 0);
-	pr_debug(TUIHW_LOG_TAG " %s <<\n", __func__);
 }
 
 static int connecting_thread(void *data)
@@ -247,8 +242,8 @@ static int connecting_thread(void *data)
 	tuill_internal_command_t cmd;
 	tuill_internal_command_t rsp;
 	char serv_name[100];
+	STUI_CALL_TRACE();
 	sprintf(serv_name, TUILL_SERVER_TEMPLATE, OS_IWD_SOCKET_NAME);
-	pr_debug(TUIHW_LOG_TAG " %s >>\n", __func__);
 	while (atomic_cmpxchg(&thread_flag, 1, 1) == 1
 		&& atomic_cmpxchg(&reboot_flag, 0, 0) == 0) {
 		/**
@@ -261,25 +256,25 @@ static int connecting_thread(void *data)
 
 		tzd_up = tzdev_is_up();
 		if (!tzd_up) {
-			pr_info(TUIHW_LOG_TAG " %s tzdev is not ready\n", __func__);
+			log_info("tzdev is not ready\n");
 			continue;
 		}
 
 		sd = tz_iwsock_socket(1, TZ_NON_INTERRUPTIBLE);
 
 		if (IS_ERR(sd)) {
-			pr_err(TUIHW_LOG_TAG " tz_iwsock_socket failed\n");
+			log_error("tz_iwsock_socket failed\n");
 			continue;
 		}
 
-		pr_info(TUIHW_LOG_TAG " connecting to %s\n", serv_name);
+		log_info("connecting to %s\n", serv_name);
 		ret = tz_iwsock_connect(sd, serv_name, 0);
 		if (ret != 0) {
 			tz_iwsock_release(sd);
 			sd = NULL;
 			continue;
 		}
-		pr_info(TUIHW_LOG_TAG " connected to %s\n", serv_name);
+		log_info("connected to %s\n", serv_name);
 
 		//sending handshake
 		cmd.cmd        = TUILL_ICMD_SET_DRV_STATE;
@@ -292,51 +287,51 @@ static int connecting_thread(void *data)
 		while (ret >= 0) {
 			if (atomic_cmpxchg(&thread_flag, 0, 0) == 0
 				|| atomic_cmpxchg(&reboot_flag, 1, 1) == 1) {
-				pr_debug(TUIHW_LOG_TAG " thread was stopped\n");
+				log_debug("thread was stopped\n");
 				break;
 			}
 			ret = tz_iwsock_read(sd, &cmd, sizeof(cmd), 0);
 			if (ret > 0 && ret != sizeof(cmd)) {
-				pr_err(TUIHW_LOG_TAG " tz_iwsock_read returned %d\n", ret);
+				log_error("tz_iwsock_read returned %d\n", ret);
 				continue;
 			} else if (ret == 0) {
-				pr_err(TUIHW_LOG_TAG " connection was reset by peer\n");
+				log_error("connection was reset by peer\n");
 				tz_iwsock_release(sd);
 				sd = NULL;
 				break;
 			} else if (ret < 0) {
-				pr_err(TUIHW_LOG_TAG " tz_iwsock_read returned %d\n", ret);
+				log_error("tz_iwsock_read returned %d\n", ret);
 				break;
 			}
 			rsp.cmd        = cmd.cmd + RESPONSE_FLAG;
 			rsp.task_state = cmd.task_state;
 			rsp.task_id    = cmd.task_id;
-			pr_debug(TUIHW_LOG_TAG " cmd.ret_code=0x%X\n", cmd.ret_code);
+			log_debug("cmd.ret_code=0x%X\n", cmd.ret_code);
 			if (cmd.ret_code & INJECT_ERR_FLAG) {
-				pr_debug(TUIHW_LOG_TAG " error injection\n");
+				log_debug("error injection\n");
 				rsp.ret_code = -1;
 				ret = tz_iwsock_write(sd, &rsp, sizeof(rsp), 0);
 				continue;
 			}
 			if (cmd.ret_code & MAKE_TIMEOUT_FLAG) {
-				pr_debug(TUIHW_LOG_TAG " timeout injection\n");
+				log_debug("timeout injection\n");
 				continue;
 			}
-			switch(cmd.cmd) {
+			switch (cmd.cmd) {
 			case TUILL_ICMD_GET_DISPLAY_INFO:
-				pr_debug(TUIHW_LOG_TAG " received TUILL_ICMD_GET_DISPLAY_INFO\n");
+				log_debug("received TUILL_ICMD_GET_DISPLAY_INFO\n");
 				rsp.ret_code = get_display_info(&rsp.GetDisplayInfo_rsp);
 				break;
 			case TUILL_ICMD_OPEN_DRIVER:
-				pr_debug(TUIHW_LOG_TAG " received TUILL_ICMD_OPEN_DRIVER\n");
+				log_debug("received TUILL_ICMD_OPEN_DRIVER\n");
 				rsp.ret_code = open_driver(&cmd.OpenPeripheral_cmd, &rsp.OpenPeripheral_rsp);
 				break;
 			case TUILL_ICMD_CLOSE_DRIVER:
-				pr_debug(TUIHW_LOG_TAG " received TUILL_ICMD_CLOSE_DRIVER\n");
+				log_debug("received TUILL_ICMD_CLOSE_DRIVER\n");
 				rsp.ret_code = close_driver(&cmd.ClosePeripheral_cmd);
 				break;
 			case TUILL_ICMD_REBOOT_PHONE:
-				pr_debug(TUIHW_LOG_TAG " received TUILL_ICMD_REBOOT_PHONE\n");
+				log_debug("received TUILL_ICMD_REBOOT_PHONE\n");
 				tz_iwsock_release(sd);
 				sd = NULL;
 				reboot_phone();
@@ -350,7 +345,7 @@ static int connecting_thread(void *data)
 		}
 	}
 exit:
-	pr_debug(TUIHW_LOG_TAG " %s << ret=%d\n", __func__, ret);
+	log_debug("ret=%d\n", ret);
 	complete(&finished);
 	return 0;
 }
@@ -360,36 +355,33 @@ int iwd_cancel_session(void)
 	//TODO: check atomicity of tz_iwsock_write
 	tuill_internal_command_t cmd;
 	int ret = 0;
-	pr_debug(TUIHW_LOG_TAG " %s >>\n", __func__);
+	STUI_CALL_TRACE();
 	cmd.cmd = TUILL_ICMD_CANCEL_TUI;
 	cmd.version = TUILL_API_VERSION;
 	cmd.CancelTUI_cmd.event = TEE_EVENT_TUI_REE_CANCEL;
 	ret = tz_iwsock_write(sd, &cmd, sizeof(cmd), 0);
 
-	pr_debug(TUIHW_LOG_TAG " tz_iwsock_write returned %d\n", ret);
 	if (ret != sizeof(cmd)) {
-		pr_err(TUIHW_LOG_TAG " %s <<\n", __func__);
+		log_error("tz_iwsock_write returned %d\n", ret);
 		return -1;
 	}
-	pr_debug(TUIHW_LOG_TAG " %s <<\n", __func__);
 	return 0;
 }
 
 int init_iwd_agent(void)
 {
 	struct iwd_functions iwdf;
-	pr_debug(TUIHW_LOG_TAG " %s >>\n", __func__);
+	STUI_CALL_TRACE();
 	init_completion(&finished);
 	iwd_register_callbacks();
 	iwdf.cancel_session = iwd_cancel_session;
 	register_iwd_functions(&iwdf);
-	pr_debug(TUIHW_LOG_TAG " %s <<\n", __func__);
 	return 0;
 }
 
 void uninit_iwd_agent(void)
 {
-	pr_debug(TUIHW_LOG_TAG " %s >>\n", __func__);
+	STUI_CALL_TRACE();
 	unregister_iwd_functions();
 	iwd_unregister_callbacks();
 }
@@ -397,12 +389,12 @@ void uninit_iwd_agent(void)
 int __init __init_iwd_agent(void)
 {
 	int ret = 0;
-	pr_debug(TUIHW_LOG_TAG " %s >>\n", __func__);
+	STUI_CALL_TRACE();
 
 	ret = tzdev_blocking_notifier_register(TZDEV_FINI_NOTIFIER, &tzdev_notif);
 
 	if (ret) {
-		pr_err(TUIHW_LOG_TAG " Can't register tzdev notifier\n");
+		log_error("Can't register tzdev notifier\n");
 		return -EFAULT;
 	}
 
@@ -411,18 +403,17 @@ int __init __init_iwd_agent(void)
 	reinit_completion(&finished);
 	iwd_kthread = kthread_run(connecting_thread, NULL, "connecting_thread");
 	if (IS_ERR(iwd_kthread)) {
-		pr_err(TUIHW_LOG_TAG " kthread_run failedn");
+		log_error("kthread_run failed\n");
 		atomic_set(&thread_flag, 0);
 		return -EFAULT;
 	}
 
-	pr_debug(TUIHW_LOG_TAG " %s <<\n", __func__);
 	return 0;
 }
 
 void __uninit_iwd_agent(void)
 {
-	pr_debug(TUIHW_LOG_TAG " %s >>\n", __func__);
+	STUI_CALL_TRACE();
 	atomic_set(&thread_flag, 0);
 	if (sd) {
 		tz_iwsock_release(sd);//to breake reading

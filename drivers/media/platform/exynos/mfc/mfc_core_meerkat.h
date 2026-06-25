@@ -16,7 +16,6 @@
 #include "base/mfc_common.h"
 
 int mfc_get_curr_ctx(struct mfc_core *core);
-void mfc_dump_state(struct mfc_dev *dev);
 void mfc_core_meerkat_worker(struct work_struct *work);
 
 #endif /* __MFC_CORE_MEERKAT_H */

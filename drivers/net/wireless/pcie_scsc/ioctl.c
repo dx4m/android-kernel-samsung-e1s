@@ -9259,7 +9259,7 @@ static int slsi_get_wifi6e_channels(struct net_device *dev, char *buf, int buf_l
 			for (k = 0; k < sdev->regdb.country[country_index].collection->reg_rule_num; k++) {
 				reg_rule = sdev->regdb.country[country_index].collection->reg_rule[k];
 				if (reg_rule->flags & SLSI_REGULATORY_DUP_RULE)
-					break;
+					continue;
 				if ((reg_rule->flags & reg_rule_flag) &&
 				    reg_rule->freq_range->start_freq <= channel_start_freq &&
 				    reg_rule->freq_range->end_freq >= channel_end_freq) {
@@ -9276,7 +9276,7 @@ static int slsi_get_wifi6e_channels(struct net_device *dev, char *buf, int buf_l
 				for (k = 0; k < sdev->regdb.country[country_index].collection->reg_rule_num; k++) {
 					reg_rule = sdev->regdb.country[country_index].collection->reg_rule[k];
 					if (reg_rule->flags & SLSI_REGULATORY_DUP_RULE)
-						break;
+						continue;
 					if ((reg_rule->flags & reg_rule_flag) &&
 					    reg_rule->freq_range->start_freq <= channel_start_freq &&
 					    reg_rule->freq_range->end_freq >= channel_end_freq) {

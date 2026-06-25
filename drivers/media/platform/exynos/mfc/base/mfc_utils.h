@@ -16,6 +16,7 @@
 #include "mfc_common.h"
 #include "mfc_rate_calculate.h"
 #include "mfc_format.h"
+#include "mfc_queue.h"
 
 /* bit operation */
 #define mfc_clear_bits(reg, mask, shift)	(reg &= ~(mask << shift))
@@ -526,8 +527,9 @@ static inline void mfc_print_ctx_info(struct mfc_ctx *ctx)
 		codec = &mfc_formats[0];
 	if (!fmt)
 		fmt = &mfc_formats[0];
-	mfc_ctx_info("- %s %s, %s, %dx%d %lufps(ts %lufps, op %lufps, rt %lufps), mb %lu(%d%%), main core %d, op_mode %d(stream %d), rt %d\n",
+	mfc_ctx_info("- %s%s %s, %s, %dx%d %lufps(ts %lufps, op %lufps, rt %lufps), mb %lu(%d%%), main core %d, op_mode %d(stream %d), rt %d\n",
 			codec->name,
+			ctx->plugin_type == MFC_PLUGIN_FILM_GRAIN ? "(filmgrain)" : "",
 			ctx->is_drm ? "Secure" : "Normal",
 			fmt->name,
 			ctx->img_width, ctx->img_height,
@@ -558,8 +560,9 @@ static inline void mfc_show_ctx_info(struct mfc_ctx *ctx)
 	if (!fmt)
 		fmt = &mfc_formats[0];
 
-	mfc_ctx_debug(3, "- %s %s, %s, %dx%d %lufps(ts %lufps, op %lufps, rt %lufps), mb %lu(%d%%), main core %d, op_mode %d(stream %d), rt %d\n",
+	mfc_ctx_debug(3, "- %s%s %s, %s, %dx%d %lufps(ts %lufps, op %lufps, rt %lufps), mb %lu(%d%%), main core %d, op_mode %d(stream %d), rt %d\n",
 			codec->name,
+			ctx->plugin_type == MFC_PLUGIN_FILM_GRAIN ? "(filmgrain)" : "",
 			ctx->is_drm ? "Secure" : "Normal",
 			fmt->name,
 			ctx->img_width, ctx->img_height,
@@ -570,6 +573,35 @@ static inline void mfc_show_ctx_info(struct mfc_ctx *ctx)
 			ctx->weighted_mb, ctx->load,
 			ctx->op_core_num[MFC_CORE_MAIN],
 			ctx->op_mode, ctx->stream_op_mode, ctx->rt);
+}
+
+static inline void mfc_dump_state(struct mfc_dev *dev)
+{
+	int i;
+
+	mfc_dev_err("-----------dumping MFC device info-----------\n");
+	mfc_dev_err("options debug_level:%d, debug_mode:%d (%d), perf_boost:%d, wait_fw_status %d, multi_core_bits: %#lx\n",
+			dev->debugfs.debug_level, dev->pdata->debug_mode, dev->debugfs.debug_mode_en,
+			dev->debugfs.perf_boost_mode, dev->pdata->wait_fw_status.support,
+			dev->multi_core_inst_bits);
+
+	for (i = 0; i < MFC_NUM_CONTEXTS; i++) {
+		if (dev->ctx[i]) {
+			mfc_print_ctx_info(dev->ctx[i]);
+			mfc_dev_err("	main core: %d, op_mode: %d(stream: %d), idle_mode: %d, wait_state %d, prio %d, rt %d, queue_cnt(src:%d, dst:%d, ref:%d, qsrc:%d, qdst:%d), deferred: %d\n",
+				dev->ctx[i]->op_core_num[MFC_CORE_MAIN],
+				dev->ctx[i]->op_mode, dev->ctx[i]->stream_op_mode, dev->ctx[i]->idle_mode,
+				dev->ctx[i]->wait_state,
+				dev->ctx[i]->prio, dev->ctx[i]->rt,
+				mfc_get_queue_count(&dev->ctx[i]->buf_queue_lock, &dev->ctx[i]->src_buf_ready_queue),
+				mfc_get_queue_count(&dev->ctx[i]->buf_queue_lock, &dev->ctx[i]->dst_buf_queue),
+				mfc_get_queue_count(&dev->ctx[i]->buf_queue_lock, &dev->ctx[i]->ref_buf_queue),
+				mfc_get_queue_count(&dev->ctx[i]->buf_queue_lock, &dev->ctx[i]->src_buf_nal_queue),
+				mfc_get_queue_count(&dev->ctx[i]->buf_queue_lock, &dev->ctx[i]->dst_buf_nal_queue),
+				((dev->ctx[i]->type == MFCINST_DECODER && dev->ctx[i]->dec_priv) ?
+				dev->ctx[i]->dec_priv->defer_dec : 0));
+		}
+	}
 }
 
 void mfc_dec_defer_src_update_timer(struct mfc_ctx *ctx);

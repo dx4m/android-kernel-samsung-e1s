@@ -684,8 +684,8 @@ static void test_slsi_conn_log2us_roam_scan_result(struct kunit *test)
 	int cu = 1;
 	int score = 5;
 	int tp_score = 3;
-	bool eligible = true;
-	struct netdev_vif *ndev_vif = netdev_priv(dev);
+	u16 eligible = 1;
+	bool mld_ap = true;
 
 	ndev_vif->iftype = NL80211_IFTYPE_STATION;
 	slsi_conn_log2us_roam_scan_result(sdev, dev, true, bssid, freq, rssi, cu, score,
@@ -770,10 +770,14 @@ static void test_slsi_conn_log2us_nr_frame_req(struct kunit *test)
 	char *ssid = "";
 
 	ndev_vif->iftype = NL80211_IFTYPE_STATION;
-	slsi_conn_log2us_nr_frame_req(sdev, dev, dialog_token, ssid);
 
-	slsi_conn_log2us_nr_frame_req(sdev, dev, dialog_token, NULL);
+	slsi_conn_log2us_nr_frame_req(sdev, dev, dialog_token, ssid, mlo_band, 0);
+	free_log2us_ctx_list(sdev);
 
+	slsi_conn_log2us_nr_frame_req(sdev, dev, dialog_token, NULL, mlo_band, 1);
+	free_log2us_ctx_list(sdev);
+
+	slsi_conn_log2us_nr_frame_req(sdev, dev, dialog_token, NULL, mlo_band, 2);
 	free_log2us_ctx_list(sdev);
 }
 
@@ -799,7 +803,7 @@ static void test_slsi_conn_log2us_beacon_report_request(struct kunit *test)
 	struct net_device *dev = kunit_kzalloc(test, sizeof(struct net_device) + sizeof(struct netdev_vif), GFP_KERNEL);
 	int dialog_token = 0;
 	int operating_class = 0;
-	char *string = "log2us";
+	u16 string = 1;
 	int measure_duration = 0;
 	char *measure_mode = "log2us";
 	u8 request_mode = 0;
@@ -821,8 +825,22 @@ static void test_slsi_conn_log2us_beacon_report_response(struct kunit *test)
 	struct netdev_vif *ndev_vif = netdev_priv(dev);
 
 	ndev_vif->iftype = NL80211_IFTYPE_STATION;
-	slsi_conn_log2us_beacon_report_response(sdev, dev, dialog_token, reason_code);
 
+	slsi_conn_log2us_beacon_report_response(sdev, dev, dialog_token, reason_code, mlo_band, 0);
+	free_log2us_ctx_list(sdev);
+	slsi_conn_log2us_beacon_report_response(sdev, dev, dialog_token, reason_code, mlo_band, 1 << 8);
+	free_log2us_ctx_list(sdev);
+	slsi_conn_log2us_beacon_report_response(sdev, dev, dialog_token, reason_code, mlo_band,
+						(2 << 8) | SLSI_BCN_RPT_MODE_SUCCESS);
+	free_log2us_ctx_list(sdev);
+	slsi_conn_log2us_beacon_report_response(sdev, dev, dialog_token, reason_code, mlo_band,
+						(2 << 8) | SLSI_BCN_RPT_MODE_LATENESS);
+	free_log2us_ctx_list(sdev);
+	slsi_conn_log2us_beacon_report_response(sdev, dev, dialog_token, reason_code, mlo_band,
+						(2 << 8) | SLSI_BCN_RPT_MODE_INCAPABILITY);
+	free_log2us_ctx_list(sdev);
+	slsi_conn_log2us_beacon_report_response(sdev, dev, dialog_token, reason_code, mlo_band,
+						(2 << 8) | SLSI_BCN_RPT_MODE_REFUSAL);
 	free_log2us_ctx_list(sdev);
 }
 

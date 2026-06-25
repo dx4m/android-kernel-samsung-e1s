@@ -464,6 +464,12 @@ static int slsi_vendor_nan_command_reply(struct wiphy *wiphy, u32 status, u32 er
 				   capabilities->max_sdea_service_specific_info_len);
 		ret |= nla_put_u32(reply, NAN_REPLY_ATTR_CAP_INSTANT_COMM_SUPPORTED,
 				   capabilities->instant_comm_supported);
+		ret |= nla_put_u32(reply, NAN_REPLY_ATTR_CAP_6G_SUPPORTED,
+				   capabilities->is_6g_supported);
+		ret |= nla_put_u32(reply, NAN_REPLY_ATTR_CAP_HE_SUPPORTED,
+				   capabilities->is_he_supported);
+		ret |= nla_put_u32(reply, NAN_REPLY_ATTR_CAP_PAIRING_SUPPORTED,
+				   capabilities->is_pairing_supported);
 	} else if (id) {
 		if (response_type < NAN_DP_INTERFACE_CREATE)
 			ret |= nla_put_u16(reply, NAN_REPLY_ATTR_PUBLISH_SUBSCRIBE_TYPE, id);
@@ -537,6 +543,9 @@ static int slsi_nan_get_sdea_params_nl(struct slsi_dev *sdev, struct slsi_nan_sd
 		break;
 	case NAN_REQ_ATTR_SDEA_PARAM_QOS_CFG:
 		slsi_util_nla_get_u8(iter, &sdea_params->qos_cfg);
+		break;
+	case NAN_REQ_ATTR_GTK_PROTECTION:
+		slsi_util_nla_get_u8(iter, &sdea_params->gtk_protection);
 		break;
 	default:
 		return -EINVAL;
@@ -2817,7 +2826,10 @@ int slsi_nan_get_capabilities(struct wiphy *wiphy, struct wireless_dev *wdev, co
 						  { SLSI_PSID_UNIFI_NAN_MAX_SUBSCRIBE_INTERFACE_ADDRESSES, { 0, 0 } },
 						  { SLSI_PSID_UNIFI_NAN_SUPPORTED_CIPHER_SUITES, { 0, 0 }, },
 						  { SLSI_PSID_UNIFI_NAN_MAX_EXTENDED_SERVICE_SPECIFIC_INFO_LEN, { 0, 0} },
-						  { SLSI_PSID_UNIFI_NAN_INSTANT_COMM_SUPPORTED, { 0, 0} } };
+						  { SLSI_PSID_UNIFI_NAN_INSTANT_COMM_SUPPORTED, { 0, 0} },
+						  { SLSI_PSID_UNIFI6_GHZ_ENABLED, { 0, 0} },
+						  { SLSI_PSID_UNIFI_NAN_HE_ACTIVATED, { 0, 0} },
+						  { SLSI_PSID_UNIFI_NAN_PAIRING_ACTIVATED, { 0, 0} }};
 	u32 *capabilities_mib_val[] = { &nan_capabilities.max_concurrent_nan_clusters,
 					&nan_capabilities.max_publishes,
 					&nan_capabilities.max_subscribes,
@@ -2831,7 +2843,10 @@ int slsi_nan_get_capabilities(struct wiphy *wiphy, struct wireless_dev *wdev, co
 					&nan_capabilities.max_subscribe_address,
 					&nan_capabilities.cipher_suites_supported,
 					&nan_capabilities.max_sdea_service_specific_info_len,
-					&nan_capabilities.instant_comm_supported };
+					&nan_capabilities.instant_comm_supported,
+					&nan_capabilities.is_6g_supported,
+					&nan_capabilities.is_he_supported,
+					&nan_capabilities.is_pairing_supported};
 	int type, tmp;
 	const struct nlattr *iter;
 	u16 transaction_id = 0;
@@ -2895,6 +2910,8 @@ int slsi_nan_get_capabilities(struct wiphy *wiphy, struct wireless_dev *wdev, co
 	}
 	/* Currently Firmware and driver supports only one follow up message per peer at the same time */
 	nan_capabilities.max_queued_transmit_followup_msgs = 1;
+	nan_capabilities.is_6g_supported = (u32)sdev->nan_6g_supported;
+
 	SLSI_INFO(sdev, "transId:%d\n", transaction_id);
 
 	kfree(values);
@@ -3973,6 +3990,7 @@ void slsi_nan_bootstrapping_requested_ind(struct slsi_dev *sdev, struct net_devi
 			fapi_get_buff(skb,
 				      u.mlme_nan_bootstrapping_requested_ind.peer_nmi_address));
 	hal_evt->requestor_instance_id = fapi_get_u16(skb, u.mlme_nan_bootstrapping_requested_ind.match_id);
+	sdev->requestor_instance_id = hal_evt->requestor_instance_id;
 	hal_evt->publish_subscribe_id = fapi_get_u16(skb, u.mlme_nan_bootstrapping_requested_ind.session_id);
 	hal_evt->bootstrapping_method = fapi_get_u16(skb,
 						     u.mlme_nan_bootstrapping_requested_ind.bootstrapping_method);
@@ -4551,6 +4569,12 @@ int slsi_nan_pasn_set_key(struct wiphy *wiphy, struct wireless_dev *wdev, const 
 		case NAN_PASN_SET_KEY_NM_KEK:
 			slsi_util_nla_get_data(iter, sdev->set_key_params.nm_kek_len, sdev->set_key_params.nm_kek);
 			break;
+		case NAN_PASN_SET_KEY_ND_PMK_LEN:
+			slsi_util_nla_get_u8(iter, &sdev->set_key_params.nd_pmk_len);
+			break;
+		case NAN_PASN_SET_KEY_ND_PMK:
+			slsi_util_nla_get_data(iter, sdev->set_key_params.nd_pmk_len, sdev->set_key_params.nd_pmk);
+			break;
 		case NAN_PASN_SET_KEY_CIPHER:
 			slsi_util_nla_get_u32(iter, &sdev->set_key_params.cipher);
 			break;
@@ -4574,6 +4598,7 @@ void slsi_nan_pasn_send_key(struct slsi_dev *sdev, struct net_device *dev)
 	struct netdev_vif *ndev_vif = netdev_priv(dev);
 	struct key_params setkey_tk;
 	struct key_params setkey_kek;
+	struct key_params setkey_nd_pmk;
 	int ret = 0;
 
 	SLSI_INFO(sdev, "[NAN][Pairing][Driver]slsi nan pasn send key start!!\n");
@@ -4585,12 +4610,18 @@ void slsi_nan_pasn_send_key(struct slsi_dev *sdev, struct net_device *dev)
 	setkey_kek.key = sdev->set_key_params.nm_kek;
 	setkey_kek.key_len = sdev->set_key_params.nm_kek_len;
 
+	memset(&setkey_nd_pmk, 0, sizeof(setkey_nd_pmk));
+	setkey_nd_pmk.key = sdev->set_key_params.nd_pmk;
+	setkey_nd_pmk.key_len = sdev->set_key_params.nd_pmk_len;
+
 	if (sdev->set_key_params.cipher == 16) {
 		setkey_tk.cipher = 0x000fac04;
 		setkey_kek.cipher = 0x000fac04;
+		setkey_nd_pmk.cipher = 0x000fac04;
 	} else if (sdev->set_key_params.cipher == 256) {
 		setkey_tk.cipher = 0x000fac09;
 		setkey_kek.cipher = 0x000fac09;
+		setkey_nd_pmk.cipher = 0x000fac09;
 	} else {
 		SLSI_ERR(sdev, "[NAN][Pairing][Driver]Cipher type is not available\n");
 	}
@@ -4614,6 +4645,13 @@ void slsi_nan_pasn_send_key(struct slsi_dev *sdev, struct net_device *dev)
 			SLSI_ERR(sdev, "[NAN][Pairing][Driver]FAPI_KEYTYPE_KEK Success\n");
 		else
 			SLSI_ERR(sdev, "[NAN][Pairing][Driver]FAPI_KEYTYPE_KEK Failed\n");
+
+		ret = slsi_mlme_set_key(sdev, dev, 0, FAPI_KEYTYPE_PMK, sdev->set_key_params.peer_mac_addr,
+					&setkey_nd_pmk);
+		if (ret == FAPI_RESULTCODE_SUCCESS)
+			SLSI_ERR(sdev, "[NAN][Pairing][Driver]FAPI_KEYTYPE_ND_PMK Success\n");
+		else
+			SLSI_ERR(sdev, "[NAN][Pairing][Driver]FAPI_KEYTYPE_ND_PMK Failed\n");
 	}
 	SLSI_MUTEX_UNLOCK(ndev_vif->vif_mutex);
 }

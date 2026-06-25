@@ -143,7 +143,7 @@ void dp_logger_hex_dump(void *buf, void *pref, size_t size)
 	if (i % 16) {
 		len = ptmp - tmp;
 		tmp[len] = 0x0;
-		dp_logger_print("%s%s\n", pref, tmp);
+		dp_logger_print("%s%s\n", (char *)pref, tmp);
 	}
 }
 EXPORT_SYMBOL(dp_logger_hex_dump);
@@ -206,7 +206,7 @@ void dp_enable_uevent(int enable)
 }
 EXPORT_SYMBOL(dp_enable_uevent);
 
-#define MIN(x, y) (x > y ? y : x)
+#define LOGGER_MIN(x, y) (x > y ? y : x)
 #define MAX_HEADER	32
 #define PAYLOAD_TAG	"P1="
 
@@ -214,7 +214,7 @@ void dp_print_log_to_uevent(char *str, int size, int option)
 {
 #ifdef CONFIG_SEC_DISPLAYPORT_DBG
 	struct dp_uevent *uevent_data;
-	int payload_size = MIN(MAX_DPLOG_STR_LEN, size + strlen(PAYLOAD_TAG));
+	int payload_size = LOGGER_MIN(MAX_DPLOG_STR_LEN, size + strlen(PAYLOAD_TAG));
 
 	if (!uevent_enable || !is_dp_logger_init)
 		return;

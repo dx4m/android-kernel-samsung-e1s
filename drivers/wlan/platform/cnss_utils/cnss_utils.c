@@ -13,7 +13,7 @@
 #include <linux/debugfs.h>
 #include <linux/of.h>
 #ifdef CONFIG_CNSS_OUT_OF_TREE
-#include "../inc/cnss_utils.h"
+#include "cnss_utils.h"
 #else
 #include <net/cnss_utils.h>
 #endif
@@ -22,7 +22,7 @@
 #include <smem-mailbox.h>
 #endif
 
-#ifdef CNSS_UTILS_VENDOR_UNSAFE_CHAN_API_SUPPORT
+#if defined(CNSS_UTILS_VENDOR_UNSAFE_CHAN_API_SUPPORT) && IS_ENABLED(CONFIG_DEV_RIL_BRIDGE)
 #include <linux/dev_ril_bridge.h>
 #endif
 
@@ -80,7 +80,9 @@ static struct cnss_utils_priv {
 #endif
 } *cnss_utils_priv;
 
-#ifdef CNSS_UTILS_VENDOR_UNSAFE_CHAN_API_SUPPORT
+#if defined(CNSS_UTILS_VENDOR_UNSAFE_CHAN_API_SUPPORT) && IS_ENABLED(CONFIG_DEV_RIL_BRIDGE)
+#define LTECX_MAX_BAND	16
+
 typedef enum {
     CP_NONE=0,
     CP_COEX_LTE=3,
@@ -88,18 +90,46 @@ typedef enum {
 } rat_mode;
 
 typedef enum {
+	CP_NONE_BAND = 0,
+	CP_LTE_BAND_40 = 130,
+	CP_LTE_BAND_41 = 131,
+	CP_NR_BAND_N7 = 262,
+	CP_NR_BAND_N41 = 296
+} CP_band_info;
+typedef enum {
 	CP_NO_BAND,
-    CP_LTE_BAND = CP_NO_BAND,
-    CP_5G_BAND,
-    CP_BAND_MAX,
-    CP_BOTH_BAND
+	CP_LTE_BAND = CP_NO_BAND,
+	CP_5G_BAND,
+	CP_BAND_MAX,
+	CP_BOTH_BAND
 } CP_channel_info;
 
 struct __packed LTE_5G_coex_cp_noti_info {
-u8 rat;
-u32 band;
-u32 channel;
+	u8 rat;
+	u32 band;
+	u32 channel;
 };
+
+struct __packed module_cp_cell_info {
+	u8 rat;
+	u32 band;
+	u32 channel;
+	u8 cell_connection_status;
+	u32 bandwidth_downlink;
+	u32 ss_sinr;
+	//optional
+	u32 ss_rsrp;
+	u32 ss_rsrq;
+	u8 cqi;
+	u8 dl_mcs;
+	u32 pusch_power;
+};
+
+struct module_cp_noti_cell_infos {
+        u32 num_cell;
+	struct module_cp_cell_info cell_list[LTECX_MAX_BAND];
+};
+
 
 typedef struct {
 	bool init_notifier;
@@ -108,21 +138,95 @@ typedef struct {
 	struct mutex cp_channel_info_mutex;
 	struct LTE_5G_coex_cp_noti_info cp_noti_info[CP_BAND_MAX];
 	unsigned int cp_channel_info_ready;
+	struct module_cp_noti_cell_infos mipi_cp_noti_infos;
+	unsigned int mipi_cp_channel_infos_ready[LTECX_MAX_BAND];
+	unsigned int dev_id;
 } SS_cp_wlan_coex;
 
 static SS_cp_wlan_coex g_cp_wlan_coex;
 static int cp_sap_coex_testmode_enabled;
 static int cp_sap_coex_cp_tc;
+static int cp_sap_coex_cp_tc_id;
+
+static int parse_dev_ril_bridge_msg(struct dev_ril_bridge_msg *msg) {
+	struct module_cp_noti_cell_infos *msg_data = (struct module_cp_noti_cell_infos *)msg->data;
+	int ret = NOTIFY_DONE;
+
+	if (msg->data_len < (sizeof(struct module_cp_cell_info) * msg_data->num_cell)) {
+		pr_err("Error: data_len(%d) is too small to contain module_cp_noti_cell_infos\n", msg->data_len);
+		return NOTIFY_BAD;
+	}
+	if (msg_data->num_cell > LTECX_MAX_BAND) {
+		pr_err("Error: num_cell exceeds LTECX_MAX_BAND\n");
+		return NOTIFY_BAD;
+	}
+
+	g_cp_wlan_coex.dev_id = msg->dev_id;
+	// Clear previous mipi_cp_noti_infos data
+	memset(&g_cp_wlan_coex.mipi_cp_noti_infos, 0, sizeof(g_cp_wlan_coex.mipi_cp_noti_infos));
+
+	// Update mipi_cp_noti_infos with new data
+	g_cp_wlan_coex.mipi_cp_noti_infos.num_cell = msg_data->num_cell;
+	memcpy(g_cp_wlan_coex.mipi_cp_noti_infos.cell_list, msg_data->cell_list, msg_data->num_cell * sizeof(struct module_cp_cell_info));
+
+	for (u32 i = 0; i < g_cp_wlan_coex.mipi_cp_noti_infos.num_cell; i++) {
+		pr_err("Cell %u:\n", i + 1);
+		pr_err("  RAT: %u\n", g_cp_wlan_coex.mipi_cp_noti_infos.cell_list[i].rat);
+		pr_err("  Band: %u\n", g_cp_wlan_coex.mipi_cp_noti_infos.cell_list[i].band);
+		pr_err("  Channel: %u\n", g_cp_wlan_coex.mipi_cp_noti_infos.cell_list[i].channel);
+		pr_err("  Cell Connection Status: %u\n", g_cp_wlan_coex.mipi_cp_noti_infos.cell_list[i].cell_connection_status);
+		pr_err("  Bandwidth Downlink: %u\n", g_cp_wlan_coex.mipi_cp_noti_infos.cell_list[i].bandwidth_downlink);
+		pr_err("  SS SINR: %u\n", g_cp_wlan_coex.mipi_cp_noti_infos.cell_list[i].ss_sinr);
+		pr_err("  SS RSRP: %u\n", g_cp_wlan_coex.mipi_cp_noti_infos.cell_list[i].ss_rsrp);
+		pr_err("  SS RSRQ: %u\n", g_cp_wlan_coex.mipi_cp_noti_infos.cell_list[i].ss_rsrq);
+		pr_err("  CQI: %u\n", g_cp_wlan_coex.mipi_cp_noti_infos.cell_list[i].cqi);
+		pr_err("  DL MCS: %u\n", g_cp_wlan_coex.mipi_cp_noti_infos.cell_list[i].dl_mcs);
+		pr_err("  PUSCH Power: %u\n", g_cp_wlan_coex.mipi_cp_noti_infos.cell_list[i].pusch_power);
+
+		// mutex_lock(&g_cp_wlan_coex.cp_channel_info_mutex);
+
+		switch (g_cp_wlan_coex.mipi_cp_noti_infos.cell_list[i].rat) {
+			case CP_COEX_LTE:
+				g_cp_wlan_coex.mipi_cp_channel_infos_ready[i] |= (1 << CP_LTE_BAND);
+				ret = NOTIFY_OK;
+				break;
+
+			case CP_COEX_NT5G:
+				g_cp_wlan_coex.mipi_cp_channel_infos_ready[i] |= (1 << CP_5G_BAND);
+				ret = NOTIFY_OK;
+				break;
+
+			default:
+				pr_err("[cnss_cp_coex] discard channel info! rat=%d", g_cp_wlan_coex.mipi_cp_noti_infos.cell_list[i].rat);
+				ret = NOTIFY_BAD;
+				break;
+		}
+
+		// mutex_unlock(&g_cp_wlan_coex.cp_channel_info_mutex);
+
+		if (ret == NOTIFY_BAD) {
+			goto end;
+		}
+	}
+
+	complete(&g_cp_wlan_coex.cp_info_comp_var);
+end:
+	return ret;
+}
 
 static int cnss_cp_coex_ril_notifier(struct notifier_block *nb,
 unsigned long size, void *buf)
 {
 	struct dev_ril_bridge_msg *msg;
 	struct LTE_5G_coex_cp_noti_info *cp_noti_info;
+	int data_size;
+	int msg_data_size;
+	int ret = NOTIFY_DONE;
 
 	if (!g_cp_wlan_coex.init_notifier) {
 		pr_err("[cnss_cp_coex] not init ril notifier");
-		return NOTIFY_DONE;
+		ret = NOTIFY_DONE;
+		goto end;
 	}
 
 	pr_err("[cnss_cp_coex] ril notification size [%ld]", size);
@@ -132,79 +236,349 @@ unsigned long size, void *buf)
 	msg->dev_id, msg->data_len);
 
 	if (msg->dev_id == IPC_SYSTEM_CP_CHANNEL_INFO
-	&& msg->data_len == sizeof(struct LTE_5G_coex_cp_noti_info)) {
+		       && msg->data_len == sizeof(struct LTE_5G_coex_cp_noti_info)) {
 		cp_noti_info = (struct LTE_5G_coex_cp_noti_info *)msg->data;
 
 		pr_err("[cnss_cp_coex] update CP channel info [%d,%d,%d]",
 		cp_noti_info->rat, cp_noti_info->band, cp_noti_info->channel);
 
+		g_cp_wlan_coex.dev_id = msg->dev_id;
+
 		//rat mode : LTE (3), NR5G (7)
 		switch(cp_noti_info->rat)
-			{
-				case CP_COEX_LTE:
-					g_cp_wlan_coex.cp_channel_info_ready |= (1 << CP_LTE_BAND);
-					memcpy(&g_cp_wlan_coex.cp_noti_info[CP_LTE_BAND], cp_noti_info, sizeof(struct LTE_5G_coex_cp_noti_info));
-					break;
+		{
+			case CP_COEX_LTE:
+				g_cp_wlan_coex.cp_channel_info_ready |= (1 << CP_LTE_BAND);
+				memcpy(&g_cp_wlan_coex.cp_noti_info[CP_LTE_BAND], cp_noti_info, sizeof(struct LTE_5G_coex_cp_noti_info));
+				break;
 
-				case CP_COEX_NT5G:
-					g_cp_wlan_coex.cp_channel_info_ready |= (1 << CP_5G_BAND);
-					memcpy(&g_cp_wlan_coex.cp_noti_info[CP_5G_BAND], cp_noti_info, sizeof(struct LTE_5G_coex_cp_noti_info));
-					break;
+			case CP_COEX_NT5G:
+				g_cp_wlan_coex.cp_channel_info_ready |= (1 << CP_5G_BAND);
+				memcpy(&g_cp_wlan_coex.cp_noti_info[CP_5G_BAND], cp_noti_info, sizeof(struct LTE_5G_coex_cp_noti_info));
+				break;
 
-				default:
-					pr_err("[cnss_cp_coex] discard channel info! rat=%d",cp_noti_info->rat);
-					break;
-			}
+			default:
+				pr_err("[cnss_cp_coex] discard channel info! rat=%d",cp_noti_info->rat);
+				break;
+		}
 
 		if(g_cp_wlan_coex.cp_channel_info_ready == CP_BOTH_BAND)
-			{
-				complete(&g_cp_wlan_coex.cp_info_comp_var);
-				g_cp_wlan_coex.cp_channel_info_ready = CP_NO_BAND;
+		{
+			complete(&g_cp_wlan_coex.cp_info_comp_var);
+			g_cp_wlan_coex.cp_channel_info_ready = CP_NO_BAND;
+		}
+		ret = NOTIFY_DONE;
+		goto end;
+	} else if (msg->dev_id == IPC_SYSTEM_CP_ADAPTIVE_MIPI_INFO) {
+		data_size = sizeof(struct module_cp_cell_info);
+
+		msg_data_size = msg->data_len - sizeof(((struct module_cp_noti_cell_infos *)msg->data)->num_cell);
+
+		if (msg_data_size == data_size * ((struct module_cp_noti_cell_infos *)msg->data)->num_cell) {
+			ret = parse_dev_ril_bridge_msg(msg);
+			if (ret == NOTIFY_BAD) {
+				pr_err("[cnss_cp_coex] Failed to parse the dev ril bridge msg");
+				goto end;
 			}
 
-		return NOTIFY_OK;
+			ret = NOTIFY_OK;
+			goto end;
+		} else {
+			pr_err("[cnss_cp_coex] data size is mismatch : msg_data_size %d, expected_data_size %d", msg_data_size,
+					data_size * ((struct module_cp_noti_cell_infos *)msg->data)->num_cell);
+			ret = NOTIFY_BAD;
+			goto end;
+		}
+
 	}
-	return NOTIFY_DONE;
+end:
+	return ret;
 }
 
 static struct notifier_block g_ril_notifier_block = {
-.notifier_call = cnss_cp_coex_ril_notifier,
+	.notifier_call = cnss_cp_coex_ril_notifier,
 };
 
 static void cnss_cp_coex_register_ril_notifier(void)
 {
-	if (!g_cp_wlan_coex.init_notifier) {
-	pr_err("[cnss_cp_coex] register ril notifier");
-	init_completion(&g_cp_wlan_coex.cp_info_comp_var);
-	memset(g_cp_wlan_coex.cp_noti_info, 0, sizeof(struct LTE_5G_coex_cp_noti_info)*2);
-	g_cp_wlan_coex.cp_channel_info_ready = CP_NO_BAND;
-	register_dev_ril_bridge_event_notifier(&g_ril_notifier_block);
-	g_cp_wlan_coex.init_notifier = true;
-	}
+       if (!g_cp_wlan_coex.init_notifier) {
+	       pr_err("[cnss_cp_coex] register ril notifier");
+	       init_completion(&g_cp_wlan_coex.cp_info_comp_var);
+	       memset(g_cp_wlan_coex.cp_noti_info, 0, sizeof(struct LTE_5G_coex_cp_noti_info)*2);
+	       memset(&g_cp_wlan_coex.mipi_cp_noti_infos, 0, sizeof(g_cp_wlan_coex.mipi_cp_noti_infos));
+	       memset(g_cp_wlan_coex.mipi_cp_channel_infos_ready, 0, LTECX_MAX_BAND);
+	       g_cp_wlan_coex.cp_channel_info_ready = CP_NO_BAND;
+	       register_dev_ril_bridge_event_notifier(&g_ril_notifier_block);
+	       g_cp_wlan_coex.init_notifier = true;
+       }
 }
 
 static void cnss_cp_coex_unregister_ril_notifier(void)
 {
-	if (g_cp_wlan_coex.init_notifier) {
-	pr_err("[cnss_cp_coex] unregister ril notifier");
-	//mutex_destroy(&g_cp_wlan_coex.cp_channel_info_mutex);
-	unregister_dev_ril_bridge_event_notifier(&g_ril_notifier_block);
-	complete_all(&g_cp_wlan_coex.cp_info_comp_var);
-	g_cp_wlan_coex.init_notifier = false;
+       if (g_cp_wlan_coex.init_notifier) {
+	       pr_err("[cnss_cp_coex] unregister ril notifier");
+	       unregister_dev_ril_bridge_event_notifier(&g_ril_notifier_block);
+	       complete_all(&g_cp_wlan_coex.cp_info_comp_var);
+	       g_cp_wlan_coex.init_notifier = false;
+       }
+}
+
+static void handle_cp_sap_coex_test_mode(void)
+{
+	struct dev_ril_bridge_msg test_msg;
+	struct LTE_5G_coex_cp_noti_info lte_info;
+
+	if(cp_sap_coex_cp_tc_id == IPC_SYSTEM_CP_CHANNEL_INFO) { //IPC_SYSTEM_CP_CHANNEL_INFO : 0x1
+		test_msg.dev_id = IPC_SYSTEM_CP_CHANNEL_INFO;
+		test_msg.data_len = sizeof(struct LTE_5G_coex_cp_noti_info);
+		test_msg.data =(void *)&lte_info;
+		if(cp_sap_coex_cp_tc == 1){ //simulate a case to select ch11
+			lte_info.rat = CP_COEX_LTE;
+			lte_info.band = 130;
+			lte_info.channel= 39000;
+			cnss_cp_coex_ril_notifier(&g_ril_notifier_block,sizeof(struct dev_ril_bridge_msg),&test_msg);
+			lte_info.rat = CP_COEX_NT5G;
+			lte_info.band = 0;
+			lte_info.channel= 0;
+			cnss_cp_coex_ril_notifier(&g_ril_notifier_block,sizeof(struct dev_ril_bridge_msg),&test_msg);
+		}
+		else if(cp_sap_coex_cp_tc == 2){ //simulate a case to select ch1
+			lte_info.rat = CP_COEX_LTE;
+			lte_info.band = 131;
+			lte_info.channel= 40000;
+			cnss_cp_coex_ril_notifier(&g_ril_notifier_block,sizeof(struct dev_ril_bridge_msg),&test_msg);
+			lte_info.rat = CP_COEX_NT5G;
+			lte_info.band = 0;
+			lte_info.channel= 0;
+			cnss_cp_coex_ril_notifier(&g_ril_notifier_block,sizeof(struct dev_ril_bridge_msg),&test_msg);
+		}
+		else if(cp_sap_coex_cp_tc == 3){ //simulate a case to select ch6
+			lte_info.rat = CP_COEX_LTE;
+			lte_info.band = 130;
+			lte_info.channel= 39000;
+			cnss_cp_coex_ril_notifier(&g_ril_notifier_block,sizeof(struct dev_ril_bridge_msg),&test_msg);
+			lte_info.rat = CP_COEX_NT5G;
+			lte_info.band = 296;
+			lte_info.channel= 500000;
+			cnss_cp_coex_ril_notifier(&g_ril_notifier_block,sizeof(struct dev_ril_bridge_msg),&test_msg);
+		}
+		else
+			pr_err("[cnss_cp_coex] invalid TC = %d!",cp_sap_coex_cp_tc);
+	}
+	else if(cp_sap_coex_cp_tc_id == IPC_SYSTEM_CP_ADAPTIVE_MIPI_INFO) { //IPC_SYSTEM_CP_ADAPTIVE_MIPI_INFO : 0x5
+		if(cp_sap_coex_cp_tc == 1) { //simulate a case to select ch11
+			struct module_cp_noti_cell_infos msg_data;
+
+			msg_data.num_cell = 2;
+
+			msg_data.cell_list[0].rat = CP_COEX_LTE;
+			msg_data.cell_list[0].band = 130;
+			msg_data.cell_list[0].channel = 39000;
+			msg_data.cell_list[0].cell_connection_status = 1;
+			msg_data.cell_list[0].bandwidth_downlink = 100;
+			msg_data.cell_list[0].ss_sinr = 10;
+			msg_data.cell_list[0].ss_rsrp = 20;
+			msg_data.cell_list[0].ss_rsrq = 30;
+			msg_data.cell_list[0].cqi = 5;
+			msg_data.cell_list[0].dl_mcs = 10;
+			msg_data.cell_list[0].pusch_power = 50;
+
+			msg_data.cell_list[1].rat = CP_COEX_NT5G;
+			msg_data.cell_list[1].band = 0;
+			msg_data.cell_list[1].channel = 0;
+			msg_data.cell_list[1].cell_connection_status = 0;
+			msg_data.cell_list[1].bandwidth_downlink = 0;
+			msg_data.cell_list[1].ss_sinr = 0;
+			msg_data.cell_list[1].ss_rsrp = 0;
+			msg_data.cell_list[1].ss_rsrq = 0;
+			msg_data.cell_list[1].cqi = 0;
+			msg_data.cell_list[1].dl_mcs = 0;
+			msg_data.cell_list[1].pusch_power = 0;
+
+			test_msg.dev_id = IPC_SYSTEM_CP_ADAPTIVE_MIPI_INFO;
+			test_msg.data_len = sizeof(struct module_cp_cell_info) * msg_data.num_cell + sizeof(msg_data.num_cell);
+			test_msg.data = &msg_data;
+			print_hex_dump(KERN_INFO, "test_msg: ", DUMP_PREFIX_OFFSET, 16, 1, &test_msg, sizeof(test_msg) + test_msg.data_len, true);
+
+			cnss_cp_coex_ril_notifier(&g_ril_notifier_block, test_msg.data_len, &test_msg);
+		}
+		else if(cp_sap_coex_cp_tc == 2){ //simulate a case to select ch1
+			struct module_cp_noti_cell_infos msg_data;
+
+			msg_data.num_cell = 2;
+
+			msg_data.cell_list[0].rat = CP_COEX_LTE;
+			msg_data.cell_list[0].band = 131;
+			msg_data.cell_list[0].channel = 40000;
+			msg_data.cell_list[0].cell_connection_status = 1;
+			msg_data.cell_list[0].bandwidth_downlink = 100;
+			msg_data.cell_list[0].ss_sinr = 10;
+			msg_data.cell_list[0].ss_rsrp = 20;
+			msg_data.cell_list[0].ss_rsrq = 30;
+			msg_data.cell_list[0].cqi = 5;
+			msg_data.cell_list[0].dl_mcs = 10;
+			msg_data.cell_list[0].pusch_power = 50;
+
+			msg_data.cell_list[1].rat = CP_COEX_NT5G;
+			msg_data.cell_list[1].band = 0;
+			msg_data.cell_list[1].channel = 0;
+			msg_data.cell_list[1].cell_connection_status = 0;
+			msg_data.cell_list[1].bandwidth_downlink = 0;
+			msg_data.cell_list[1].ss_sinr = 0;
+			msg_data.cell_list[1].ss_rsrp = 0;
+			msg_data.cell_list[1].ss_rsrq = 0;
+			msg_data.cell_list[1].cqi = 0;
+			msg_data.cell_list[1].dl_mcs = 0;
+			msg_data.cell_list[1].pusch_power = 0;
+
+			test_msg.dev_id = IPC_SYSTEM_CP_ADAPTIVE_MIPI_INFO;
+			test_msg.data_len = sizeof(struct module_cp_cell_info) * msg_data.num_cell + sizeof(msg_data.num_cell);
+			test_msg.data = &msg_data;
+			print_hex_dump(KERN_INFO, "test_msg: ", DUMP_PREFIX_OFFSET, 16, 1, &test_msg, sizeof(test_msg) + test_msg.data_len, true);
+
+			cnss_cp_coex_ril_notifier(&g_ril_notifier_block, test_msg.data_len, &test_msg);
+		}
+		else if(cp_sap_coex_cp_tc == 3){ //simulate a case to select ch6
+			struct module_cp_noti_cell_infos msg_data;
+
+			msg_data.num_cell = 2;
+
+			msg_data.cell_list[0].rat = CP_COEX_LTE;
+			msg_data.cell_list[0].band = 130;
+			msg_data.cell_list[0].channel = 39000;
+			msg_data.cell_list[0].cell_connection_status = 1;
+			msg_data.cell_list[0].bandwidth_downlink = 100;
+			msg_data.cell_list[0].ss_sinr = 10;
+			msg_data.cell_list[0].ss_rsrp = 20;
+			msg_data.cell_list[0].ss_rsrq = 30;
+			msg_data.cell_list[0].cqi = 5;
+			msg_data.cell_list[0].dl_mcs = 10;
+			msg_data.cell_list[0].pusch_power = 50;
+
+			msg_data.cell_list[1].rat = CP_COEX_NT5G;
+			msg_data.cell_list[1].band = 296;
+			msg_data.cell_list[1].channel = 500000;
+			msg_data.cell_list[1].cell_connection_status = 0;
+			msg_data.cell_list[1].bandwidth_downlink = 0;
+			msg_data.cell_list[1].ss_sinr = 0;
+			msg_data.cell_list[1].ss_rsrp = 0;
+			msg_data.cell_list[1].ss_rsrq = 0;
+			msg_data.cell_list[1].cqi = 0;
+			msg_data.cell_list[1].dl_mcs = 0;
+			msg_data.cell_list[1].pusch_power = 0;
+
+			test_msg.dev_id = IPC_SYSTEM_CP_ADAPTIVE_MIPI_INFO;
+			test_msg.data_len = sizeof(struct module_cp_cell_info) * msg_data.num_cell + sizeof(msg_data.num_cell);
+			test_msg.data = &msg_data;
+			print_hex_dump(KERN_INFO, "test_msg: ", DUMP_PREFIX_OFFSET, 16, 1, &test_msg, sizeof(test_msg) + test_msg.data_len, true);
+
+			cnss_cp_coex_ril_notifier(&g_ril_notifier_block, test_msg.data_len, &test_msg);
+		}
+		else if(cp_sap_coex_cp_tc == 4){ //simulate a case to select ch6
+			struct module_cp_noti_cell_infos msg_data;
+
+			msg_data.num_cell = 3;
+
+			msg_data.cell_list[0].rat = CP_COEX_LTE;
+			msg_data.cell_list[0].band = 130;
+			msg_data.cell_list[0].channel = 39000;
+			msg_data.cell_list[0].cell_connection_status = 1;
+			msg_data.cell_list[0].bandwidth_downlink = 100;
+			msg_data.cell_list[0].ss_sinr = 10;
+			msg_data.cell_list[0].ss_rsrp = 20;
+			msg_data.cell_list[0].ss_rsrq = 30;
+			msg_data.cell_list[0].cqi = 5;
+			msg_data.cell_list[0].dl_mcs = 10;
+			msg_data.cell_list[0].pusch_power = 50;
+
+			msg_data.cell_list[1].rat = CP_COEX_NT5G;
+			msg_data.cell_list[1].band = 296;
+			msg_data.cell_list[1].channel = 500000;
+			msg_data.cell_list[1].cell_connection_status = 0;
+			msg_data.cell_list[1].bandwidth_downlink = 0;
+			msg_data.cell_list[1].ss_sinr = 0;
+			msg_data.cell_list[1].ss_rsrp = 0;
+			msg_data.cell_list[1].ss_rsrq = 0;
+			msg_data.cell_list[1].cqi = 0;
+			msg_data.cell_list[1].dl_mcs = 0;
+			msg_data.cell_list[1].pusch_power = 0;
+
+			msg_data.cell_list[2].rat = CP_COEX_LTE;
+			msg_data.cell_list[2].band = 131;
+			msg_data.cell_list[2].channel = 41000;
+			msg_data.cell_list[2].cell_connection_status = 2;
+			msg_data.cell_list[2].bandwidth_downlink = 100;
+			msg_data.cell_list[2].ss_sinr = 10;
+			msg_data.cell_list[2].ss_rsrp = 20;
+			msg_data.cell_list[2].ss_rsrq = 30;
+			msg_data.cell_list[2].cqi = 5;
+			msg_data.cell_list[2].dl_mcs = 10;
+			msg_data.cell_list[2].pusch_power = 50;
+
+			test_msg.dev_id = IPC_SYSTEM_CP_ADAPTIVE_MIPI_INFO;
+			test_msg.data_len = sizeof(struct module_cp_cell_info) * msg_data.num_cell + sizeof(msg_data.num_cell);
+			test_msg.data = &msg_data;
+			//			print_hex_dump(KERN_INFO, "test_msg: ", DUMP_PREFIX_OFFSET, 16, 1, &test_msg, sizeof(test_msg) + test_msg.data_len, true);
+
+			cnss_cp_coex_ril_notifier(&g_ril_notifier_block, test_msg.data_len, &test_msg);
+		}
+
+		else
+			pr_err("[cnss_cp_coex] invalid TC = %d!",cp_sap_coex_cp_tc);
+
+	} // cp_sap_coex_cp_tc_id check
+}
+
+static bool are_all_cells_no_band(void)
+{
+	int i;
+	for (i = 0; i < g_cp_wlan_coex.mipi_cp_noti_infos.num_cell; i++) {
+		if (g_cp_wlan_coex.mipi_cp_noti_infos.cell_list[i].rat != CP_NO_BAND) {
+			return false;
+		}
+	}
+	return true;
+}
+
+static void check_cp_band_info(bool *is_B40, bool *is_B41, bool *is_N41, bool *is_N40, bool *is_N7)
+{
+	for (int i = 0; i < g_cp_wlan_coex.mipi_cp_noti_infos.num_cell; i++) {
+		pr_err("[cnss_cp_coex] g_cp_wlan_coex.mipi_cp_noti_infos.cell_list[%d] [%d,%d,%d]", i,
+				g_cp_wlan_coex.mipi_cp_noti_infos.cell_list[i].rat,
+				g_cp_wlan_coex.mipi_cp_noti_infos.cell_list[i].band,
+				g_cp_wlan_coex.mipi_cp_noti_infos.cell_list[i].channel);
+
+		if (g_cp_wlan_coex.mipi_cp_noti_infos.cell_list[i].rat != CP_NONE) {
+			if (g_cp_wlan_coex.mipi_cp_noti_infos.cell_list[i].band == 130 &&
+					(38650 <= g_cp_wlan_coex.mipi_cp_noti_infos.cell_list[i].channel && g_cp_wlan_coex.mipi_cp_noti_infos.cell_list[i].channel <= 39649)) {
+				*is_B40 = true;
+			} else if (g_cp_wlan_coex.mipi_cp_noti_infos.cell_list[i].band == 131 &&
+					(39650 <= g_cp_wlan_coex.mipi_cp_noti_infos.cell_list[i].channel && g_cp_wlan_coex.mipi_cp_noti_infos.cell_list[i].channel <= 41589)) {
+				*is_B41 = true;
+			} else if (g_cp_wlan_coex.mipi_cp_noti_infos.cell_list[i].band == 296 &&
+					(499200 <= g_cp_wlan_coex.mipi_cp_noti_infos.cell_list[i].channel && g_cp_wlan_coex.mipi_cp_noti_infos.cell_list[i].channel <= 537999)) {
+				*is_N41 = true;
+			} else if (g_cp_wlan_coex.mipi_cp_noti_infos.cell_list[i].band == 295 &&
+					(460000 <= g_cp_wlan_coex.mipi_cp_noti_infos.cell_list[i].channel && g_cp_wlan_coex.mipi_cp_noti_infos.cell_list[i].channel <= 480000)) {
+				*is_N40 = true;
+			} else if (g_cp_wlan_coex.mipi_cp_noti_infos.cell_list[i].band == 262 &&
+					(500000 <= g_cp_wlan_coex.mipi_cp_noti_infos.cell_list[i].channel && g_cp_wlan_coex.mipi_cp_noti_infos.cell_list[i].channel <= 514000)) {
+				*is_N7 = true;
+			}
+		}
 	}
 }
 
-
 /**
-* cnss_utils_get_wlan_unsafe_channel_sap() - Get vendor unsafe ch freq ranges
-* @dev: device
-* @ch_avoid_ranges: unsafe freq channel ranges
-*
-* Get vendor specific unsafe channel frequency ranges
-*
-* Return: 0 for success
-*         Non zero failure code for errors
-*/
+ * cnss_utils_get_wlan_unsafe_channel_sap() - Get vendor unsafe ch freq ranges
+ * @dev: device
+ * @ch_avoid_ranges: unsafe freq channel ranges
+ *
+ * Get vendor specific unsafe channel frequency ranges
+ *
+ * Return: 0 for success
+ *         Non zero failure code for errors
+ */
 
 int cnss_utils_get_wlan_unsafe_channel_sap(struct device *dev,  struct cnss_ch_avoid_ind_type *ch_avoid_ranges)
 {
@@ -212,64 +586,28 @@ int cnss_utils_get_wlan_unsafe_channel_sap(struct device *dev,  struct cnss_ch_a
 	unsigned int rc = 0;
 	unsigned int rc2 = 0;
 	bool is_N41,is_B40,is_B41,is_N40,is_N7;
-	struct LTE_5G_coex_cp_noti_info lte_info;
-	struct dev_ril_bridge_msg test_msg;
 
 	is_N41 = is_B40 = is_B41 = is_N40 = is_N7 = false;
 	cnss_cp_coex_register_ril_notifier();
-	rc = dev_ril_bridge_send_msg(IPC_SYSTEM_CP_CHANNEL_INFO, sizeof(int), &val);
+	//	rc = dev_ril_bridge_send_msg(IPC_SYSTEM_CP_CHANNEL_INFO, sizeof(int), &val);
+	rc = dev_ril_bridge_send_msg(IPC_SYSTEM_CP_ADAPTIVE_MIPI_INFO, sizeof(int), &val);
 	pr_err("[cnss_cp_coex] dev_ril_bridge_send_msg = %d",rc);
 	//TODO Need to add error handling
 
 	//Test mode
-	if(cp_sap_coex_testmode_enabled)
-		{
-			test_msg.dev_id = IPC_SYSTEM_CP_CHANNEL_INFO;
-			test_msg.data_len = sizeof(struct LTE_5G_coex_cp_noti_info);
-			test_msg.data =(void *)&lte_info;
-			if(cp_sap_coex_cp_tc == 1){ //simulate a case to select ch11
-				lte_info.rat = CP_COEX_LTE;
-				lte_info.band = 130;
-				lte_info.channel= 39000;
-				cnss_cp_coex_ril_notifier(&g_ril_notifier_block,sizeof(struct dev_ril_bridge_msg),&test_msg);
-				lte_info.rat = CP_COEX_NT5G;
-				lte_info.band = 0;
-				lte_info.channel= 0;
-				cnss_cp_coex_ril_notifier(&g_ril_notifier_block,sizeof(struct dev_ril_bridge_msg),&test_msg);
-			}
-			else if(cp_sap_coex_cp_tc == 2){ //simulate a case to select ch1
-				lte_info.rat = CP_COEX_LTE;
-				lte_info.band = 131;
-				lte_info.channel= 40000;
-				cnss_cp_coex_ril_notifier(&g_ril_notifier_block,sizeof(struct dev_ril_bridge_msg),&test_msg);
-				lte_info.rat = CP_COEX_NT5G;
-				lte_info.band = 0;
-				lte_info.channel= 0;
-				cnss_cp_coex_ril_notifier(&g_ril_notifier_block,sizeof(struct dev_ril_bridge_msg),&test_msg);
-			}
-			else if(cp_sap_coex_cp_tc == 3){ //simulate a case to select ch6
-				lte_info.rat = CP_COEX_LTE;
-				lte_info.band = 130;
-				lte_info.channel= 39000;
-				cnss_cp_coex_ril_notifier(&g_ril_notifier_block,sizeof(struct dev_ril_bridge_msg),&test_msg);
-				lte_info.rat = CP_COEX_NT5G;
-				lte_info.band = 296;
-				lte_info.channel= 500000;
-				cnss_cp_coex_ril_notifier(&g_ril_notifier_block,sizeof(struct dev_ril_bridge_msg),&test_msg);
-			}
-			else
-				pr_err("[cnss_cp_coex] invalid TC = %d!",cp_sap_coex_cp_tc);
-
-		}
+	if(cp_sap_coex_testmode_enabled) {
+		handle_cp_sap_coex_test_mode();
+	}
 
 	rc2 = wait_for_completion_timeout(&g_cp_wlan_coex.cp_info_comp_var,
-					 msecs_to_jiffies(500));
+			msecs_to_jiffies(500));
 
 	cnss_cp_coex_unregister_ril_notifier();
 
 	if (!rc2 &&
-		(g_cp_wlan_coex.cp_noti_info[CP_LTE_BAND].rat == CP_NONE) &&
-		(g_cp_wlan_coex.cp_noti_info[CP_5G_BAND].rat == CP_NONE)) {
+			(g_cp_wlan_coex.cp_noti_info[CP_LTE_BAND].rat == CP_NONE) &&
+			(g_cp_wlan_coex.cp_noti_info[CP_5G_BAND].rat == CP_NONE) &&
+			are_all_cells_no_band()) {
 		pr_err("[cnss_cp_coex] Timed out waiting for cp channel info! rc = %d",rc2);
 		return -ETIMEDOUT;
 	}
@@ -288,46 +626,52 @@ int cnss_utils_get_wlan_unsafe_channel_sap(struct device *dev,  struct cnss_ch_a
 	// 5G/N40 only: 460000~480000 => Ch.11
 	// 5G N7 only: 500000~514000 => Ch.1
 	// B40 && N41 or B41 && N40 => Ch.6
-	pr_err("[cnss_cp_coex] g_cp_wlan_coex.cp_noti_info [%d,%d,%d]",g_cp_wlan_coex.cp_noti_info[CP_LTE_BAND].rat ,
-	g_cp_wlan_coex.cp_noti_info[CP_LTE_BAND].band, g_cp_wlan_coex.cp_noti_info[CP_LTE_BAND].channel);
+	if (g_cp_wlan_coex.dev_id == IPC_SYSTEM_CP_CHANNEL_INFO) {
+		pr_err("[cnss_cp_coex] g_cp_wlan_coex.cp_noti_info LTE [%d,%d,%d]",g_cp_wlan_coex.cp_noti_info[CP_LTE_BAND].rat ,
+				g_cp_wlan_coex.cp_noti_info[CP_LTE_BAND].band, g_cp_wlan_coex.cp_noti_info[CP_LTE_BAND].channel);
 
-	pr_err("[cnss_cp_coex] g_cp_wlan_coex.cp_noti_info [%d,%d,%d]",g_cp_wlan_coex.cp_noti_info[CP_5G_BAND].rat ,
-	g_cp_wlan_coex.cp_noti_info[CP_5G_BAND].band, g_cp_wlan_coex.cp_noti_info[CP_5G_BAND].channel);
+		pr_err("[cnss_cp_coex] g_cp_wlan_coex.cp_noti_info 5G [%d,%d,%d]",g_cp_wlan_coex.cp_noti_info[CP_5G_BAND].rat ,
+				g_cp_wlan_coex.cp_noti_info[CP_5G_BAND].band, g_cp_wlan_coex.cp_noti_info[CP_5G_BAND].channel);
 
-	if(g_cp_wlan_coex.cp_noti_info[CP_LTE_BAND].rat != CP_NONE)
+		if(g_cp_wlan_coex.cp_noti_info[CP_LTE_BAND].rat != CP_NONE)
 		{
 			if(g_cp_wlan_coex.cp_noti_info[CP_LTE_BAND].band == 130 &&
-				(38650 <= g_cp_wlan_coex.cp_noti_info[CP_LTE_BAND].channel && g_cp_wlan_coex.cp_noti_info[CP_LTE_BAND].channel <= 39649))
-				{
-					is_B40 = true;
-				}
+					(38650 <= g_cp_wlan_coex.cp_noti_info[CP_LTE_BAND].channel && g_cp_wlan_coex.cp_noti_info[CP_LTE_BAND].channel <= 39649))
+			{
+				is_B40 = true;
+			}
 			else if(g_cp_wlan_coex.cp_noti_info[CP_LTE_BAND].band == 131 &&
-				(39650 <= g_cp_wlan_coex.cp_noti_info[CP_LTE_BAND].channel && g_cp_wlan_coex.cp_noti_info[CP_LTE_BAND].channel <= 41589))
-				{
-					is_B41 = true;
-				}
+					(39650 <= g_cp_wlan_coex.cp_noti_info[CP_LTE_BAND].channel && g_cp_wlan_coex.cp_noti_info[CP_LTE_BAND].channel <= 41589))
+			{
+				is_B41 = true;
+			}
 		}
 
-	if(g_cp_wlan_coex.cp_noti_info[CP_5G_BAND].rat != CP_NONE)
+		if(g_cp_wlan_coex.cp_noti_info[CP_5G_BAND].rat != CP_NONE)
 		{
 			if(g_cp_wlan_coex.cp_noti_info[CP_5G_BAND].band == 296 &&
-				(499200 <= g_cp_wlan_coex.cp_noti_info[CP_5G_BAND].channel && g_cp_wlan_coex.cp_noti_info[CP_5G_BAND].channel <= 537999))
-				{
-					is_N41= true;
-				}
+					(499200 <= g_cp_wlan_coex.cp_noti_info[CP_5G_BAND].channel && g_cp_wlan_coex.cp_noti_info[CP_5G_BAND].channel <= 537999))
+			{
+				is_N41= true;
+			}
 			else if(g_cp_wlan_coex.cp_noti_info[CP_5G_BAND].band == 295 &&
-				(460000 <= g_cp_wlan_coex.cp_noti_info[CP_5G_BAND].channel && g_cp_wlan_coex.cp_noti_info[CP_5G_BAND].channel <= 480000))
-				{
-					is_N40 = true;
-				}
+					(460000 <= g_cp_wlan_coex.cp_noti_info[CP_5G_BAND].channel && g_cp_wlan_coex.cp_noti_info[CP_5G_BAND].channel <= 480000))
+			{
+				is_N40 = true;
+			}
 			else if(g_cp_wlan_coex.cp_noti_info[CP_5G_BAND].band == 262 &&
-				(500000 <= g_cp_wlan_coex.cp_noti_info[CP_5G_BAND].channel && g_cp_wlan_coex.cp_noti_info[CP_5G_BAND].channel <= 514000))
-				{
-					is_N7 = true;
-				}
+					(500000 <= g_cp_wlan_coex.cp_noti_info[CP_5G_BAND].channel && g_cp_wlan_coex.cp_noti_info[CP_5G_BAND].channel <= 514000))
+			{
+				is_N7 = true;
+			}
 		}
 
-	pr_err("[cnss_cp_coex] CP band info is_B40=%d,is_B41=%d,is_N41=%d, is_N40=%d",is_B40,is_B41,is_N41,is_N40);
+	}
+	else if (g_cp_wlan_coex.dev_id == IPC_SYSTEM_CP_ADAPTIVE_MIPI_INFO)
+	{
+		check_cp_band_info(&is_B40, &is_B41, &is_N41, &is_N40, &is_N7);
+	}
+	pr_err("[cnss_cp_coex] CP band info is_B40=%d,is_B41=%d,is_N41=%d, is_N40=%d, is_N7=%d",is_B40,is_B41,is_N41,is_N40, is_N7);
 
 	//Fill unsafe range
 	//For ch 1: 2417- 2484, 5180-7115
@@ -335,40 +679,44 @@ int cnss_utils_get_wlan_unsafe_channel_sap(struct device *dev,  struct cnss_ch_a
 	//For ch 6: 2412-2432, 2442-2484, 5180-7115
 
 	if((is_N41 && !is_B40) || (is_B41 && !is_N40) || is_N7)
-		{
-			//ch1 preferred exclude others
-			ch_avoid_ranges->avoid_freq_range[0].start_freq = 2417;
-			ch_avoid_ranges->avoid_freq_range[0].end_freq = 2484;
-			ch_avoid_ranges->ch_avoid_range_cnt=1;
-		}
+	{
+		//ch1 preferred exclude others
+		ch_avoid_ranges->avoid_freq_range[0].start_freq = 2417;
+		ch_avoid_ranges->avoid_freq_range[0].end_freq = 2484;
+		ch_avoid_ranges->ch_avoid_range_cnt=1;
+	}
 	else if((is_N41 && is_B40) || (is_B41 && is_N40))
-		{
-			//ch6 perferred exclude others
-			ch_avoid_ranges->avoid_freq_range[0].start_freq = 2412;
-			ch_avoid_ranges->avoid_freq_range[0].end_freq = 2432;
-			ch_avoid_ranges->avoid_freq_range[1].start_freq = 2442;
-			ch_avoid_ranges->avoid_freq_range[1].end_freq = 2484;
-			ch_avoid_ranges->ch_avoid_range_cnt=2;
-		}
+	{
+		//ch6 perferred exclude others
+		ch_avoid_ranges->avoid_freq_range[0].start_freq = 2412;
+		ch_avoid_ranges->avoid_freq_range[0].end_freq = 2432;
+		ch_avoid_ranges->avoid_freq_range[1].start_freq = 2442;
+		ch_avoid_ranges->avoid_freq_range[1].end_freq = 2484;
+		ch_avoid_ranges->ch_avoid_range_cnt=2;
+	}
 	else if((!is_N41 && is_B40) || (!is_B41 && is_N40))
-		{
-			//ch11 perferred exclude others
-			ch_avoid_ranges->avoid_freq_range[0].start_freq = 2412;
-			ch_avoid_ranges->avoid_freq_range[0].end_freq = 2457;
-			ch_avoid_ranges->avoid_freq_range[1].start_freq = 2467;
-			ch_avoid_ranges->avoid_freq_range[1].end_freq = 2484;
-			ch_avoid_ranges->ch_avoid_range_cnt=2;
-		}
+	{
+		//ch11 perferred exclude others
+		ch_avoid_ranges->avoid_freq_range[0].start_freq = 2412;
+		ch_avoid_ranges->avoid_freq_range[0].end_freq = 2457;
+		ch_avoid_ranges->avoid_freq_range[1].start_freq = 2467;
+		ch_avoid_ranges->avoid_freq_range[1].end_freq = 2484;
+		ch_avoid_ranges->ch_avoid_range_cnt=2;
+	}
 	else
-		{
-			//No effective Band
-			ch_avoid_ranges->ch_avoid_range_cnt=0;
-			return -ENODATA;
-		}
+	{
+		//No effective Band
+		ch_avoid_ranges->ch_avoid_range_cnt=0;
+		return -ENODATA;
+	}
 
 	return 0;
 }
 EXPORT_SYMBOL(cnss_utils_get_wlan_unsafe_channel_sap);
+
+module_param(cp_sap_coex_testmode_enabled, int, 0644);
+module_param(cp_sap_coex_cp_tc, int, 0644);
+module_param(cp_sap_coex_cp_tc_id, int, 0644);
 #endif //CNSS_UTILS_VENDOR_UNSAFE_CHAN_API_SUPPORT
 
 int cnss_utils_set_wlan_unsafe_channel(struct device *dev,

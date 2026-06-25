@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2018-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -337,7 +337,7 @@
 
 #define WLAN_CFG_WBM_RELEASE_RING_SIZE 1024
 #define WLAN_CFG_WBM_RELEASE_RING_SIZE_MIN 64
-#define WLAN_CFG_WBM_RELEASE_RING_SIZE_MAX 1024
+#define WLAN_CFG_WBM_RELEASE_RING_SIZE_MAX 4096
 
 #define WLAN_CFG_TCL_CMD_CREDIT_RING_SIZE 512
 #define WLAN_CFG_TCL_CMD_CREDIT_RING_SIZE_MIN 32
@@ -365,7 +365,7 @@
 #if defined(QCA_WIFI_QCA6390) || defined(QCA_WIFI_QCA6490) || \
     defined(QCA_WIFI_QCA6750) || defined(QCA_WIFI_KIWI) || \
     defined(QCA_WIFI_WCN7750) || defined(QCA_WIFI_QCC2072)
-#define WLAN_CFG_RX_RELEASE_RING_SIZE_MAX 1024
+#define WLAN_CFG_RX_RELEASE_RING_SIZE_MAX 4096
 #else
 #define WLAN_CFG_RX_RELEASE_RING_SIZE_MAX 32768
 #endif

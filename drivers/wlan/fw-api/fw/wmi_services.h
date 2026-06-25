@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2011-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2025 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Previously licensed under the ISC license by Qualcomm Atheros, Inc.
  *
@@ -687,6 +687,65 @@ typedef  enum  {
     WMI_SERVICE_USD_SUPPORT = 428, /* Indicates FW supports Unsynchronized Service Discovery */
     WMI_SERVICE_THERM_THROT_5_LEVELS = 429, /* Indicates FW support 5 thermal throttling levels */
     WMI_SERVICE_PROTECTED_TWT = 430, /* Indicates FW supports protected TWT operation */
+    WMI_SERVICE_SCAN_CACHE_REPORT_SUPPORT = 431, /* Indicates FW supports for sending scan cache report */
+    WMI_SERVICE_SCC_TPC_POWER_SUPPORT = 432, /* Indicates FW supports setting TPC power for SCC vdevs */
+    WMI_SERVICE_DYNAMIC_TWT_MODE_SUPPORT = 433, /* Indicates FW supports Dynamic TWT mode for vdevs */
+    WMI_SERVICE_SPECTRAL_SPUR_BIN_INFO_SUPPORT = 434, /* Indicates FW supports indicating spur frequency and spectral bin that gets affected due to spur frequency */
+    WMI_SERVICE_TWT_P2P_GO_CONCURRENCY_SUPPORT = 435, /* Indicates FW supports TWT in P2P GO concurrency mode */
+    WMI_SERVICE_UMAC_MIGRATION_SUPPORT = 436, /* Indicates that FW supports UMAC migration */
+    WMI_SERVICE_STA_TWT_STATS_EXT = 437, /* FW supports additional info in TWT stats and ADD COMPLETION Event */
+    WMI_SERVICE_OPT_DP_DIAG_SUPPORT = 438, /* FW supports diag QDATA feature */
+    WMI_SERVICE_MLO_ROAM_PARTNER_BRINGUP_FROM_HOST = 439, /* Indicates FW supports new design in which FW expects the host to bringup the partner link during roaming */
+    WMI_SERVICE_CTRL_PATH_PEER_BA_STATS = 440, /* FW supports retrieving BlockAck stats through WMI_REQUEST_CTRL_PATH_PEER_STAT */
+    WMI_SERVICE_CTRL_PATH_STA_DAR_STATS_SUPPORT = 441, /* FW supports DAR stats reporting for STA mode */
+    WMI_SERVICE_APF_DATA_OFFLOAD_SUPPORT_ENABLED = 442, /* Indicates FW support for APFv6 handling offloads and disable QC data offloads */
+    WMI_SERVICE_PER_VDEV_TWT_RESP_DISABLE_SUPPORT = 443, /* FW supports vdev level TWT responder disable */
+    WMI_SERVICE_VENDOR_OUI_ACTION_V2 = 444, /* FW supports vendor OUI action version 2 */
+    WMI_SERVICE_HW_BLACKLIST_CHAN_SUPPORT = 445, /* Indicates FW support for computing and sending the HW channel blacklist for the current country and applicable power mode */
+    WMI_SERVICE_NDP_DFS_CHANNEL_SUPPORT = 446, /* FW supports forming NDP on DFS channels */
+    WMI_SERVICE_WFD_R2 = 447, /* Indicates FW supports WiFi-Direct R2 */
+    WMI_SERVICE_STA_MLO_RCFG_SUPPORT = 448, /* FW supports STA ML reconfig op */
+    WMI_SERVICE_PDEV_SUSPEND_EVENT_SUPPORT = 449, /* FW supports PDEV_SUSPEND event */
+    WMI_SERVICE_PCC_MODE = 450, /* Indicates FW support for PCC (P2P Connection Compatibility) Mode */
+    WMI_SERVICE_TDLS_NSS_CONFIRM_SUPPORT = 451, /* FW supports confirmation to host requested TDLS NSS operation */
+
+    WMI_SERVICE_EM_PCIE_CONFIG_CBW_SUPPORT = 452, /* Indicates support for channel bandwidth based PCIe config adjustment */
+    WMI_SERVICE_EM_PCIE_CONFIG_LPM_SUPPORT = 453, /* Indicates support for PCIe low power mode L0S/L1 */
+    WMI_SERVICE_EM_DCVS_SUPPORT = 454, /* Indicates support for Dynamic clock and voltage scaling */
+    WMI_SERVICE_EM_EDPS_SUPPORT = 455, /* Indicates support for Dynamic AP power save */
+    WMI_SERVICE_EM_PUO_SUPPORT = 456, /* Indicates support for TWT based periodic unavailability operation. */
+    WMI_SERVICE_EM_ECO_MODE_SUPPORT = 457, /* Indicates support for ECO mode config (LP BBF+ADC+SYNCT) */
+
+    WMI_SERVICE_11BN = 458, /* Indicates FW supports 802.11bn */
+    WMI_SERVICE_HOST_AWARE_POWERSAVE = 459, /* FW supports indicating the powerstate of FW to host */
+    WMI_SERVICE_PDEV_DIV_STATES_REPORT = 460, /* FW supports reporting antenna diversity states */
+    WMI_SERVICE_EAPOL_OVER_RAW = 461, /* FW supports sending EAPOL frames in raw mode even when the vdev is brought up in nwifi/ethernet mode */
+    WMI_SERVICE_MLO_SAP_LINK_REMOVAL_SUPPORT = 462, /* Indicates FW supports MLO SAP link removal operation */
+    WMI_SERVICE_TX_POWER_LIMIT = 463, /* FW supports temporary tx power limit indication to HALPHY */
+    WMI_SERVICE_NPCA_SUPPORT = 464, /* Indicates FW supports NPCA (Non-Primary Channel Access) */
+    WMI_SERVICE_EXT_TLV_SUPPORT = 465, /* FW supports WMI_MAX_NUM_EXT_TLVS */
+    WMI_SERVICE_VDEV_TRAFFIC_MONITORING = 466, /* FW supports traffic monitoring */
+    WMI_SERVICE_EM_DPS_ASSISTING_ROLE_SUPPORT = 467, /* Indicates support for Energy Mgmt DPS assisting role operation */
+    WMI_SERVICE_XPAN_SAP_STA_PWRSAVE_SUPPORT = 468, /* Indicates support for power optimization in XPAN + STA */
+    WMI_SERVICE_CFP_SUPPORT = 469, /* FW supports control frame protection */
+    WMI_SERVICE_CFP_PADDING_SUPPORT = 470, /* FW supports control frame protection padding */
+
+    /* Service caps related to 11BI */
+    WMI_SERVICE_11BI_EPPKE_SUPPORT = 471,
+    WMI_SERVICE_11BI_1X_OVER_AUTH_SUPPORT = 472,
+    WMI_SERVICE_11BI_PMKID_PRIVACY_SUPPORT = 473,
+    WMI_SERVICE_11BI_DS_MAC_ADDR_SUPPORT = 474,
+
+    WMI_SERVICE_CCK_RX_SUPPORT_5GHZ = 475, /* Indicates FW supports CCK RX in 5 GHz band */
+    WMI_SERVICE_CCK_TX_SUPPORT_5GHZ = 476, /* Indicates FW supports CCK TX in 5 GHZ band */
+    WMI_SERVICE_DIRECT_REFILL_SUPPORT = 477, /* Indicates FW supports direct refill for RX buffer ring */
+    WMI_SERVICE_NAN_STANDARD_MODE_SUPPORT = 478, /* Indicates FW supports NAN in standard mode (supplicant-based NAN architecture model) */
+    WMI_SERVICE_CONC_2VDEV_DCS_STATS_SUPPORT = 479, /* Indicate FW support for collecting DCS stats for more than 1 vdev (max 2 concurrent vdevs) */
+    WMI_SERVICE_CFR_UNASSOC_RX_CAPTURE_SUPPORT = 480, /* Indicates FW supports RX-based unassociated CFR capture */
+    WMI_SERVICE_CFR_ASSOC_TX_CAPTURE_SUPPORT = 481, /* Indicates FW supports TX-based CFR capture */
+    WMI_SERVICE_VDEV_UNIFIED_CONNECT_DISCONNECT_SUPPORT = 482, /* Indicates FW support for unified connect and disconnect vdev cmds for link switch */
+    WMI_SERVICE_ENHANCED_STATS_SUPPORT = 483, /* Indicates FW supports "enhanced stats" */
+    WMI_SERVICE_RADAR_FLAGS_RSSI_DBM_SUPPORT = 484, /* Indicates FW support to add RSSI in dBm units in WMI radar event */
 
 
     WMI_MAX_EXT2_SERVICE

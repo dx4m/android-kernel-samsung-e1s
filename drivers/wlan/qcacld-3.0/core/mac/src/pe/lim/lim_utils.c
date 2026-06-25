@@ -3911,7 +3911,8 @@ void lim_update_sta_run_time_ht_switch_chnl_params(struct mac_context *mac,
 
 		/* Before restarting vdev, delete the tdls peers */
 		lim_update_tdls_set_state_for_fw(pe_session, false);
-		lim_delete_tdls_peers(mac, pe_session);
+		lim_delete_tdls_peers(mac, pe_session,
+				      TDLS_PEER_DEL_REASON_NONE);
 
 		lim_ht_switch_chnl_req(pe_session);
 	}
@@ -8593,6 +8594,8 @@ static void lim_intersect_eht_caps(tDot11fIEeht_cap *rcvd_eht,
 		peer_eht->support_320mhz_6ghz = 1;
 	else
 		peer_eht->support_320mhz_6ghz = 0;
+	
+	peer_eht->mcs_15 = session_eht->mcs_15 & rcvd_eht->mcs_15;
 }
 
 void lim_update_usr_eht_cap(struct mac_context *mac_ctx,
@@ -11121,6 +11124,39 @@ static void lim_update_ap_puncture(struct pe_session *session,
 }
 #endif
 
+static inline QDF_STATUS
+lim_fill_session_nss_params_on_create(struct mac_context *mac_ctx,
+				      struct pe_session *session)
+{
+	struct vdev_type_nss *vdev_type_nss;
+	enum QDF_OPMODE opmode;
+	enum bss_type bss_type = eSIR_DONOT_USE_BSS_TYPE;
+
+	opmode = wlan_get_opmode_from_vdev_id(mac_ctx->pdev, session->vdev_id);
+	if (opmode == QDF_PASSTHRU_MODE)
+		bss_type = eSIR_PASSTHRU_MODE;
+
+	pe_debug("opmode %d bss_type %d", opmode, bss_type);
+	if (!wlan_reg_is_24ghz_ch_freq(session->curr_op_freq)) {
+		vdev_type_nss = &mac_ctx->vdev_type_nss_5g;
+	} else {
+		vdev_type_nss = &mac_ctx->vdev_type_nss_2g;
+	}
+
+	switch (bss_type) {
+	case eSIR_PASSTHRU_MODE:
+		/* Use STA mode NSS config for PASSTHRU */
+		session->vdev_nss = vdev_type_nss->sta;
+		break;
+	default:
+		/* not used anywhere...used in scan function */
+		break;
+	}
+
+	session->nss = session->vdev_nss;
+	return QDF_STATUS_SUCCESS;
+}
+
 QDF_STATUS lim_pre_vdev_start(struct mac_context *mac,
 			      struct vdev_mlme_obj *mlme_obj,
 			      struct pe_session *session)
@@ -11192,6 +11228,9 @@ QDF_STATUS lim_pre_vdev_start(struct mac_context *mac,
 
 	if (LIM_IS_STA_ROLE(session))
 		lim_overwrite_sta_puncture(session, &ch_params);
+
+	if (LIM_IS_PASSTHRU_ROLE(session))
+		lim_fill_session_nss_params_on_create(mac, session);
 
 	des_chan = mlme_obj->vdev->vdev_mlme.des_chan;
 	des_chan->ch_freq = session->curr_op_freq;

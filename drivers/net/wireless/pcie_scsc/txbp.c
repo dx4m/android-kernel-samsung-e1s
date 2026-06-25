@@ -10,6 +10,7 @@
 #include <linux/list_sort.h>
 #include <net/sch_generic.h>
 #include <pcie_scsc/scsc_warn.h>
+#include <net/ndisc.h>
 
 #include "tx_api.h"
 #include "netif.h"
@@ -2075,15 +2076,31 @@ static __always_inline int slsi_tx_transmit_nan_multicast(struct slsi_dev *sdev,
 	struct netdev_vif *ndev_vif = netdev_priv(dev);
 	const int len = skb->len;
 	struct slsi_peer *peer;
-	enum slsi_traffic_q tq;
-	u8 vif_index;
 	struct slsi_skb_cb *cb;
 	u8 i = 0;
 	void *header = NULL;
+	u8 ns_mac_addr[ETH_ALEN] = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
+	bool ns_ms2us = false;
 
 	slsi_spinlock_lock(&ndev_vif->peer_lock);
 
 	peer = slsi_get_peer_from_mac(sdev, dev, eth_hdr(skb)->h_dest);
+	/* Convert multicast NS frame to unicast.
+	 *     Check if the frame is NS. convert target ipv6 local link to mac
+	 *     If the target mac is preset in peer data, send frame to target mac
+	 *        else send frame as multicast
+	 */
+	ns_ms2us = slsi_get_mac_from_ns_pkt(skb, ns_mac_addr, eth_hdr(skb)->h_source);
+	if (ns_ms2us) {
+		struct slsi_peer *dst_peer;
+
+		dst_peer = slsi_get_peer_from_mac(sdev, dev, ns_mac_addr);
+		if (!dst_peer)
+			ns_ms2us = false;
+		else
+			peer = dst_peer;
+	}
+
 	if (!peer) {
 		slsi_spinlock_unlock(&ndev_vif->peer_lock);
 		SLSI_NET_WARN(dev, "no peer record for " MACSTR ", drop Tx frame\n", MAC2STR(eth_hdr(skb)->h_dest));
@@ -2097,14 +2114,11 @@ static __always_inline int slsi_tx_transmit_nan_multicast(struct slsi_dev *sdev,
 
 	header = (void *)skb_push(skb, fapi_sig_size(ma_unitdata_req));
 	memset(header, 0, fapi_sig_size(ma_unitdata_req));
-	tq = slsi_frame_priority_to_ac_queue(skb->priority);
-	vif_index = ndev_vif->vifnum;
 	fapi_set_u16(skb, id,           MA_UNITDATA_REQ);
 	fapi_set_u16(skb, receiver_pid, 0);
 	fapi_set_u16(skb, sender_pid,   SLSI_TX_PROCESS_ID_MIN);
 	fapi_set_u32(skb, fw_reference, 0);
 
-	fapi_set_u16(skb, u.ma_unitdata_req.configuration_option, FAPI_OPTION_INLINE | FAPI_OPTION_GROUP);
 	fapi_set_memcpy(skb, u.ma_unitdata_req.address, sdev->nan_cluster_id);
 	SLSI_NET_DBG_HEX(dev, SLSI_TX, skb->data, skb->len < 128 ? skb->len : 128, "\n");
 
@@ -2114,44 +2128,37 @@ static __always_inline int slsi_tx_transmit_nan_multicast(struct slsi_dev *sdev,
 
 	peer->sinfo.tx_bytes += len;
 
-	/**
-	 * The driver shall send (duplicate) frames to all VIFs that
-	 * have the same source address (SA).  i.e. find other peers on same
-	 * netdevice interface and duplicate the packet for each peer
-	 */
-	for (i = 0; i < SLSI_PEER_INDEX_MAX; i++) {
-		if (ndev_vif->peer_sta_record[i] && ndev_vif->peer_sta_record[i]->valid) {
-			/* duplicate the SKB and send to
-			 * peer that has a different NDL
-			 */
-			struct sk_buff *duplicate_skb = skb_copy(skb, GFP_ATOMIC);
-
-			if (!duplicate_skb) {
-				SLSI_NET_WARN(dev, "NAN: Tx: multicast: failed to alloc duplicate SKB\n");
-				continue;
+	if (ns_ms2us) {
+		fapi_set_u16(skb, u.ma_unitdata_req.configuration_option, FAPI_OPTION_INLINE);
+		if (peer->qos_enabled)
+			fapi_set_u16(skb, u.ma_unitdata_req.flow_id,
+				     (skb->priority & 0xff) | ((peer->flow_id) & 0xff00));
+		else
+			fapi_set_u16(skb, u.ma_unitdata_req.flow_id,
+				     ((FAPI_PRIORITY_CONTENTION >> 8) & 0xff) | ((peer->flow_id) & 0xff00));
+		fapi_set_u16(skb, u.ma_unitdata_req.vif, peer->ndl_vif);
+		cb->peer_idx = peer->aid;
+		ether_addr_copy(eth_hdr(skb)->h_dest, ns_mac_addr);
+		slsi_txbp_enqueue(dev, ndev_vif, skb);
+	} else {
+		fapi_set_u16(skb, u.ma_unitdata_req.configuration_option, FAPI_OPTION_INLINE | FAPI_OPTION_GROUP);
+		fapi_set_memcpy(skb, u.ma_unitdata_req.address, eth_hdr(skb)->h_dest);
+		fapi_set_u16(skb, u.ma_unitdata_req.flow_id, 0);
+		for (i = 0; i < SLSI_PEER_INDEX_MAX; i++) {
+			if (ndev_vif->peer_sta_record[i] && ndev_vif->peer_sta_record[i]->valid) {
+				fapi_set_u16(skb, u.ma_unitdata_req.vif, ndev_vif->peer_sta_record[i]->ndl_vif);
+				cb->peer_idx = peer->aid;
+				slsi_txbp_enqueue(dev, ndev_vif, skb);
+				break;
 			}
-
-			if (peer->qos_enabled)
-				fapi_set_u16(duplicate_skb, u.ma_unitdata_req.flow_id,
-					     (duplicate_skb->priority & 0xff) |
-					     ((ndev_vif->peer_sta_record[i]->flow_id) & 0xff00));
-			else
-				fapi_set_u16(duplicate_skb, u.ma_unitdata_req.flow_id,
-					     ((FAPI_PRIORITY_CONTENTION >> 8) & 0xff) |
-					     ((ndev_vif->peer_sta_record[i]->flow_id) & 0xff00));
-
-			fapi_set_u16(duplicate_skb, u.ma_unitdata_req.vif, ndev_vif->peer_sta_record[i]->ndl_vif);
-			cb = slsi_skb_cb_get(duplicate_skb);
-			cb->peer_idx = ndev_vif->peer_sta_record[i]->aid;
-
-			/* overwrite the multicast destination address with that of Peer */
-			ether_addr_copy(eth_hdr(duplicate_skb)->h_dest, ndev_vif->peer_sta_record[i]->address);
-			slsi_txbp_enqueue(dev, ndev_vif, duplicate_skb);
+		}
+		if (i == SLSI_PEER_INDEX_MAX) {
+			SLSI_NET_ERR(dev, "No Active NDI found\n");
+			slsi_spinlock_unlock(&ndev_vif->peer_lock);
+			return -EINVAL;
 		}
 	}
 	slsi_spinlock_unlock(&ndev_vif->peer_lock);
-	consume_skb(skb);
-	/* What about the original if we passed in a copy ? */
 	return NETDEV_TX_OK;
 }
 #endif

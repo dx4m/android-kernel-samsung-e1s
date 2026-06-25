@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2016-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -1217,7 +1217,7 @@ more_msdu_link_desc:
 			 */
 			QDF_NBUF_CB_RX_PKT_LEN(head_nbuf) =
 					QDF_NBUF_CB_RX_PKT_LEN(tail_nbuf);
-			nbuf = dp_rx_sg_create(soc, head_nbuf);
+			nbuf = dp_rx_sg_create(soc, head_nbuf, false);
 			qdf_nbuf_set_is_frag(nbuf, 1);
 			DP_STATS_INC(soc, rx.err.reo_err_oor_sg_count, 1);
 		}
@@ -2735,12 +2735,13 @@ dp_rx_wbm_err_process(struct dp_intr *int_ctx, struct dp_soc *soc,
 		if (!txrx_peer)
 			dp_info_rl("peer is null peer_id %u err_src %u, "
 				   "REO: push_rsn %u err_code %u, "
-				   "RXDMA: push_rsn %u err_code %u",
+				   "RXDMA: push_rsn %u err_code %u hit %llu",
 				   peer_id, wbm_err.info_bit.wbm_err_src,
 				   wbm_err.info_bit.reo_psh_rsn,
 				   wbm_err.info_bit.reo_err_code,
 				   wbm_err.info_bit.rxdma_psh_rsn,
-				   wbm_err.info_bit.rxdma_err_code);
+				   wbm_err.info_bit.rxdma_err_code,
+				   soc->stats.rx.err.rx_invalid_peer.num);
 
 		/* Set queue_mapping in nbuf to 0 */
 		dp_set_rx_queue(nbuf, 0);
@@ -2751,7 +2752,7 @@ dp_rx_wbm_err_process(struct dp_intr *int_ctx, struct dp_soc *soc,
 		 * QCN9000 has this support
 		 */
 		if (qdf_nbuf_is_rx_chfrag_cont(nbuf)) {
-			nbuf = dp_rx_sg_create(soc, nbuf);
+			nbuf = dp_rx_sg_create(soc, nbuf, true);
 			next = nbuf->next;
 			/*
 			 * SG error handling is not done correctly,
