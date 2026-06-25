@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0
 # UFSHCD makefile
+TARGET_SOC=s5e9945
 ifdef CONFIG_SCSI_UFS_EXYNOS
 ccflags-y += -I$(srctree)/drivers/ufs/host/$(TARGET_SOC)
 endif
